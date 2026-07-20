@@ -45,6 +45,10 @@ data class Settings(
     // ---------------
 
     // --- Desktop ---
+    /**
+     * Compose/Skiko UI backend: Default, Software, OpenGL.
+     * On macOS, OpenGL is overridden to Default (Metal) at startup; game GL stays LWJGL2.
+     */
     var renderingBackend: String = "OpenGL", // Default, Software, OpenGL
     /**
      * Decide whether to allow game in full screen (Only PC)

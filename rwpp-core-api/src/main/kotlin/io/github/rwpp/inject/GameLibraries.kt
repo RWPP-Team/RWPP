@@ -60,6 +60,15 @@ enum class GameLibraries {
     `lwjgl_util`,
     `lwjgl_util_applet`,
     `natives-linux`,
+    /**
+     * Optional macOS LWJGL/OpenAL/JInput jar. Not shipped in-repo; Mac installs use loose
+     * dylibs from the Rusted Warfare game directory (`java.library.path=.`).
+     */
+    `natives-macos` {
+        init {
+            shouldLoad = false
+        }
+    },
     `slick`,
     `tinylinepp`;
 
