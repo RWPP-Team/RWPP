@@ -1,7 +1,7 @@
 <div align="center">
 <h1> RWPP </h1>
 <div align="center">
-  <strong>multiplatform launcher for Rusted Warfare</strong>
+  <strong>multiplatform client&server for Rusted Warfare</strong>
 </div>
 <br />
 <div align="center">
