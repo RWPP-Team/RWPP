@@ -15,8 +15,12 @@ plugins {
 group = "io.github.rwpp"
 
 kotlin {
-
-    jvm()
+    jvmToolchain(21)
+    jvm() {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        }
+    }
 
     sourceSets {
         val jvmMain by getting {
