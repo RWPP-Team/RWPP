@@ -37,6 +37,7 @@ import io.github.rwpp.desktop.isGaming
 import io.github.rwpp.desktop.native
 import io.github.rwpp.desktop.offscreenComposeRenderer
 import io.github.rwpp.desktop.rwppVisibleSetter
+import io.github.rwpp.desktop.windowSettledLatch
 import io.github.rwpp.event.GlobalEventChannel
 import io.github.rwpp.event.events.StartGameEvent
 import io.github.rwpp.game.Game
@@ -70,6 +71,7 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
 import java.io.InputStream
+import java.util.concurrent.TimeUnit
 
 @Single(binds = [Game::class])
 class GameImpl : AbstractGame() {
@@ -79,8 +81,6 @@ class GameImpl : AbstractGame() {
     override val gameRoom: GameRoom = object : AbstractGameRoom() {
         override fun startGame() {
             rwppVisibleSetter(false)
-            gameCanvas.isVisible = true
-            gameCanvas.requestFocus()
             super.startGame()
         }
     }
@@ -96,8 +96,6 @@ class GameImpl : AbstractGame() {
     init {
         GlobalEventChannel.filter(StartGameEvent::class).subscribeAlways {
             rwppVisibleSetter(false)
-            gameCanvas.isVisible = true
-            gameCanvas.requestFocus()
             isGaming = true
         }
     }
@@ -105,8 +103,6 @@ class GameImpl : AbstractGame() {
     override fun startNewMissionGame(difficulty: Difficulty, mission: Mission) {
         GameEngine.B().bX.b("starting singleplayer")
         rwppVisibleSetter(false)
-        gameCanvas.isVisible = true
-        gameCanvas.requestFocus()
         isGaming = true
 
         gameOver = false
@@ -137,6 +133,10 @@ class GameImpl : AbstractGame() {
 
     override suspend fun load(context: LoadingContext): Unit = with(context) {
         gameThread = Thread {
+            // Do not touch LWJGL until the frame is shown and the startup resize events
+            // are drained, otherwise Display.create() deadlocks with the EDT/AppKit
+            // thread on macOS (see windowSettledLatch in Main.kt).
+            runCatching { windowSettledLatch.await(20, TimeUnit.SECONDS) }
             Display.setParent(gameCanvas)
             container.start()
         }
@@ -440,9 +440,6 @@ class GameImpl : AbstractGame() {
 
     override fun watchReplay(replay: Replay) {
         rwppVisibleSetter(false)
-        gameCanvas.isVisible = true
-
-        gameCanvas.requestFocus()
         gameOver = false
 
         isGaming = true
@@ -468,10 +465,6 @@ class GameImpl : AbstractGame() {
 
     override fun continueGame() {
         rwppVisibleSetter(false)
-        gameCanvas.isVisible = true
-
-        gameCanvas.requestFocus()
-
         isGaming = true
         gameOver = false
 
@@ -538,19 +531,32 @@ class GameImpl : AbstractGame() {
             ec.receive()
         }
 
+        private fun useSystemCursor(): Boolean {
+            if (!System.getProperty("os.name").startsWith("Mac")) return false
+            // The embedded LWJGL 2 macOS display does not support native cursors.
+            javax.swing.SwingUtilities.invokeLater {
+                gameCanvas.cursor = java.awt.Cursor.getDefaultCursor()
+            }
+            return true
+        }
+
         override fun setMouseCursor(cursor: Cursor?, hotSpotX: Int, hotSpotY: Int) {
+            if (useSystemCursor()) return
             runCatching { super.setMouseCursor(cursor, hotSpotX, hotSpotY) }
         }
 
         override fun setMouseCursor(data: ImageData?, hotSpotX: Int, hotSpotY: Int) {
+            if (useSystemCursor()) return
             runCatching { super.setMouseCursor(data, hotSpotX, hotSpotY) }
         }
 
         override fun setMouseCursor(image: Image?, hotSpotX: Int, hotSpotY: Int) {
+            if (useSystemCursor()) return
             runCatching { super.setMouseCursor(image, hotSpotX, hotSpotY) }
         }
 
         override fun setMouseCursor(ref: String?, hotSpotX: Int, hotSpotY: Int) {
+            if (useSystemCursor()) return
             runCatching { super.setMouseCursor(ref, hotSpotX, hotSpotY) }
         }
 

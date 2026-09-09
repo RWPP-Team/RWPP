@@ -89,7 +89,7 @@ import org.koin.ksp.generated.module
 import org.slf4j.LoggerFactory
 import java.awt.BorderLayout
 import java.awt.Canvas
-import java.awt.Dialog
+import javax.swing.JDialog
 import java.awt.Dimension
 import java.awt.GraphicsEnvironment
 import java.awt.event.ComponentAdapter
@@ -99,6 +99,7 @@ import java.awt.event.WindowEvent
 import java.io.File
 import java.io.FileOutputStream
 import java.io.PrintStream
+import java.util.concurrent.CountDownLatch
 import java.util.logging.Level
 import java.util.logging.Logger
 import javax.imageio.ImageIO
@@ -114,14 +115,24 @@ var native: Boolean = false
 var isSendingTeamChat by mutableStateOf(false)
 lateinit var mainJFrame: JFrame
 lateinit var gameCanvas: Canvas
+
+/**
+ * Released once the main frame is shown and the startup move/resize events have been
+ * drained by the EDT. On macOS LWJGL 2's Display.create() must not run before that:
+ * it holds LWJGL's static lock while native nInitHandle needs the AppKit thread, and a
+ * concurrently dispatched componentResized (Display$2) blocks the EDT on the same lock
+ * while CPlatformWindow.flushBuffers() invokeAndWait blocks the AppKit thread on the EDT
+ * -> circular wait (startup deadlock).
+ */
+val windowSettledLatch = CountDownLatch(1)
 //lateinit var inGameComposePanel: ComposePanel
 var offscreenComposeRenderer: OffscreenComposeRenderer? = null
 lateinit var displaySize: Dimension
-lateinit var sendMessageDialog: Dialog
+lateinit var sendMessageDialog: JDialog
 lateinit var rwppVisibleSetter: (Boolean) -> Unit
 lateinit var focusRequester: FocusRequester
 var inGameWidget: Widget? = null
-lateinit var inGameWidgetDialog: Dialog
+lateinit var inGameWidgetDialog: JDialog
 var requireReloadingLib = false
 
 //val cacheModSize = AtomicInteger(0)
@@ -199,7 +210,6 @@ fun swingApplication() = SwingUtilities.invokeLater {
     panel.size = displaySize.size
     panel.isOpaque = false
     panel.isFocusable = true
-    rwppVisibleSetter = { panel.isVisible = it }
     panel.setContent {
         var isLoading by remember { mutableStateOf(true) }
         var message by remember { mutableStateOf("loading...") }
@@ -225,6 +235,7 @@ fun swingApplication() = SwingUtilities.invokeLater {
                     GameLoadedEvent().broadcastIn()
 
                     isLoading = false
+                    rwppVisibleSetter(true)
                 }
             }
         }
@@ -338,17 +349,72 @@ fun swingApplication() = SwingUtilities.invokeLater {
     val canvas = Canvas()
     gameCanvas = canvas
     canvas.size = displaySize.size
-    canvas.isVisible = false
+    canvas.isVisible = true
     canvas.background = java.awt.Color.BLACK
     canvas.isFocusable = true
 
-    window.layout = BorderLayout()
-    window.add(canvas, BorderLayout.CENTER)
-    window.add(panel, BorderLayout.CENTER)
+    // Both surfaces occupy the same logical bounds. BorderLayout only manages
+    // the last component added to CENTER, leaving the other at its initial size.
+    val surfaces = object : javax.swing.JPanel(null) {
+        override fun doLayout() {
+            canvas.setBounds(0, 0, width, height)
+            if (panel.parent === this) panel.setBounds(0, 0, width, height)
+        }
+    }
+    // LWJGL 2's embedded Cocoa drawable obscures Compose in the same native
+    // window on macOS, even when the AWT Canvas is hidden. Keep the menu in
+    // an owned window so its native surface is independent of the GL drawable.
+    val macMenu = if (System.getProperty("os.name").startsWith("Mac")) {
+        JDialog(window).apply {
+            isUndecorated = true
+            contentPane.add(panel)
+        }
+    } else null
+    if (macMenu == null) surfaces.add(panel)
+    surfaces.add(canvas)
+    window.contentPane = surfaces
+    fun positionMenu() {
+        if (!window.isShowing) return
+        macMenu?.setBounds(window.contentPane.locationOnScreen.x,
+            window.contentPane.locationOnScreen.y,
+            window.contentPane.width, window.contentPane.height)
+    }
+    rwppVisibleSetter = { visible ->
+        SwingUtilities.invokeLater {
+            panel.isVisible = visible
+            canvas.isVisible = !visible
+            if (macMenu != null) {
+                positionMenu()
+                macMenu.isVisible = visible
+            }
+            if (visible) panel.requestFocusInWindow() else canvas.requestFocusInWindow()
+        }
+    }
 
 
     window.isVisible = true
+    positionMenu()
+    macMenu?.isVisible = true
     panel.requestFocus()
+
+    // macOS deadlock workaround (see windowSettledLatch): give the window time to finish
+    // showing/maximizing, then drain all pending EDT events (including the startup
+    // componentResized) before the game thread may call Display.setParent/create.
+    Thread {
+        Thread.sleep(600)
+        runCatching { SwingUtilities.invokeAndWait { } }
+        windowSettledLatch.countDown()
+    }.apply {
+        isDaemon = true
+        name = "rwpp-window-settle"
+    }.start()
+    Thread {
+        Thread.sleep(8000)
+        windowSettledLatch.countDown()
+    }.apply {
+        isDaemon = true
+        name = "rwpp-window-settle-fallback"
+    }.start()
 
     focusRequester = FocusRequester()
     val panel2 = ComposePanel()
@@ -471,7 +537,7 @@ fun swingApplication() = SwingUtilities.invokeLater {
         }
     }
 
-    sendMessageDialog = Dialog(window)
+    sendMessageDialog = JDialog(window)
     sendMessageDialog.isUndecorated = true
     sendMessageDialog.isFocusable = true
     sendMessageDialog.isVisible = false
@@ -479,21 +545,14 @@ fun swingApplication() = SwingUtilities.invokeLater {
     sendMessageDialog.size = Dimension(550, 540)
     sendMessageDialog.add(panel2)
     mainJFrame = window
-    canvas.createBufferStrategy(2)
+    // LWJGL owns the native drawable and buffer swapping for this Canvas.
 
     window.addComponentListener(object : ComponentAdapter() {
         override fun componentResized(e: ComponentEvent) {
-            val scale = getDPIScale()
-
-            // 计算逻辑像素尺寸（抵消 HiDPI 缩放）
-            val logicalWidth = (window.contentPane.width * scale).toInt()
-            val logicalHeight = (window.contentPane.height * scale).toInt()
-
-            // 设置 Canvas 物理像素尺寸
-            canvas.setSize(
-                logicalWidth,
-                logicalHeight
-            )
+            // AWT component bounds are logical pixels; Retina scaling belongs
+            // to the native drawable, not to the Canvas bounds.
+            window.contentPane.doLayout()
+            positionMenu()
 
             offscreenComposeRenderer?.updateWindowSize(window.contentPane.width, window.contentPane.height)
 
@@ -501,6 +560,7 @@ fun swingApplication() = SwingUtilities.invokeLater {
         }
 
         override fun componentMoved(e: ComponentEvent) {
+            positionMenu()
             resetSendDialogLocation()
         }
     })
@@ -544,7 +604,7 @@ fun onInitInGameWidgetDialog() = SwingUtilities.invokeLater {
         }
     }
 
-    inGameWidgetDialog = Dialog(mainJFrame).apply {
+    inGameWidgetDialog = JDialog(mainJFrame).apply {
         isUndecorated = true
         isFocusable = true
         isVisible = false

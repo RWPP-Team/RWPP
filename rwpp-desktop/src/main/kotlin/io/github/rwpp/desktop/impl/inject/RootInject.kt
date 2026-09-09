@@ -31,7 +31,7 @@ object RootInject {
         if(isGaming) {
             if(singlePlayer) appKoin.get<Game>().gameRoom.disconnect()
             GameEngine.B().bS.u = false
-            gameCanvas.isVisible = false
+
             rwppVisibleSetter(true)
             isGaming = false
             gameOver = false
@@ -52,7 +52,7 @@ object RootInject {
     fun onShowBattleroom() {
         if(isGaming) {
             GameEngine.B().bS.u = false
-            gameCanvas.isVisible = false
+
             rwppVisibleSetter(true)
             isGaming = false
             gameOver = false

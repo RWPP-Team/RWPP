@@ -53,7 +53,13 @@ val guid = "abc38343-cdb8-4e3f-aa7f-0ead99385de1"
 kotlin {
     compilerOptions {
         freeCompilerArgs.add("-Xjvm-default=all")
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
 }
 
 compose.desktop {
