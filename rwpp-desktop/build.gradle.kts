@@ -16,6 +16,10 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+// Native packs are built per host OS (MSI on Windows, DMG on macOS, Deb on Linux).
+val classpathSeparator =
+    if (System.getProperty("os.name").orEmpty().contains("windows", ignoreCase = true)) ";" else ":"
+
 ksp {
     arg("outputDir", project.buildDir.absolutePath + "/generated")
     arg("lib", "game-lib")
@@ -40,6 +44,7 @@ dependencies {
     val koinAnnotationsVersion = findProperty("koin.annotations.version") as String
     ksp("io.insert-koin:koin-ksp-compiler:$koinAnnotationsVersion")
     ksp(project(":rwpp-ksp"))
+    testImplementation(kotlin("test"))
 }
 
 sourceSets.main {
@@ -84,7 +89,7 @@ compose.desktop {
                 "-Dfile.encoding=UTF-8",
                 "-Djava.library.path=\$ROOTDIR",
                 "--add-opens=java.base/java.net=ALL-UNNAMED",
-                "'-cp \$ROOTDIR/generated_lib/*;\$ROOTDIR/extension/*;\$ROOTDIR/app/*;\$ROOTDIR/libs/*'"
+                "'-cp \$ROOTDIR/generated_lib/*${classpathSeparator}\$ROOTDIR/extension/*${classpathSeparator}\$ROOTDIR/app/*${classpathSeparator}\$ROOTDIR/libs/*'"
             )
 
             windows {
@@ -93,6 +98,10 @@ compose.desktop {
             }
 
             linux {
+                iconFile.set(project.file("logo.png"))
+            }
+
+            macOS {
                 iconFile.set(project.file("logo.png"))
             }
 
@@ -105,14 +114,40 @@ task("packageWixDistribution") {
     dependsOn("createReleaseDistributable")
 
     doLast {
+        val wixProject = rootProject.rootDir.resolve("wix").absolutePath
         val process = Runtime.getRuntime().exec(
-            "dotnet run --project=${rootProject.rootDir.absolutePath + "\\wix"} $guid ${rootProject.version}"
+            arrayOf("dotnet", "run", "--project=$wixProject", guid, rootProject.version.toString())
         )
 
         var line: String?
         while(true) {
             line = process.inputReader().readLine() ?: break
             logger.lifecycle(line)
+        }
+    }
+}
+
+// Uber-jar default name on macOS for launcher.sh.
+// Compose Desktop always sets archiveBaseName/appendix/version; rename after package.
+if (System.getProperty("os.name").orEmpty().contains("mac", ignoreCase = true)) {
+    tasks.configureEach {
+        if (name != "packageUberJarForCurrentOS" && name != "packageReleaseUberJarForCurrentOS") {
+            return@configureEach
+        }
+        doLast {
+            val produced = outputs.files.singleFile
+            val renamed = File(produced.parentFile, "RWPP-macos.jar")
+            if (produced.absolutePath == renamed.absolutePath) return@doLast
+            if (renamed.exists() && !renamed.delete()) {
+                throw GradleException("Cannot replace existing ${renamed.absolutePath}")
+            }
+            if (!produced.renameTo(renamed)) {
+                produced.copyTo(renamed, overwrite = true)
+                if (!produced.delete()) {
+                    logger.warn("Left original uber-jar at ${produced.absolutePath}")
+                }
+            }
+            logger.lifecycle("Renamed uber-jar to ${renamed.canonicalPath}")
         }
     }
 }

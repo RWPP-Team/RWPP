@@ -92,6 +92,7 @@ import java.awt.Canvas
 import java.awt.Dialog
 import java.awt.Dimension
 import java.awt.GraphicsEnvironment
+import java.awt.Toolkit
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.awt.event.WindowAdapter
@@ -103,6 +104,7 @@ import java.util.logging.Level
 import java.util.logging.Logger
 import javax.imageio.ImageIO
 import javax.swing.JFrame
+import javax.swing.JLayeredPane
 import javax.swing.JOptionPane
 import javax.swing.SwingUtilities
 import kotlin.system.exitProcess
@@ -154,6 +156,11 @@ fun main(array: Array<String>) {
         }
     }
 
+    if (!Platform.warnIfNativesMissing()) {
+        exitProcess(1)
+    }
+    Platform.warnAppleSiliconIfNeeded()
+
     koinInit = true
     appKoin = startKoin {
         logger(org.koin.core.logger.PrintLogger(org.koin.core.logger.Level.ERROR))
@@ -179,8 +186,8 @@ fun main(array: Array<String>) {
         }
 
     val settings = appKoin.get<Settings>()
-    if (settings.renderingBackend != "Default") {
-        System.setProperty("skiko.renderApi", settings.renderingBackend.uppercase())
+    Platform.resolveSkikoRenderApi(settings.renderingBackend)?.let { backend ->
+        System.setProperty("skiko.renderApi", backend.uppercase())
     }
 
     displaySize =
@@ -197,9 +204,13 @@ fun swingApplication() = SwingUtilities.invokeLater {
     val panel = ComposePanel()
     panel.isVisible = true
     panel.size = displaySize.size
-    panel.isOpaque = false
+    // Opaque so Skiko actually paints over the LWJGL canvas (transparent +
+    // JLayeredPane often yields a permanent black window on macOS).
+    panel.isOpaque = true
     panel.isFocusable = true
-    rwppVisibleSetter = { panel.isVisible = it }
+    // Assigned after frames are created (macOS uses a separate UI window).
+    lateinit var showUiOverlay: (Boolean) -> Unit
+    rwppVisibleSetter = { visible -> showUiOverlay(visible) }
     panel.setContent {
         var isLoading by remember { mutableStateOf(true) }
         var message by remember { mutableStateOf("loading...") }
@@ -211,9 +222,7 @@ fun swingApplication() = SwingUtilities.invokeLater {
 
                         Builder.logger?.info("Apply config successfully. Now you can restart game to take effect. (已成功应用配置，请重启游戏以生效。)")
                         if (native) {
-                            val processBuilder = ProcessBuilder(System.getProperty("user.dir") + "/RWPP.exe")
-                            processBuilder.start()
-                            exitProcess(0)
+                            Platform.restartCurrentProcess()
                         }
                     }.onFailure {
                         Builder.logger?.error(it.stackTraceToString())
@@ -224,7 +233,12 @@ fun swingApplication() = SwingUtilities.invokeLater {
 
                     GameLoadedEvent().broadcastIn()
 
+                    // Brief delay so the window-focus click does not hit menu buttons.
+                    kotlinx.coroutines.delay(400)
                     isLoading = false
+                    SwingUtilities.invokeLater {
+                        showUiOverlay(true)
+                    }
                 }
             }
         }
@@ -310,12 +324,21 @@ fun swingApplication() = SwingUtilities.invokeLater {
         window.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE)
     }
     window.background = java.awt.Color.BLACK
-    window.extendedState = JFrame.MAXIMIZED_BOTH
-    if(!requireReloadingLib && appKoin.get<Settings>().isFullscreen) {
+    val screenSize = Toolkit.getDefaultToolkit().screenSize
+    window.minimumSize = Dimension(800, 600)
+    window.preferredSize = Dimension(screenSize.width, screenSize.height)
+    if (!requireReloadingLib && appKoin.get<Settings>().isFullscreen) {
         window.isUndecorated = true
+        window.extendedState = JFrame.MAXIMIZED_BOTH
     } else {
-        window.minimumSize = Dimension(800, 600)
         window.isResizable = true
+        // MAXIMIZED_BOTH before first show is unreliable on macOS; set a real size.
+        window.setSize(
+            (screenSize.width * 0.9).toInt().coerceAtLeast(1024),
+            (screenSize.height * 0.9).toInt().coerceAtLeast(720),
+        )
+        window.setLocationRelativeTo(null)
+        window.extendedState = JFrame.MAXIMIZED_BOTH
     }
     window.title = "Rusted Warfare Plus Plus"
     window.iconImage = ImageIO.read(ClassLoader.getSystemResource("composeResources/io.github.rwpp.rwpp_core.generated.resources/drawable/logo.png"))
@@ -338,17 +361,116 @@ fun swingApplication() = SwingUtilities.invokeLater {
     val canvas = Canvas()
     gameCanvas = canvas
     canvas.size = displaySize.size
-    canvas.isVisible = false
+    // LWJGL Display.setParent needs a laid-out, displayable Canvas.
+    canvas.isVisible = true
     canvas.background = java.awt.Color.BLACK
     canvas.isFocusable = true
 
-    window.layout = BorderLayout()
-    window.add(canvas, BorderLayout.CENTER)
-    window.add(panel, BorderLayout.CENTER)
+    fun syncDisplaySizeFrom(container: java.awt.Container) {
+        val w = container.width.coerceAtLeast(1)
+        val h = container.height.coerceAtLeast(1)
+        if (w > 1 && h > 1) {
+            displaySize = Dimension(w, h)
+        }
+    }
 
+    var onGameWindowResized: () -> Unit = {
+        syncDisplaySizeFrom(window.contentPane)
+        canvas.setSize(
+            window.contentPane.width.coerceAtLeast(1),
+            window.contentPane.height.coerceAtLeast(1),
+        )
+    }
 
-    window.isVisible = true
-    panel.requestFocus()
+    if (Platform.isMacOS) {
+        // Separate Compose from the LWJGL window. Stacking them in one NSWindow
+        // paints black and eats input; a click on the black surface was starting Skirmish.
+        val uiWindow = JFrame("RWPP")
+        uiWindow.iconImage = window.iconImage
+        uiWindow.defaultCloseOperation = window.defaultCloseOperation
+        uiWindow.background = java.awt.Color.BLACK
+        uiWindow.minimumSize = Dimension(800, 600)
+        if (!requireReloadingLib && appKoin.get<Settings>().isFullscreen) {
+            uiWindow.isUndecorated = true
+            uiWindow.extendedState = JFrame.MAXIMIZED_BOTH
+        } else {
+            uiWindow.isResizable = true
+            uiWindow.setSize(window.size)
+            uiWindow.setLocationRelativeTo(null)
+            uiWindow.extendedState = JFrame.MAXIMIZED_BOTH
+        }
+        uiWindow.layout = BorderLayout()
+        uiWindow.add(panel, BorderLayout.CENTER)
+        if (!requireReloadingLib) {
+            uiWindow.addWindowListener(object : WindowAdapter() {
+                override fun windowClosing(e: WindowEvent?) {
+                    window.dispatchEvent(WindowEvent(window, WindowEvent.WINDOW_CLOSING))
+                }
+            })
+        }
+
+        window.layout = BorderLayout()
+        window.add(canvas, BorderLayout.CENTER)
+
+        showUiOverlay = { visible ->
+            panel.isVisible = visible
+            uiWindow.isVisible = visible
+            gameCanvas.isVisible = true
+            window.isVisible = true
+            if (visible) {
+                uiWindow.extendedState = uiWindow.extendedState or JFrame.MAXIMIZED_BOTH
+                uiWindow.toFront()
+                panel.requestFocus()
+            } else {
+                uiWindow.isVisible = false
+                window.toFront()
+                gameCanvas.requestFocus()
+            }
+        }
+
+        window.isVisible = true
+        uiWindow.isVisible = true
+        SwingUtilities.invokeLater {
+            window.extendedState = window.extendedState or JFrame.MAXIMIZED_BOTH
+            uiWindow.extendedState = uiWindow.extendedState or JFrame.MAXIMIZED_BOTH
+            syncDisplaySizeFrom(window.contentPane)
+            canvas.setSize(window.contentPane.width.coerceAtLeast(1), window.contentPane.height.coerceAtLeast(1))
+            showUiOverlay(true)
+        }
+        syncDisplaySizeFrom(window.contentPane)
+    } else {
+        val layeredPane = JLayeredPane()
+        fun layoutLayers() {
+            val w = window.contentPane.width.coerceAtLeast(1)
+            val h = window.contentPane.height.coerceAtLeast(1)
+            layeredPane.setPreferredSize(Dimension(w, h))
+            layeredPane.setSize(w, h)
+            layeredPane.setBounds(0, 0, w, h)
+            canvas.setBounds(0, 0, w, h)
+            panel.setBounds(0, 0, w, h)
+            panel.setSize(w, h)
+            syncDisplaySizeFrom(window.contentPane)
+        }
+
+        showUiOverlay = { visible ->
+            panel.isVisible = visible
+        }
+        onGameWindowResized = { layoutLayers() }
+
+        window.layout = BorderLayout()
+        window.add(layeredPane, BorderLayout.CENTER)
+        layeredPane.add(canvas, JLayeredPane.DEFAULT_LAYER)
+        layeredPane.add(panel, JLayeredPane.PALETTE_LAYER)
+
+        window.isVisible = true
+        SwingUtilities.invokeLater {
+            window.extendedState = window.extendedState or JFrame.MAXIMIZED_BOTH
+            layoutLayers()
+            panel.requestFocus()
+        }
+        layoutLayers()
+        panel.requestFocus()
+    }
 
     focusRequester = FocusRequester()
     val panel2 = ComposePanel()
@@ -479,24 +601,15 @@ fun swingApplication() = SwingUtilities.invokeLater {
     sendMessageDialog.size = Dimension(550, 540)
     sendMessageDialog.add(panel2)
     mainJFrame = window
-    canvas.createBufferStrategy(2)
+    // LWJGL2 Display.setParent owns the Canvas drawable; BufferStrategy fights it on macOS.
+    if (!Platform.isMacOS) {
+        runCatching { canvas.createBufferStrategy(2) }
+    }
 
     window.addComponentListener(object : ComponentAdapter() {
         override fun componentResized(e: ComponentEvent) {
-            val scale = getDPIScale()
-
-            // 计算逻辑像素尺寸（抵消 HiDPI 缩放）
-            val logicalWidth = (window.contentPane.width * scale).toInt()
-            val logicalHeight = (window.contentPane.height * scale).toInt()
-
-            // 设置 Canvas 物理像素尺寸
-            canvas.setSize(
-                logicalWidth,
-                logicalHeight
-            )
-
+            onGameWindowResized()
             offscreenComposeRenderer?.updateWindowSize(window.contentPane.width, window.contentPane.height)
-
             resetSendDialogLocation()
         }
 

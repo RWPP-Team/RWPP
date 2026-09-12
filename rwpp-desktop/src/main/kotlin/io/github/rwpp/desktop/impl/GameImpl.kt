@@ -29,6 +29,7 @@ import io.github.rwpp.desktop.AbstractGame
 import io.github.rwpp.desktop.AbstractGameRoom
 import io.github.rwpp.desktop.GameEngine
 import io.github.rwpp.desktop.OffscreenComposeRenderer
+import io.github.rwpp.desktop.Platform
 import io.github.rwpp.desktop.displaySize
 import io.github.rwpp.desktop.gameCanvas
 import io.github.rwpp.desktop.gameOver
@@ -38,6 +39,7 @@ import io.github.rwpp.desktop.native
 import io.github.rwpp.desktop.offscreenComposeRenderer
 import io.github.rwpp.desktop.rwppVisibleSetter
 import io.github.rwpp.event.GlobalEventChannel
+import io.github.rwpp.event.events.HostSinglePlayerGameEvent
 import io.github.rwpp.event.events.StartGameEvent
 import io.github.rwpp.game.Game
 import io.github.rwpp.game.GameRoom
@@ -56,6 +58,7 @@ import io.github.rwpp.ui.UI
 import io.github.rwpp.utils.Reflect
 import io.github.rwpp.widget.loadingMessage
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import org.koin.core.annotation.Single
 import org.lwjgl.BufferUtils
 import org.lwjgl.input.Cursor
@@ -70,6 +73,7 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
 import java.io.InputStream
+import javax.swing.SwingUtilities
 
 @Single(binds = [Game::class])
 class GameImpl : AbstractGame() {
@@ -95,10 +99,25 @@ class GameImpl : AbstractGame() {
 
     init {
         GlobalEventChannel.filter(StartGameEvent::class).subscribeAlways {
-            rwppVisibleSetter(false)
-            gameCanvas.isVisible = true
-            gameCanvas.requestFocus()
+            // Match is live — hand input to the LWJGL canvas (hide Compose UI).
+            SwingUtilities.invokeLater {
+                rwppVisibleSetter(false)
+                gameCanvas.isVisible = true
+                gameCanvas.requestFocus()
+            }
             isGaming = true
+        }
+        // hostNewSinglePlayer() loads/starts the skirmish match without always
+        // going through Main.onStartGame; ensure the GL window gets focus on macOS.
+        GlobalEventChannel.filter(HostSinglePlayerGameEvent::class).subscribeAlways {
+            if (Platform.isMacOS) {
+                SwingUtilities.invokeLater {
+                    rwppVisibleSetter(false)
+                    gameCanvas.isVisible = true
+                    gameCanvas.requestFocus()
+                }
+                isGaming = true
+            }
         }
     }
 
@@ -136,6 +155,46 @@ class GameImpl : AbstractGame() {
     }
 
     override suspend fun load(context: LoadingContext): Unit = with(context) {
+        // macOS LWJGL2 hangs in Display.create if the AWT Canvas parent is not
+        // displayable / has zero size (common when Compose previously stole CENTER).
+        // Also: Display size must match the Canvas — a 1920x1080 Display on an
+        // 800x600 parent paints black / clipped.
+        SwingUtilities.invokeAndWait {
+            gameCanvas.isVisible = true
+            val frame = SwingUtilities.getWindowAncestor(gameCanvas)
+            if (frame is javax.swing.JFrame &&
+                (gameCanvas.width < 640 || gameCanvas.height < 480)
+            ) {
+                frame.extendedState = frame.extendedState or javax.swing.JFrame.MAXIMIZED_BOTH
+                frame.validate()
+            }
+            val host = gameCanvas.parent
+            val w = (host?.width?.takeIf { it > 0 } ?: displaySize.width).coerceAtLeast(1)
+            val h = (host?.height?.takeIf { it > 0 } ?: displaySize.height).coerceAtLeast(1)
+            if (gameCanvas.width < 1 || gameCanvas.height < 1) {
+                gameCanvas.setSize(w, h)
+            }
+            gameCanvas.validate()
+            if (gameCanvas.width > 1 && gameCanvas.height > 1) {
+                displaySize = java.awt.Dimension(gameCanvas.width, gameCanvas.height)
+            }
+        }
+        var waits = 0
+        while (waits < 100 &&
+            !(gameCanvas.isDisplayable && gameCanvas.width > 0 && gameCanvas.height > 0)
+        ) {
+            delay(50)
+            waits++
+        }
+        if (gameCanvas.width > 1 && gameCanvas.height > 1) {
+            displaySize = java.awt.Dimension(gameCanvas.width, gameCanvas.height)
+        }
+        logger.info(
+            "LWJGL Display parent ready: displayable=${gameCanvas.isDisplayable} " +
+                "showing=${gameCanvas.isShowing} size=${gameCanvas.width}x${gameCanvas.height} " +
+                "displaySize=${displaySize.width}x${displaySize.height} macOS=${Platform.isMacOS}"
+        )
+
         gameThread = Thread {
             Display.setParent(gameCanvas)
             container.start()
