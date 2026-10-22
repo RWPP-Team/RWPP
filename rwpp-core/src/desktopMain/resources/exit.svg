@@ -1,8 +1,0 @@
-<!--
-  - Copyright 2023-2025 RWPP contributors
-  - 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
-  - Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
-  - https://github.com/Minxyzgo/RWPP/blob/main/LICENSE
-  -->
-
-<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#e8eaed"><path d="M200-120q-33 0-56.5-23.5T120-200v-160h80v160h560v-560H200v160h-80v-160q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H200Zm220-160-56-58 102-102H120v-80h346L364-622l56-58 200 200-200 200Z"/></svg>

@@ -1,0 +1,11 @@
+<!--
+  ~ Copyright 2023-2026 RWPP contributors
+  ~ 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
+  ~ Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
+  ~ https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+  -->
+
+<vector android:height="30dp" android:viewportHeight="960"
+    android:viewportWidth="960" android:width="30dp" xmlns:android="http://schemas.android.com/apk/res/android">
+    <path android:fillColor="#e8eaed" android:pathData="M400,560h160v-80L400,480v80ZM400,440h320v-80L400,360v80ZM400,320h320v-80L400,240v80ZM320,720q-33,0 -56.5,-23.5T240,640v-480q0,-33 23.5,-56.5T320,80h480q33,0 56.5,23.5T880,160v480q0,33 -23.5,56.5T800,720L320,720ZM320,640h480v-480L320,160v480ZM160,880q-33,0 -56.5,-23.5T80,800v-560h80v560h560v80L160,880ZM320,160v480,-480Z"/>
+</vector>

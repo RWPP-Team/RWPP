@@ -1,58 +1,72 @@
 /*
- * Copyright 2023-2025 RWPP contributors
+ * Copyright 2023-2026 RWPP contributors
  * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
  * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/Minxyzgo/RWPP/blob/main/LICENSE
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
  */
 
 rootProject.name = "RWPP"
 
-include(":rwpp-core")
-include(":rwpp-ksp")
-include(":rwpp-core-api")
+include(":rwpp-api", ":rwpp-server", ":rwpp-client")
 
-if (System.getenv("JITPACK") == null) {
-    include(":rwpp-android")
-    include(":rwpp-desktop")
-}
 
 pluginManagement {
     repositories {
         gradlePluginPortal()
-       // maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
         google()
         mavenCentral()
     }
+}
 
-    plugins {
-        val kotlinVersion = extra["kotlin.version"] as String
-        val agpVersion = extra["agp.version"] as String
-        val composeVersion = extra["compose.version"] as String
-        val kspVersion = extra["ksp.version"] as String
-        val buildconfigVersion = extra["buildconfig.version"] as String
+fun resolveCurrentGameLibraryRepository(baseRepository: java.io.File): java.io.File {
+    val base = baseRepository.toPath().toAbsolutePath().normalize()
+    val pointer = base.resolve("current-repository.txt")
+    if (!java.nio.file.Files.isRegularFile(pointer)) return base.toFile()
 
-        kotlin("jvm").version(kotlinVersion)
-        kotlin("multiplatform").version(kotlinVersion)
-        kotlin("android").version(kotlinVersion)
-        kotlin("plugin.serialization").version(kotlinVersion)
-
-        id("org.jetbrains.kotlin.plugin.compose").version(kotlinVersion)
-        id("com.android.application").version(agpVersion)
-        id("com.android.library").version(agpVersion)
-        id("org.jetbrains.compose").version(composeVersion)
-        id("com.google.devtools.ksp").version(kspVersion)
-        id("com.github.gmazzo.buildconfig").version(buildconfigVersion)
+    val relative = java.nio.file.Files.readString(pointer, Charsets.UTF_8).trim()
+    require(relative.isNotEmpty()) { "${pointer.toFile()} is empty." }
+    val relativePath = java.nio.file.Path.of(relative)
+    require(!relativePath.isAbsolute) { "${pointer.toFile()} must contain a relative repository path." }
+    val current = base.resolve(relativePath).normalize()
+    require(current.startsWith(base)) { "${pointer.toFile()} escapes the local game repository." }
+    require(java.nio.file.Files.isDirectory(current)) {
+        "The current game library repository does not exist: $current"
     }
+    return current.toFile()
 }
-plugins {
-    id("org.gradle.toolchains.foojay-resolver-convention") version "0.5.0"
-}
+
+val rwmlLocalGameRepository = providers.gradleProperty("rwmlLocalRepo").orNull
+    ?.let { resolveCurrentGameLibraryRepository(java.io.File(it)) }
 
 dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
+        mavenLocal {
+            content {
+                includeModule("io.github.rwpp-team", "rwml-core")
+                includeModule("io.github.rwpp-team", "rwml-desktop")
+            }
+        }
         google()
         mavenCentral()
-    //    maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
+        maven("https://jitpack.io")
+        maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
+        rwmlLocalGameRepository?.let { localRepository ->
+            exclusiveContent {
+                forRepository {
+                    maven {
+                        name = "RWMLLocal"
+                        url = uri(localRepository)
+                    }
+                }
+                filter {
+                    includeModule("io.github.rwpp-team", "game-lib")
+                }
+            }
+        }
     }
 }
 
+plugins {
+    id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
+}

@@ -1,0 +1,120 @@
+[versions]
+# Kotlin & Android
+kotlin = "2.4.20"
+coroutines = "1.11.0"
+ksp = "2.3.10"
+agp = "9.0.1"
+buildconfig = "6.1.2"
+asm = "9.10.1"
+r8 = "9.1.56"
+
+# Android SDK
+android-compileSdk = "36"
+android-targetSdk = "35"
+android-minSdk = "26"
+
+# AndroidX
+androidx-activity-compose = "1.10.1"
+androidx-appcompat = "1.7.1"
+androidx-core-ktx = "1.17.0"
+
+# Compose & UI
+compose = "1.12.2"
+compose-material3 = "1.11.0-alpha07"
+compose-material-icons = "1.7.3"
+reorderable = "3.1.0"
+coil = "3.6.3"
+markdown = "0.46.0"
+
+# Koin
+koin = "4.2.2"
+koin-plugin = "1.2.1"
+
+# Third-party
+logback-android = "3.0.0"
+tomlkt = "0.5.0"
+minimal-json = "0.9.5"
+korlibs-audio = "6.1.0"
+vorbisspi = "1.0.3.3"
+slf4j = "2.0.20"
+okhttp = "5.5.0"
+kotlinpoet = "2.3.0"
+rwml-core = "1.0.2"
+game-lib = "v2-1.15"
+codeorigin = "0.2.1"
+protobuf = "4.36.2"
+lwjgl = "2.9.3"
+jline = "4.4.8"
+asm-framework = "0.0.1"
+
+[libraries]
+# Coroutines & Test
+desktop-jvm-linux-x64 = { module = "org.jetbrains.compose.desktop:desktop-jvm-linux-x64", version.ref = "compose" }
+desktop-jvm-macos-arm64 = { module = "org.jetbrains.compose.desktop:desktop-jvm-macos-arm64", version.ref = "compose" }
+desktop-jvm-windows-x64 = { module = "org.jetbrains.compose.desktop:desktop-jvm-windows-x64", version.ref = "compose" }
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
+kotlin-stdlib = { module = "org.jetbrains.kotlin:kotlin-stdlib", version.ref = "kotlin" }
+kotlin-reflect = { module = "org.jetbrains.kotlin:kotlin-reflect", version.ref = "kotlin" }
+kotlin-test-junit = { module = "org.jetbrains.kotlin:kotlin-test-junit", version.ref = "kotlin" }
+
+# Compose Multiplatform Dependencies
+compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "compose" }
+compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "compose" }
+compose-material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "compose-material3" }
+compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "compose" }
+compose-components-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "compose" }
+compose-desktop-common = { module = "org.jetbrains.compose.desktop:desktop", version.ref = "compose" }
+
+# AndroidX
+androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity-compose" }
+androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "androidx-appcompat" }
+androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx-core-ktx" }
+
+# Compose & UI Components
+compose-material-icons-core = { module = "org.jetbrains.compose.material:material-icons-core", version.ref = "compose-material-icons" }
+reorderable = { module = "sh.calvin.reorderable:reorderable", version.ref = "reorderable" }
+coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }
+coil-network-okhttp = { module = "io.coil-kt.coil3:coil-network-okhttp", version.ref = "coil" }
+
+# Markdown
+markdown-renderer = { module = "com.mikepenz:multiplatform-markdown-renderer", version.ref = "markdown" }
+markdown-renderer-m3 = { module = "com.mikepenz:multiplatform-markdown-renderer-m3", version.ref = "markdown" }
+
+# Koin
+koin-core = { module = "io.insert-koin:koin-core", version.ref = "koin" }
+koin-compose = { module = "io.insert-koin:koin-compose", version.ref = "koin" }
+koin-annotations = { module = "io.insert-koin:koin-annotations", version.ref = "koin" }
+
+# Third-party
+logback-android = { module = "com.github.tony19:logback-android", version.ref = "logback-android" }
+tomlkt = { module = "net.peanuuutz.tomlkt:tomlkt", version.ref = "tomlkt" }
+minimal-json = { module = "com.eclipsesource.minimal-json:minimal-json", version.ref = "minimal-json" }
+korlibs-audio = { module = "org.korge:korlibs-audio", version.ref = "korlibs-audio" }
+vorbisspi = { module = "com.googlecode.soundlibs:vorbisspi", version.ref = "vorbisspi" }
+slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
+slf4j-simple = { module = "org.slf4j:slf4j-simple", version.ref = "slf4j" }
+okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
+codeorigin = { module = "li.songe:codeorigin", version.ref = "codeorigin" }
+protobuf-java = { module = "com.google.protobuf:protobuf-java", version.ref = "protobuf" }
+lwjgl = { module = "org.lwjgl.lwjgl:lwjgl", version.ref = "lwjgl" }
+jline = { module = "org.jline:jline", version.ref = "jline" }
+rwml-core = { module = "io.github.rwpp-team:rwml-core", version.ref = "rwml-core" }
+rwml-desktop = { module = "io.github.rwpp-team:rwml-desktop", version.ref = "rwml-core" }
+game-lib = { module = "io.github.rwpp-team:game-lib", version.ref = "game-lib" }
+asm-framework = { module = "kim.der.relay-cn:ASM-Framework", version.ref = "asm-framework" }
+asm = { module = "org.ow2.asm:asm", version.ref = "asm" }
+asm-tree = { module = "org.ow2.asm:asm-tree", version.ref = "asm" }
+asm-commons = { module = "org.ow2.asm:asm-commons", version.ref = "asm" }
+r8 = { module = "com.android.tools:r8", version.ref = "r8" }
+
+[plugins]
+koin-compiler = { id = "io.insert-koin.compiler.plugin", version.ref = "koin-plugin" }
+android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
+codeorigin = { id = "li.songe.codeorigin", version.ref = "codeorigin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+compose-multiplatform = { id = "org.jetbrains.compose", version.ref = "compose" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+buildconfig = { id = "com.github.gmazzo.buildconfig", version.ref = "buildconfig" }
+allopen = { id = "org.jetbrains.kotlin.plugin.allopen", version.ref = "kotlin" }

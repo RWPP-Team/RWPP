@@ -63,3 +63,5 @@ If you find any bugs or have any suggestions, please create an issue.
 <h1 align="center"> Thanks </h1>
 
 [RW-HPS](https://github.com/deng-rui/RW-HPS)
+
+Sounds by [JDSherbert](https://jdsherbert.itch.io)
