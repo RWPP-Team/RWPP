@@ -89,7 +89,7 @@ private class BoundedInputNetStream(payload: ByteArray) :
         if (length < 0 || length > PacketKey.MAX_PAYLOAD_BYTES) {
             throw IOException("Invalid packet byte-array length: $length")
         }
-        val input = getInputStream() as? DataInputStream
+        val input = inputStream as? DataInputStream
             ?: throw IOException("Native packet reader is not backed by a data stream")
         val remaining = input.available()
         if (length > remaining) {

@@ -13,45 +13,61 @@ import io.github.rwml.api.ProgressListener
 import io.github.rwml.core.ExtensionDescriptor
 import io.github.rwml.desktop.DesktopHost
 import io.github.rwml.host.HostPlatform
+import io.github.rwpp.api.ApiExtensionDescriptor
+import io.github.rwpp.api.ApiMixins
 import java.io.IOException
 import java.nio.file.Path
 
-/** Desktop JVM extension host with the desktop UI extension omitted for a headless process.  */
+/**
+ * Desktop JVM extension host with the desktop UI extension omitted for a headless process.
+ *
+ * The API is part of this application's class path and is installed as a built-in extension: there is
+ * no archive to stage and no DEX to build, and the manager instantiates it with the host's own class
+ * loader. A built-in extension has no archive to scan, so this host registers the API mixins itself
+ * before any game class is loaded.
+ */
 internal class ServerHost : HostPlatform {
     private val desktopHost = DesktopHost()
 
-    override fun mixins(): MixinBridge? {
-        return desktopHost.mixins()
+    init {
+        io.github.rwpp.api.net.transport.TransportRuntime.installIfAbsent {
+            io.github.rwpp.server.net.ServerTransportBackend()
+        }
+        val bridge = desktopHost.mixins()
+        bridge.install()
+        ApiMixins.classes().forEach(bridge::register)
     }
 
-    override fun gameAssets(): GameAssets? {
-        return desktopHost.gameAssets()
-    }
+    override fun mixins(): MixinBridge = desktopHost.mixins()
 
-    override fun builtInExtensions(): List<ExtensionDescriptor?> {
-        return mutableListOf()
-    }
+    override fun gameAssets(): GameAssets = desktopHost.gameAssets()
+
+    override fun builtInExtensions(): List<ExtensionDescriptor> =
+        listOf(
+            ApiExtensionDescriptor.descriptor(),
+            ExtensionDescriptor.builtIn(
+                "io.github.rwpp.server", "RWPP Server", "2.0.0",
+                "Native headless server host", ServerServices::class.java.name, null,
+            ),
+        )
 
     @Throws(IOException::class)
-    override fun stageArchives(extensionDirectory: Path?): MutableList<String?>? {
-        return desktopHost.stageArchives(extensionDirectory)
-    }
+    override fun stageArchives(extensionDirectory: Path): List<String> =
+        desktopHost.stageArchives(extensionDirectory)
 
     @Throws(IOException::class)
-    override fun createExtensionLoader(descriptor: ExtensionDescriptor): ClassLoader? {
-        return desktopHost.createExtensionLoader(descriptor)
-    }
+    override fun createExtensionLoader(descriptor: ExtensionDescriptor): ClassLoader =
+        desktopHost.createExtensionLoader(descriptor)
 
     @Throws(IOException::class)
-    override fun createExtensionLoader(descriptor: ExtensionDescriptor, dependencyParent: ClassLoader?): ClassLoader {
-        return desktopHost.createExtensionLoader(descriptor, dependencyParent)
-    }
+    override fun createExtensionLoader(
+        descriptor: ExtensionDescriptor,
+        dependencyParent: ClassLoader
+    ): ClassLoader = desktopHost.createExtensionLoader(descriptor, dependencyParent)
 
     @Throws(ExtensionException::class)
     override fun reconcileJavaRequirement(
         descriptor: ExtensionDescriptor,
-        progress: ProgressListener?
-    ): ExtensionDescriptor? {
-        return desktopHost.reconcileJavaRequirement(descriptor, progress)
-    }
+        progress: ProgressListener
+    ): ExtensionDescriptor = desktopHost.reconcileJavaRequirement(descriptor, progress)
 }

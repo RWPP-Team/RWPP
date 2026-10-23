@@ -195,10 +195,10 @@ class GameRoomImpl : GameRoom {
     private val generatedMaps = mutableListOf<File>()
 
     override fun getPlayers(): List<Team> =
-        Team.getTeamList().filterNotNull().filter { it.isPlayerTeam }
+        Team.getTeamsIncludingSpectators(true).filterIsInstance<Team>()
 
     override fun getAllPlayers(): Array<Team?> =
-        Team.getTeamList().map { it?.takeIf(Team::isPlayerTeam) }.toTypedArray()
+        Array(Team.totalTeamSlots) { Team.getTeam(it) }
 
     override suspend fun roomDetails(): String = network.getGameInfoText()
     override fun sendChatMessage(message: String) = network.sendChatMessage(message)
@@ -365,6 +365,9 @@ class GameRoomImpl : GameRoom {
         if (!isHost) {
             if (isHostServer) network.sendChatCommand("-start")
             return
+        }
+        check(getPlayers().all { io.github.rwpp.api.net.packets.ModTransferHost.isReady(it) }) {
+            "Cannot start while players are downloading mods"
         }
         restoreGeneratedMapSelection()
         val source = selectedMap

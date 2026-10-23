@@ -11,8 +11,6 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.file.Path
 import java.nio.file.Paths
-import java.util.zip.CRC32
-import java.util.zip.CheckedOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -29,16 +27,21 @@ fun File.calculateSize(): Long {
     return size
 }
 
-fun File.zipFolderToByte(): ByteArray {
-    val byteOut = ByteArrayOutputStream(1024 * 1024)
-    val zipOut = ZipOutputStream(CheckedOutputStream(byteOut, CRC32()))
-    zipRecursive(this, Paths.get(this.absolutePath), zipOut)
-    zipOut.flush()
-    zipOut.finish()
-    val bytes = byteOut.toByteArray()
-    byteOut.close()
-    zipOut.close()
-    return bytes
+@JvmOverloads
+fun File.zipFolderToByte(maxBytes: Int = Int.MAX_VALUE): ByteArray {
+    require(maxBytes > 0)
+    val byteOut = object : ByteArrayOutputStream(minOf(1024 * 1024, maxBytes)) {
+        override fun write(value: Int) {
+            check(count < maxBytes) { "Mod archive exceeds $maxBytes bytes" }
+            super.write(value)
+        }
+        override fun write(bytes: ByteArray, offset: Int, length: Int) {
+            check(length <= maxBytes - count) { "Mod archive exceeds $maxBytes bytes" }
+            super.write(bytes, offset, length)
+        }
+    }
+    ZipOutputStream(byteOut).use { zip -> zipRecursive(this, Paths.get(this.absolutePath), zip) }
+    return byteOut.toByteArray()
 }
 
 private fun zipRecursive(sourceFile: File, base: Path, zip: ZipOutputStream) {

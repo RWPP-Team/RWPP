@@ -83,8 +83,8 @@ class UnitOverlayClassPatch : ClassFilePatch {
         const val UNIT = "com/corrodinggames/rts/game/units/Unit"
         const val BODY = "rwml\$overlayWithEvents"
         const val NATIVE = "rwml\$overlayWithoutEvents"
-        const val CONTEXT = "io/github/rwml/api/event/hooks/UnitOverlayDrawContext"
-        const val BAR = "io/github/rwml/api/event/hooks/UnitOverlayBarMixin"
+        const val CONTEXT = "io/github/rwpp/api/event/hooks/UnitOverlayDrawContext"
+        const val BAR = "io/github/rwpp/api/event/hooks/UnitOverlayBarMixin"
         const val GRAPHICS = "com/corrodinggames/rts/gameFramework/render/GraphicsEngine"
     }
 }

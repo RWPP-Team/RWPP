@@ -61,12 +61,12 @@ class GameModeSession(
     /** True when this process owns the native simulation (including an offline mission). */
     internal fun hasNativeAuthority(engine: RWGameEngine? = null): Boolean {
         val nativeEngine = engine ?: runCatching { GameEngine.getInstance() as? RWGameEngine }.getOrNull()
-        if (nativeEngine?.replayEngine?.isPlayingReplay() == true) return false
+        if (nativeEngine?.replayEngine?.isPlayingReplay == true) return false
         if (nativeEngine == null) return gameRoom.isHost
         return if (nativeEngine.networkEngine.networked) {
             gameRoom.isHost && nativeEngine.networkEngine.isServer
         } else {
-            gameRoom.isHost || nativeEngine.isGameRunning()
+            gameRoom.isHost || nativeEngine.isGameRunning
         }
     }
 

@@ -51,7 +51,8 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
-            implementation(project(":rwpp-api"))
+            api(project(":rwpp-api"))
+            api(libs.korlibs.audio)
             compileOnly(libs.rwml.core)
             compileOnly(libs.game.lib)
             compileOnly(libs.asm.framework)
@@ -70,7 +71,6 @@ kotlin {
             implementation(libs.markdown.renderer)
             implementation(libs.markdown.renderer.m3)
             implementation(libs.reorderable)
-            implementation(libs.korlibs.audio)
         }
 
         commonTest.dependencies {
@@ -353,6 +353,9 @@ val rwppAndroidExtensionJar = tasks.register<Jar>("rwppAndroidExtensionJar") {
             check(zip.getEntry("classes.dex") != null) { "RWPP Android DEX is missing" }
             check(zip.getEntry("io/github/rwpp/RwppExtension.class") != null) { "RWPP Extension class is missing" }
             check(zip.getEntry("io/github/rwpp/api/ApiRuntime.class") != null) { "RWML API runtime is missing" }
+            check(zip.getEntry("io/github/rwpp/client/api/ClientServicesKt.class") != null) { "Client services are missing" }
+            check(zip.getEntry("io/github/rwpp/api/game/audio/GameSoundPoolImpl.class") != null) { "Client audio is missing" }
+            check(zip.getEntry("io/github/rwpp/api/graphics/GL20.class") != null) { "Client OpenGL API is missing" }
             check(zip.getEntry("io/github/rwpp/api/ApiExtension.class") != null) { "RWML API entry point is missing" }
             check(zip.getEntry("org/koin/compose/KoinApplicationKt.class") != null) {
                 "Koin Compose classes are missing from the RWPP Android archive"
@@ -381,6 +384,18 @@ tasks.assemble {
 val rwppJvmRuntimeJars =
     rwppAndroidArtifactView("jvmRuntimeClasspath", "jar") { !isRwppJvmProviderArtifact(it) }
 val rwppJvmJar = tasks.named<Jar>("jvmJar")
+val verifyClientNetworkDependencies = tasks.register("verifyClientNetworkDependencies") {
+    val runtime = configurations.named("jvmRuntimeClasspath")
+    inputs.files(runtime)
+    doLast {
+        val forbidden = runtime.get().incoming.resolutionResult.allComponents.mapNotNull {
+            (it.id as? org.gradle.api.artifacts.component.ModuleComponentIdentifier)?.takeIf { id ->
+                id.group.startsWith("io.netty") || id.group == "com.github.l42111996"
+            }?.displayName
+        }
+        check(forbidden.isEmpty()) { "Server network dependency leaked into client: ${forbidden.joinToString()}" }
+    }
+}
 val rwppJvmExtensionJar = tasks.register<Jar>("rwppJvmExtensionJar") {
     group = "distribution"
     description = "Package the desktop-only RWPP extension classes, resources, and private runtime dependencies."
@@ -388,7 +403,7 @@ val rwppJvmExtensionJar = tasks.register<Jar>("rwppJvmExtensionJar") {
     archiveVersion.set(project.version.toString())
     archiveClassifier.set("jvm")
     destinationDirectory.set(layout.buildDirectory.dir("extensions"))
-    dependsOn(rwppJvmJar, generateRwppAndroidExtensionDescriptor)
+    dependsOn(rwppJvmJar, generateRwppAndroidExtensionDescriptor, verifyClientNetworkDependencies)
     from({ zipTree(rwppJvmJar.get().archiveFile.get().asFile) })
     from({ rwppJvmRuntimeJars.files.map { zipTree(it) } }) {
         exclude("META-INF/extension.properties")
@@ -401,6 +416,9 @@ val rwppJvmExtensionJar = tasks.register<Jar>("rwppJvmExtensionJar") {
         val archive = archiveFile.get().asFile
         ZipFile(archive).use { zip ->
             check(zip.getEntry("META-INF/extension.properties") != null) { "RWPP JVM extension descriptor is missing" }
+            check(zip.getEntry("io/github/rwpp/client/api/ClientServicesKt.class") != null) { "Client services are missing" }
+            check(zip.getEntry("io/github/rwpp/api/game/audio/GameSoundPoolImpl.class") != null) { "Client audio is missing" }
+            check(zip.getEntry("io/github/rwpp/api/graphics/GL20.class") != null) { "Client OpenGL API is missing" }
             check(zip.getEntry("io/github/rwpp/RwppExtension.class") != null) { "RWPP JVM Extension class is missing" }
             check(zip.getEntry("io/github/rwpp/api/ApiRuntime.class") != null) { "RWML API runtime is missing" }
             check(zip.getEntry("io/github/rwpp/api/ApiExtension.class") != null) { "RWML API entry point is missing" }
@@ -415,6 +433,9 @@ val rwppJvmExtensionJar = tasks.register<Jar>("rwppJvmExtensionJar") {
                 "Unexpected SLF4J JVM provider registration: $slf4jProviderName"
             }
             check(zip.getEntry("classes.dex") == null) { "The desktop archive must not contain Android DEX" }
+            check(zip.entries().asSequence().none { it.name.startsWith("io/netty/") || it.name.startsWith("kcp/") }) {
+                "Netty and Java-KCP belong to the server, not the client archive"
+            }
             check(zip.entries().asSequence().none { it.name.startsWith("com/badlogic/") }) {
                 "The desktop extension must not bundle libGDX"
             }
@@ -427,4 +448,41 @@ val rwppJvmExtensionJar = tasks.register<Jar>("rwppJvmExtensionJar") {
 
 tasks.assemble {
     dependsOn(rwppJvmExtensionJar)
+}
+
+// Reuse client networking without Compose, audio or rendering, while keeping its sources in client.
+val clientNetworkDescriptor = layout.buildDirectory.dir("generated/client-network-descriptor")
+val generateClientNetworkDescriptor = tasks.register("generateClientNetworkDescriptor") {
+    val descriptor = clientNetworkDescriptor.map { it.file("META-INF/extension.properties") }
+    outputs.file(descriptor)
+    doLast {
+        descriptor.get().asFile.apply {
+            parentFile.mkdirs()
+            writeText("""
+                id=io.github.rwpp.client.network
+                name=RWPP Client Network
+                version=${project.version}
+                apiVersion=1.0.2
+                javaVersion=17
+                mainClass=io.github.rwpp.client.net.ClientNetworkExtension
+                dependsOn=io.github.rwpp.api
+            """.trimIndent() + "\n")
+        }
+    }
+}
+val networkRuntimeJar = tasks.register<Jar>("networkRuntimeJar") {
+    group = "distribution"
+    description = "Package only the JDK client network backend for non-UI extensions."
+    dependsOn(rwppJvmJar, generateClientNetworkDescriptor)
+    archiveClassifier.set("network")
+    from({ zipTree(rwppJvmJar.get().archiveFile.get().asFile) }) { include("io/github/rwpp/client/net/**") }
+    from(clientNetworkDescriptor)
+    doLast {
+        ZipFile(archiveFile.get().asFile).use { zip ->
+            check(zip.entries().asSequence().none { it.name.startsWith("io/netty/") || it.name.startsWith("kcp/") })
+        }
+    }
+}
+publishing.publications.withType<MavenPublication>().configureEach {
+    if (name == "jvm") artifact(networkRuntimeJar)
 }

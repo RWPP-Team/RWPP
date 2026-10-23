@@ -33,6 +33,7 @@ object ApiRuntime {
         synchronized(lock) {
             check(context == null) { "The RWML API extension was loaded more than once" }
             context = extensionContext
+            extensionContext.own(io.github.rwpp.api.net.transport.TransportRuntime)
             val started = startKoin {
                 modules(RwmlApiModule::class)
             }
@@ -52,6 +53,18 @@ object ApiRuntime {
             configuration(started)
         }
     }
+
+    /** Custom headless loops call this once per frame, including while waiting in a lobby.
+     * Such loops bypass updateFrameInternal, which normally drains game-thread coroutines.
+     */
+    fun pumpHeadlessFrame() {
+        checkNotNull(application) { "The RWPP API extension must load before the server loop starts" }
+        GameMainDispatcher.drainNativeFrame()
+    }
+
+    /** Wait for a custom server loop while keeping suspended game-thread work on its owner. */
+    fun <T> runHeadlessLoop(block: suspend () -> T): T =
+        GameMainDispatcher.runBlockingWithGameDispatcher(block)
 
     /** Runs all API and application initialization hooks once the Koin modules are ready. */
     fun initializeComponents() {

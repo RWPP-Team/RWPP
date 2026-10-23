@@ -5,22 +5,6 @@
  * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
  */
 
-// ------------------------------------------------------------------------------------------------
-// RWPP 扩展 API：事件、配置、网络与游戏对象模型。
-//
-// 这些内容不是加载器本身，因此不放进 :core。:core 有一条平台边界检查，禁止核心字节码出现 android/、
-// com/corrodinggames/、java/awt/、javax/swing/ 的引用，而这里直接使用游戏引擎与 android.graphics
-// 的绘图类型；:core 的 POM 也不声明任何依赖，而这里的模型需要 okhttp、序列化与 Koin。
-// 单独成模块后，扩展只需依赖本模块即可同时拿到 :core。
-//
-// 绘图方法以 android.graphics 的 Paint/RectF 为参数。这两个类由游戏自带（映射后的 game-lib 里就有），
-// 不是 Android 框架：桌面端与安卓端都由游戏本体提供，因此只对游戏编译，且不以 compileOnly 之外的形式外泄，
-// 使用者的类路径不会因此带上游戏。本模块作为内置扩展提供统一的游戏实现。
-// ------------------------------------------------------------------------------------------------
-
-import java.util.Properties
-import java.util.jar.JarFile
-
 plugins {
     kotlin("multiplatform")
     kotlin("plugin.serialization")
@@ -69,159 +53,57 @@ kotlin {
             api(libs.slf4j.api)
             api(libs.kotlin.reflect)
             api(libs.codeorigin)
-            api(libs.protobuf.java)
-            api(libs.korlibs.audio)
             implementation(libs.minimal.json)
             implementation(libs.kotlin.stdlib)
+
             compileOnly(libs.game.lib)
             compileOnly(libs.asm.framework)
             compileOnly("org.ow2.asm:asm-tree:9.10.1")
         }
 
-        jvmMain.dependencies {
-            compileOnly(libs.lwjgl)
+        jvmTest.dependencies {
+            implementation(kotlin("test"))
+            implementation(libs.game.lib)
+            implementation(libs.asm.framework)
+            implementation(libs.asm)
+            implementation(libs.rwml.core)
         }
     }
 }
 
-// The API is shipped as an extension archive. In particular, Android must load API and game classes
-// from the same game/extension loader instead of placing game-dependent API classes in the APK loader.
-fun apiHostProvides(component: org.gradle.api.artifacts.component.ComponentIdentifier): Boolean {
-    val module = component as? org.gradle.api.artifacts.component.ModuleComponentIdentifier ?: return false
-    if (module.group == "io.github.rwpp-team" && module.module == "rwml-core") return true
-    if (module.group == "org.jetbrains.kotlin" && module.module != "kotlin-reflect") return true
-    if (module.group == "kim.der.relay-cn" || module.group == "org.ow2.asm") return true
-    return false
+// 描述符里的版本在资源处理阶段展开，因此类路径上直接使用 classes 目录时也能读到真实版本。
+val verifyApiDependencies = tasks.register("verifyApiDependencies") {
+    val runtime = configurations.named("jvmRuntimeClasspath")
+    inputs.files(runtime)
+    doLast {
+        val forbidden = runtime.get().incoming.resolutionResult.allComponents.mapNotNull { component ->
+            (component.id as? org.gradle.api.artifacts.component.ModuleComponentIdentifier)?.takeIf {
+                it.group.startsWith("io.netty") || it.group == "com.github.l42111996"
+            }?.displayName
+        }
+        check(forbidden.isEmpty()) { "Transport runtime leaked into API: ${forbidden.joinToString()}" }
+    }
 }
+tasks.named("check") { dependsOn(verifyApiDependencies) }
 
-fun apiArtifactFiles(configurationName: String, artifactType: String, embedded: Boolean) =
-    files(providers.provider {
-        configurations.getByName(configurationName).incoming.artifactView {
-            attributes.attribute(org.gradle.api.artifacts.type.ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE, artifactType)
-            componentFilter { !embedded || !apiHostProvides(it) }
-        }.files
-    })
-
-val apiJvmRuntime = apiArtifactFiles("jvmRuntimeClasspath", "jar", embedded = true)
-
-fun verifyApiArchive(archive: File, android: Boolean) {
-    JarFile(archive).use { jar ->
-        val required = listOf(
-            "io/github/rwpp/api/ApiExtension.class",
-            "io/github/rwpp/api/game/impl/GameImpl.class",
-            "io/github/rwpp/api/game/impl/GameRoomImpl.class",
-            "io/github/rwpp/api/net/impl/NetImpl.class",
-            "io/github/rwpp/api/config/ConfigIOImpl.class",
-            "io/github/rwpp/api/game/audio/GameSoundPoolImpl.class",
-            "io/github/rwpp/api/graphics/GL30.class",
-            "org/koin/core/Koin.class",
-            "kotlin/reflect/full/KClasses.class",
-        )
-        required.forEach { check(jar.getEntry(it) != null) { "API extension is missing $it" } }
-        check((jar.getEntry("classes.dex") != null) == android) { "Incorrect API extension platform: $archive" }
-        check(jar.getEntry("io/github/rwml/api/Extension.class") == null) { "API must use the host's core classes" }
-        check(jar.getEntry("kotlin/Unit.class") == null) { "API must use the host's Kotlin standard library" }
-        check(jar.getEntry("io/github/rwpp/api/graphics/GL.class") == null) { "Obsolete GL helper is still packaged" }
-        listOf("GameI18nResolver", "I18nType", "TranslationTableProvider", "TranslationTableSnapshot").forEach {
-            check(jar.getEntry("io/github/rwpp/api/i18n/$it.class") == null) { "Obsolete translation API: $it" }
-        }
-        check(jar.entries().asSequence().none { it.name.startsWith("com/corrodinggames/") }) {
-            "API must not package game classes"
-        }
-        val descriptor = Properties().apply {
-            jar.getInputStream(jar.getEntry("META-INF/extension.properties")).use { load(it) }
-        }
-        check(descriptor.getProperty("id") == "io.github.rwml.api")
-        check(descriptor.getProperty("version") == project.version.toString()) { "API descriptor version is stale" }
+tasks.withType<ProcessResources>().configureEach {
+    filesMatching("META-INF/extension.properties") {
+        expand("version" to project.version.toString())
     }
 }
 
-val jvmExtensionJar = tasks.register<Jar>("jvmExtensionJar") {
-    group = "distribution"
-    description = "Package the built-in JVM API extension and its shared runtime."
-    archiveFileName.set("rwpp-api.jar")
-    destinationDirectory.set(layout.buildDirectory.dir("extensions/jvm"))
-    dependsOn("jvmJar")
-    from({ zipTree(tasks.named<Jar>("jvmJar").get().archiveFile.get()) })
-    from({ apiJvmRuntime.files.filter { it.isFile }.map { zipTree(it) } })
-    from("src/commonMain/resources")
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-    exclude("META-INF/MANIFEST.MF", "META-INF/*.SF", "META-INF/*.RSA", "META-INF/*.DSA", "META-INF/versions/**", "module-info.class")
-    doLast { verifyApiArchive(archiveFile.get().asFile, android = false) }
-}
-
-val apiAndroidRuntimeJars = apiArtifactFiles("androidRuntimeClasspath", "jar", embedded = true)
-val apiAndroidRuntimeAars = apiArtifactFiles("androidRuntimeClasspath", "android-classes-jar", embedded = true)
-val apiAndroidCompileJars = apiArtifactFiles("androidCompileClasspath", "jar", embedded = false)
-val apiAndroidCompileAars = apiArtifactFiles("androidCompileClasspath", "android-classes-jar", embedded = false)
-val androidProgramJar = tasks.register<Jar>("androidProgramJar") {
-    group = "distribution"
-    archiveFileName.set("rwpp-api-program.jar")
-    destinationDirectory.set(layout.buildDirectory.dir("intermediates/api-extension"))
-    dependsOn("compileAndroidMain")
-    from(layout.buildDirectory.dir("classes/kotlin/android/main"))
-    from({ apiAndroidRuntimeJars.files.filter { it.isFile }.map { zipTree(it) } })
-    from({ apiAndroidRuntimeAars.files.filter { it.isFile }.map { zipTree(it) } })
-    from("src/commonMain/resources")
-    from("src/androidMain/resources")
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-    exclude("META-INF/MANIFEST.MF", "META-INF/*.SF", "META-INF/*.RSA", "META-INF/*.DSA", "META-INF/versions/**", "module-info.class")
-}
-
-val apiD8 = configurations.create("apiD8") {
-    isCanBeResolved = true
-    isCanBeConsumed = false
-}
-dependencies { add(apiD8.name, "com.android.tools:r8:9.1.56") }
-val apiAndroidSdkJar = providers.provider {
-    val properties = Properties()
-    rootProject.file("local.properties").takeIf { it.isFile }?.inputStream()?.use { properties.load(it) }
-    val sdk = providers.gradleProperty("androidSdkDir").orNull ?: System.getenv("ANDROID_SDK_ROOT")
-        ?: System.getenv("ANDROID_HOME") ?: properties.getProperty("sdk.dir")
-        ?: error("Set androidSdkDir or sdk.dir to package the built-in API extension")
-    file(sdk).resolve("platforms/android-${libs.versions.android.compileSdk.get()}/android.jar")
-}
-val androidExtensionDexDirectory = layout.buildDirectory.dir("intermediates/api-extension/dex")
-val androidExtensionDex = tasks.register<JavaExec>("androidExtensionDex") {
-    group = "distribution"
-    dependsOn(androidProgramJar)
-    classpath = apiD8
-    mainClass.set("com.android.tools.r8.D8")
-    inputs.file(androidProgramJar.flatMap { it.archiveFile })
-    inputs.files(apiAndroidCompileJars, apiAndroidCompileAars, apiAndroidSdkJar)
-    outputs.dir(androidExtensionDexDirectory)
-    doFirst {
-        val output = androidExtensionDexDirectory.get().asFile
-        output.mkdirs()
-        output.listFiles().orEmpty().filter { it.isFile && Regex("classes\\d*\\.dex").matches(it.name) }
-            .forEach { check(it.delete()) { "Could not replace generated DEX ${it.name}" } }
-        setArgs(buildList {
-            addAll(listOf("--min-api", libs.versions.android.minSdk.get(), "--output", output.absolutePath, "--lib", apiAndroidSdkJar.get().absolutePath))
-            (apiAndroidCompileJars.files + apiAndroidCompileAars.files).filter { it.isFile && it.extension == "jar" }
-                .distinct().forEach { addAll(listOf("--classpath", it.absolutePath)) }
-            add(androidProgramJar.get().archiveFile.get().asFile.absolutePath)
-        })
+tasks.named<ProcessResources>("jvmProcessResources") {
+    // 内置扩展使用独占路径，避免类路径中其他扩展的通用描述符遮蔽本模块。
+    from("src/commonMain/resources/META-INF/extension.properties") {
+        into("META-INF/rwpp-api")
+        expand("version" to project.version.toString())
     }
-}
-val androidExtensionJar = tasks.register<Jar>("androidExtensionJar") {
-    group = "distribution"
-    description = "Package API class files for mixin discovery and DEX for the shared Android game loader."
-    archiveFileName.set("rwpp-api.jar")
-    destinationDirectory.set(layout.buildDirectory.dir("extensions/android"))
-    dependsOn(androidExtensionDex)
-    from({ zipTree(androidProgramJar.get().archiveFile.get()) })
-    from(androidExtensionDexDirectory)
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-    doLast { verifyApiArchive(archiveFile.get().asFile, android = true) }
 }
 
 tasks.withType<Jar>().configureEach {
     from(rootProject.file("LICENSE.md")) { into("META-INF") }
     isPreserveFileTimestamps = false
     isReproducibleFileOrder = true
-    filesMatching("META-INF/extension.properties") {
-        expand("version" to project.version.toString())
-    }
 }
 
 // Game mappings and sources are published together before Gradle sync/build.

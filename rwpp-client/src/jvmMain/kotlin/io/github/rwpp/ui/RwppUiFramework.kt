@@ -8,6 +8,7 @@
 package io.github.rwpp.ui
 
 import io.github.rwpp.api.ApiRuntime
+import io.github.rwpp.client.api.clientServices
 import io.github.rwml.api.ProgressListener
 import io.github.rwpp.api.config.ConfigIO
 import io.github.rwml.api.ui.UiFramework
@@ -29,6 +30,7 @@ class RwppUiFramework : UiFramework {
     override fun start(host: UiHost) {
         check(started.compareAndSet(false, true)) { "RWPP desktop UI has already been started" }
         ApiRuntime.configureKoin {
+            modules(clientServices)
             modules(ConfigModule::class, DesktopModule::class, CompModule::class, UIModule::class)
         }
         appKoin.get<ConfigIO>().readAllConfig()

@@ -59,6 +59,9 @@ class NetImpl : Net {
         MutableMap<String, (maxPlayer: Int, enableMods: Boolean, isPublic: Boolean) -> String> = mutableMapOf()
 
     override fun init() {
+        io.github.rwpp.api.net.packets.ModTransferHost.install(
+            io.github.rwpp.api.event.EventOwner(io.github.rwpp.api.ApiRuntime.extensionContext), this,
+        )
         roomListHostProtocol["RCN"] = { maxPlayer, enableMods, isPublic ->
             when {
                 enableMods && isPublic -> "Rmodupp$maxPlayer"

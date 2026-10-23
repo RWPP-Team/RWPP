@@ -10,3 +10,8 @@ build/
 
 # Ignore per-module bin output directories
 **/bin/
+
+/.kotlin/
+/.workbuddy/
+/docs/
+/scripts/

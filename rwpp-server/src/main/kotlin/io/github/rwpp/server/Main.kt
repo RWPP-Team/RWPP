@@ -10,6 +10,6 @@ package io.github.rwpp.server
 object Main {
     @JvmStatic
     fun main(args: Array<String>) {
-        ServerConsole.launch(args, ServerHost())
+        ServerConsole.launch(args) { ServerHost() }
     }
 }

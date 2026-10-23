@@ -307,6 +307,7 @@ class RwppUiFramework : UiFramework {
     private fun initializeKoin(activity: ComponentActivity) {
         appKoin.declare(activity, secondaryTypes = listOf(Context::class, Activity::class))
         ApiRuntime.configureKoin {
+            modules(io.github.rwpp.client.api.clientServices)
             modules(ConfigModule::class, AndroidModule::class, CompModule::class, UIModule::class)
         }
     }

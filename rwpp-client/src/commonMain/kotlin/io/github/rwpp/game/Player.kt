@@ -33,7 +33,6 @@ val noPlayer: Team
  */
 interface PlayerState {
     var _connectHexId: String?
-    var _ready: Boolean
 }
 
 private val Team.playerState: PlayerState
@@ -104,8 +103,8 @@ val Team.client: Connection?
 fun Team.realDifficulty(): Int = if (isAI) effectiveAIDifficulty else 0
 
 var Team.ready: Boolean
-    get() = playerState._ready
-    set(value) { playerState._ready = value }
+    get() = io.github.rwpp.api.net.packets.ModTransferHost.isReady(this)
+    set(value) { io.github.rwpp.api.net.packets.ModTransferHost.setReady(this, value) }
 
 fun Team.teamAlias(): String = when {
     allyTeam == -3 -> "S"

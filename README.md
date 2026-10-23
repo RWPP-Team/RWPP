@@ -38,6 +38,9 @@ You can download RWPP release version in the releases.
 
 <h1 align="center"> Run </h1>
 
+独立服务端的构建、资源目录和后台启动方式见 [rwpp-server/README.md](rwpp-server/README.md)。
+共享层、可选客户端能力及两端宿主的职责见 [项目结构](docs/PROJECT-STRUCTURE.md)。
+
 ## Msi Version
 - Install RWPP to your rw root directory
 > e.g. SteamLibrary\steamapps\common\Rusted Warfare\

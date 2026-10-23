@@ -78,7 +78,6 @@ private fun openNetworkMap(value: String, mapName: String, type: GameSetupMapTyp
             "/SD/rustedWarfare/saves/$mapFileName",
             "saves/$mapFileName",
         )
-        else -> emptyList()
     }
     candidates += preferredPaths
 
@@ -138,8 +137,7 @@ private fun sameMapName(
     second: String?,
     type: GameSetupMapType,
 ): Boolean {
-    if (first.isNullOrBlank() || second.isNullOrBlank()) return false
-    return mapNameFromPath(first, type).equals(mapNameFromPath(second, type), ignoreCase = true)
+    return !(first.isNullOrBlank() || second.isNullOrBlank()) && mapNameFromPath(first, type).equals(mapNameFromPath(second, type), ignoreCase = true)
 }
 
 private fun String.removeMapSuffix(): String = when {

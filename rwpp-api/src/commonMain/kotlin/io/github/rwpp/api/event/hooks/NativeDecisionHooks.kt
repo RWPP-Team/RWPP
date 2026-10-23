@@ -20,11 +20,11 @@ import kim.der.asm.api.annotation.*
 @AsmMixin("com/corrodinggames/rts/gameFramework/network/NetworkCallbacks")
 object NativeJoinDecisionMixin {
     @AsmInject(method = "onPlayerJoining(Lcom/corrodinggames/rts/gameFramework/network/Connection;Ljava/lang/String;IILjava/lang/String;Lcom/corrodinggames/rts/game/Player;)Ljava/lang/String;", target = InjectionPoint.TAIL, require = 1)
-    fun check(callback: CallbackInfo, target: Any, connection: Connection, name: String,
+    fun check(callback: CallbackInfo, target: Any, connection: Any, name: String,
               protocolVersion: Int, gameVersion: Int, packageName: String?, player: Any?) {
         if (callback.getReturnValue<String>() != null) return
         val event = PlayerJoinAttemptEvent(
-            connection = connection,
+            connection = connection as Connection,
             name = name,
             protocolVersion = protocolVersion,
             gameVersion = gameVersion,
@@ -40,8 +40,8 @@ object NativeJoinDecisionMixin {
 @AsmMixin("com/corrodinggames/rts/gameFramework/network/NetworkEngine")
 object NativeDecisionMixin {
     @AsmInject(method = "queueCommand(Lcom/corrodinggames/rts/gameFramework/CommandControllerCommand;)V", target = InjectionPoint.HEAD, cancellable = true, require = 1)
-    fun beforeQueue(callback: CallbackInfo, target: Any, command: CommandControllerCommand) {
-        val event = CommandQueueEvent(command)
+    fun beforeQueue(callback: CallbackInfo, target: Any, command: Any) {
+        val event = CommandQueueEvent(command as CommandControllerCommand)
         if (hasNativeEventListeners(CommandQueueEvent::class)) broadcastNativeEvent(event)
         if (event.isCancelled) callback.cancel()
     }
@@ -55,16 +55,17 @@ object NativeDecisionMixin {
     }
 
     @AsmInject(method = "routeChatMessageViaRelay(Lcom/corrodinggames/rts/gameFramework/network/Connection;Lcom/corrodinggames/rts/game/Team;Ljava/lang/String;Ljava/lang/String;Lcom/corrodinggames/rts/gameFramework/network/Connection;)V", target = InjectionPoint.HEAD, cancellable = true, require = 1)
-    fun beforeRelayChat(callback: CallbackInfo, target: Any, connection: Connection?, team: Team?, sender: String?, message: String?) {
-        val event = ChatMessageEvent(sender.orEmpty(), message.orEmpty(), team, -1, ChatOrigin.REMOTE_RELAY, connection)
+    fun beforeRelayChat(callback: CallbackInfo, target: Any, connection: Any?, team: Any?, sender: String?, message: String?) {
+        val event = ChatMessageEvent(sender.orEmpty(), message.orEmpty(), team as? Team, -1, ChatOrigin.REMOTE_RELAY, connection as? Connection)
         if (hasNativeEventListeners(ChatMessageEvent::class)) broadcastNativeEvent(event)
         if (event.isCancelled) callback.cancel()
     }
 
     @AsmInject(method = "receiveChatMessage(Lcom/corrodinggames/rts/gameFramework/network/Connection;ILjava/lang/String;Ljava/lang/String;)V", target = InjectionPoint.HEAD, cancellable = true, require = 1)
-    fun beforeReceive(callback: CallbackInfo, target: Any, connection: Connection?, color: Int, sender: String?, message: String?) {
-        val team = connection?.player as? Team
-        val event = ChatMessageEvent(sender.orEmpty(), message.orEmpty(), team, color, ChatOrigin.RECEIVE, connection)
+    fun beforeReceive(callback: CallbackInfo, target: Any, connection: Any?, color: Int, sender: String?, message: String?) {
+        val nativeConnection = connection as? Connection
+        val team = nativeConnection?.player as? Team
+        val event = ChatMessageEvent(sender.orEmpty(), message.orEmpty(), team, color, ChatOrigin.RECEIVE, nativeConnection)
         if (hasNativeEventListeners(ChatMessageEvent::class)) broadcastNativeEvent(event)
         if (event.isCancelled) callback.cancel()
     }

@@ -7,21 +7,11 @@
 
 package io.github.rwpp.server
 
-import android.content.ServerContext
-import android.os.Looper
 import com.corrodinggames.rts.game.Team
 import com.corrodinggames.rts.game.RWGameEngine
-import com.corrodinggames.rts.gameFramework.GameEngine
 import com.corrodinggames.rts.gameFramework.GameEngineMapType
-import com.corrodinggames.rts.gameFramework.MusicController
-import com.corrodinggames.rts.gameFramework.MusicControllerNullMusicFactory
 import com.corrodinggames.rts.gameFramework.network.GameSetupMapType
 import com.corrodinggames.rts.gameFramework.network.NetworkCallbacks
-import com.corrodinggames.rts.gameFramework.network.MasterServerConnector
-import com.corrodinggames.rts.java.DesktopHttpClientFactory
-import com.corrodinggames.rts.gameFramework.render.GraphicsEngineNull
-import com.corrodinggames.rts.gameFramework.sound.NullSoundFactory
-import com.corrodinggames.rts.gameFramework.sound.SoundEngine
 import io.github.rwpp.api.appKoin
 import io.github.rwpp.api.config.ServerConfig
 import io.github.rwpp.api.config.ServerType
@@ -48,6 +38,7 @@ class NativeHeadlessServer(
         val name: String = "RWPP Server",
         val visible: Boolean = false,
         val maxPlayers: Int? = null,
+        val transferMods: Boolean = false,
     ) {
         init {
             require(port in 1..65535) { "Server port must be between 1 and 65535" }
@@ -90,10 +81,7 @@ class NativeHeadlessServer(
         check(engineValue == null) { "The headless server has already started" }
         check(!closed) { "The headless server is closed" }
 
-        configureHeadlessPlatform()
-        val created = GameEngine.getOrCreate(ServerContext(), null) as? RWGameEngine
-            ?: error("The native game engine did not initialize as RWGameEngine")
-        check(created.initialized) { "The native game engine is not initialized" }
+        val created = HeadlessEngine.create()
         engineValue = created
 
         val network = created.networkEngine
@@ -108,6 +96,7 @@ class NativeHeadlessServer(
         options.maxPlayers?.let { Team.setMaxTeamId(it, false) }
 
         check(network.startServer(true)) { "The native server could not listen on port ${options.port}" }
+        appKoin.get<GameRoom>().option.canTransferMod = options.transferMods
         ServerInfoResponder.install(responderOwner, appKoin.get<Net>(), NativeServerInfo)
     }
 
@@ -236,21 +225,6 @@ class NativeHeadlessServer(
 
             else -> error("Map must be under maps/skirmish, mods/maps, or saves")
         }
-    }
-
-    private fun configureHeadlessPlatform() {
-        MasterServerConnector.httpClientFactory = DesktopHttpClientFactory()
-        if (Looper.getMainLooper() == null) Looper.prepareMainLooper()
-        GameEngine.isDedicatedServerPlatform = true
-        GameEngine.isDesktopPlatform = false
-        GameEngine.isDesktopCanvas = false
-        GameEngine.disableAutomaticGameThread = true
-        GameEngine.noBackground = true
-        GameEngine.crashHandlerEnabled = false
-        GameEngine.graphicsCanvasClass = GraphicsEngineNull::class.java
-        GameEngine.preCreatedGraphics = null
-        SoundEngine.factory = NullSoundFactory()
-        MusicController.musicFactory = MusicControllerNullMusicFactory()
     }
 
     private companion object {

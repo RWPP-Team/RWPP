@@ -29,6 +29,9 @@ object RwppExtensionRuntime {
 /** RWML extension entry point. */
 class RwppExtension : Extension {
     override fun onLoad(context: ExtensionContext) {
+        io.github.rwpp.api.net.transport.TransportRuntime.installIfAbsent {
+            io.github.rwpp.client.net.JdkTransportBackend()
+        }
         ApiExtension().onLoad(context)
         RwppExtensionRuntime.initialize(context)
         context.log("RWPP extension services initialized")

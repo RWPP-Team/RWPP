@@ -40,14 +40,12 @@ import io.github.rwpp.api.event.events.DisconnectEvent
 import io.github.rwpp.api.event.events.GameLoadedEvent
 import io.github.rwpp.api.event.events.ModCheckEvent
 import io.github.rwpp.api.game.Game
-import io.github.rwpp.game.ready
 import io.github.rwpp.api.game.PlayerIds
 import io.github.rwpp.game.reloadMods
-import io.github.rwpp.api.util.zipFolderToByte
 import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.api.io.SizeUtils
 import io.github.rwpp.modDir
-import io.github.rwpp.net.packets.ModPacket
+import io.github.rwpp.api.net.packets.ModPacket
 import io.github.rwpp.projectVersion
 import io.github.rwpp.ui.UI
 import io.github.rwpp.widget.BorderCard
@@ -60,7 +58,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
-import io.github.rwpp.api.net.sendPacketToClient
 import io.github.rwpp.api.Initialization
 import io.github.rwpp.net.LatestVersionProfile
 import io.github.rwpp.api.net.Net
@@ -71,7 +68,7 @@ import io.github.rwpp.api.event.EventOwner
 import io.github.rwpp.api.net.registerPacketListener
 import io.github.rwpp.api.server.ServerInfoResponder
 import io.github.rwpp.net.getLatestVersionProfile
-import io.github.rwpp.net.packets.ProductPackets
+import io.github.rwpp.api.net.packets.ModPackets
 
 //typealias TargetPositionWithUnits = Triple<Double, Double, List<GameUnit>>
 
@@ -139,33 +136,7 @@ object Logic : Initialization {
         val game = appKoin.get<Game>()
         val net = appKoin.get<Net>()
         ServerInfoResponder.install(owner, net, RwppClientServerInfo)
-        net.registerPacketListener(owner, ProductPackets.MOD_REQUEST) { client, packet ->
-            val requested = packet.mods.split(",").toSet()
-            GameScope.launch {
-                val room = game.gameRoom
-                if (!room.isHost || !room.option.canTransferMod || client == null) return@launch
-                runCatching {
-                    val player = room.getPlayerByClient(client) ?: return@runCatching
-                    player.ready = false
-                    val mods = GameEngine.getInstance().modManager.refreshModList().filterIsInstance<Mod>()
-                        .filter { it.isEnabled && (it.getTitle() ?: it.name.orEmpty()) in requested }
-                    // Copy paths/names before filesystem work leaves the game dispatcher.
-                    val sources = mods.map { (it.getTitle() ?: it.name.orEmpty()) to (it.getSourcePath() ?: it.path.orEmpty()) }
-                    withContext(Dispatchers.IO) {
-                        sources.forEachIndexed { index, (name, path) ->
-                            val file = File(path)
-                            client.sendPacketToClient(ModPacket.ModPackPacket().apply {
-                                this.index = index
-                                this.name = name
-                                modBytes = if (file.isDirectory) file.zipFolderToByte() else file.readBytes()
-                            })
-                        }
-                    }
-                }.onFailure { logger().error(it.stackTraceToString()) }
-            }
-            true
-        }
-        net.registerPacketListener(owner, ProductPackets.MOD_DATA) { _, packet ->
+        net.registerPacketListener(owner, ModPackets.MOD_DATA) { _, packet ->
             val name = packet.name
             val data = packet.modBytes
             val index = packet.index
@@ -204,12 +175,7 @@ object Logic : Initialization {
             }
             true
         }
-        net.registerPacketListener(owner, ProductPackets.MOD_READY) { client, _ ->
-            GameScope.launch {
-                if (game.gameRoom.isHost && client != null) game.gameRoom.getPlayerByClient(client)?.ready = true
-            }
-            true
-        }
+
     }
     suspend fun checkUpdate(checkImmediately: Boolean = false) {
         val coreData = appKoin.get<CoreData>()

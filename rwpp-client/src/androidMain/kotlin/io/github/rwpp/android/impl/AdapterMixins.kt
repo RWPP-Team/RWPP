@@ -22,10 +22,6 @@ abstract class PlayerAdapterMixin {
     @field:AddField("_connectHexId")
     var connectHexIdStorage: String? = null
 
-    @JvmField
-    @field:AddField("_ready")
-    var readyStorage: Boolean = true
-
     @Copy("getSelf()Lcom/corrodinggames/rts/game/Team;")
     fun getSelf(): Any = this
 
@@ -35,9 +31,4 @@ abstract class PlayerAdapterMixin {
     @Accessor("_connectHexId")
     abstract fun set_connectHexId(value: String?)
 
-    @Accessor("_ready")
-    abstract fun get_ready(): Boolean
-
-    @Accessor("_ready")
-    abstract fun set_ready(value: Boolean)
 }
