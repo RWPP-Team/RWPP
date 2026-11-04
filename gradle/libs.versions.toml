@@ -9,7 +9,7 @@ asm = "9.10.1"
 r8 = "9.1.56"
 
 # Android SDK
-android-compileSdk = "36"
+android-compileSdk = "37"
 android-targetSdk = "35"
 android-minSdk = "26"
 

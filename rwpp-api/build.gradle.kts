@@ -127,12 +127,33 @@ tasks.named<Test>("jvmTest") {
     }
 }
 
+// Central 要求每个构件同时提供 sources 与 javadoc。Kotlin 源码的文档要由 Dokka 生成后才能替代它，
+// 这里先放一份说明。每个 publication 使用独立的归档名，否则三个签名任务会写同一个文件。
+fun registerJavadocJar(publication: String, artifact: String) =
+    tasks.register<Jar>("${publication}JavadocJar") {
+        archiveBaseName.set(artifact)
+        archiveClassifier.set("javadoc")
+        val directory = layout.buildDirectory.dir("javadoc/$publication")
+        from(directory)
+        doFirst {
+            val file = directory.get().file("README.txt").asFile
+            file.parentFile.mkdirs()
+            file.writeText(
+                "RWPP API ${project.version}. API documentation ships with the Kotlin sources archive; " +
+                    "read $artifact-${project.version}-sources.jar in your IDE.\n"
+            )
+        }
+    }
+
 // Game mappings and sources are published together before Gradle sync/build.
 // Keep the Maven component identity so IDEA can attach the sources classifier.
 
 publishing {
     publications.withType<MavenPublication>().configureEach {
         artifactId = if (name == "kotlinMultiplatform") "rwpp-api" else "rwpp-api-$name"
+        val publicationName = name
+        val artifactName = artifactId
+        artifact(registerJavadocJar(publicationName, artifactName))
         pom {
             name.set("RWPP API")
             description.set(project.description.toString())
