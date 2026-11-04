@@ -1,8 +1,10 @@
 <!--
   - Copyright 2023-2026 RWPP contributors
-  - 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
-  - Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
-  - https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+  - 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+  - Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+  - https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
   -->
 
-<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24"><path d="M480-80q-75 0-140.5-28.5t-114-77q-48.5-48.5-77-114T120-440h80q0 117 81.5 198.5T480-160q117 0 198.5-81.5T760-440q0-117-81.5-198.5T480-720h-6l62 62-56 58-160-160 160-160 56 58-62 62h6q75 0 140.5 28.5t114 77q48.5 48.5 77 114T840-440q0 75-28.5 140.5t-77 114q-48.5 48.5-114 77T480-80Z"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24">
+    <path d="M480-80q-75 0-140.5-28.5t-114-77q-48.5-48.5-77-114T120-440h80q0 117 81.5 198.5T480-160q117 0 198.5-81.5T760-440q0-117-81.5-198.5T480-720h-6l62 62-56 58-160-160 160-160 56 58-62 62h6q75 0 140.5 28.5t114 77q48.5 48.5 77 114T840-440q0 75-28.5 140.5t-77 114q-48.5 48.5-114 77T480-80Z"/>
+</svg>

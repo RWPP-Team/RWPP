@@ -1,8 +1,10 @@
 <!--
   - Copyright 2023-2026 RWPP contributors
-  - 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
-  - Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
-  - https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+  - 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+  - Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+  - https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
   -->
 
-<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#e8eaed"><path d="M480-400 40-640l440-240 440 240-440 240Zm0 160L63-467l84-46 333 182 333-182 84 46-417 227Zm0 160L63-307l84-46 333 182 333-182 84 46L480-80Zm0-411 273-149-273-149-273 149 273 149Zm0-149Z"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#e8eaed">
+    <path d="M480-400 40-640l440-240 440 240-440 240Zm0 160L63-467l84-46 333 182 333-182 84 46-417 227Zm0 160L63-307l84-46 333 182 333-182 84 46L480-80Zm0-411 273-149-273-149-273 149 273 149Zm0-149Z"/>
+</svg>

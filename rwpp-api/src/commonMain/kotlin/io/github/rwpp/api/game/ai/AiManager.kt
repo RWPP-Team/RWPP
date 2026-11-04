@@ -1,8 +1,8 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.api.game.ai
@@ -11,24 +11,16 @@ import com.corrodinggames.rts.game.Team
 import com.corrodinggames.rts.game.ai.AI
 import com.corrodinggames.rts.gameFramework.CommandControllerCommand
 import com.corrodinggames.rts.gameFramework.GameEngine
-import io.github.rwpp.api.Initialization
 import io.github.rwpp.api.ApiRuntime
+import io.github.rwpp.api.Initialization
 import io.github.rwpp.api.coroutines.GameMainDispatcher
 import io.github.rwpp.api.coroutines.GameScope
 import io.github.rwpp.api.event.EventOwner
 import io.github.rwpp.api.event.GlobalEventChannel
-import io.github.rwpp.api.event.events.DisconnectEvent
-import io.github.rwpp.api.event.events.GameOverEvent
-import io.github.rwpp.api.event.events.MapChangedEvent
-import io.github.rwpp.api.event.events.QuitGameEvent
-import io.github.rwpp.api.event.events.ReturnMainMenuEvent
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import io.github.rwpp.api.event.events.*
+import kotlinx.coroutines.*
 import org.koin.core.annotation.Single
-import java.util.IdentityHashMap
+import java.util.*
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** Chooses whether a custom controller runs alongside or in place of the native AI logic. */
@@ -436,22 +428,22 @@ internal object AiControllerRuntime {
 
     private fun hasAuthority(engine: GameEngine): Boolean =
         !engine.replayEngine.isPlayingReplay &&
-            (!engine.networkEngine.networked || engine.networkEngine.isServer) &&
-            (engine.networkEngine.networked || engine.isGameRunning)
+                (!engine.networkEngine.networked || engine.networkEngine.isServer) &&
+                (engine.networkEngine.networked || engine.isGameRunning)
 
     private fun isCurrentAI(ai: AI): Boolean {
         val teamId = ai.teamId
         return ai.isAI &&
-            teamId >= 0 &&
-            teamId < Team.maxTeamId &&
-            Team.getTeam(teamId) === ai
+                teamId >= 0 &&
+                teamId < Team.maxTeamId &&
+                Team.getTeam(teamId) === ai
     }
 
     private fun logFailure(ai: AI, failure: Throwable) {
         try {
             GameEngine.log(
                 "RWML custom AI controller failed for team " + ai.teamId +
-                    "; it has been unregistered: " + failure,
+                        "; it has been unregistered: " + failure,
             )
         } catch (_: Throwable) {
             // The controller failure must not escape into the native simulation loop.

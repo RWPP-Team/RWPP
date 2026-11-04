@@ -1,13 +1,12 @@
 package io.github.rwpp.api.net.impl
 
-import io.github.rwpp.server.net.NativeTcpSocket
-import io.github.rwpp.server.net.NativeTcpServerSocket
-import io.github.rwpp.server.net.NativeKcpServerSocket
-import io.github.rwpp.server.net.ServerTransportBackend
 import io.github.rwpp.api.net.transport.TransportRuntime
-
-import java.net.DatagramSocket
+import io.github.rwpp.server.net.NativeKcpServerSocket
+import io.github.rwpp.server.net.NativeTcpServerSocket
+import io.github.rwpp.server.net.NativeTcpSocket
+import io.github.rwpp.server.net.ServerTransportBackend
 import java.net.BindException
+import java.net.DatagramSocket
 import java.net.InetSocketAddress
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
@@ -15,9 +14,18 @@ import java.util.concurrent.TimeUnit
 import kotlin.test.*
 
 class NativeKcpSocketTest {
-    @BeforeTest fun installBackend() { TransportRuntime.install(ServerTransportBackend()) }
-    @AfterTest fun stopBackend() { TransportRuntime.close() }
-    @Test fun welcomeSelectsKcpAndLargeNativeFramesRemainOrdered() {
+    @BeforeTest
+    fun installBackend() {
+        TransportRuntime.install(ServerTransportBackend())
+    }
+
+    @AfterTest
+    fun stopBackend() {
+        TransportRuntime.close()
+    }
+
+    @Test
+    fun welcomeSelectsKcpAndLargeNativeFramesRemainOrdered() {
         NativeKcpServerSocket(0).use { server ->
             NativeKcpSocket().use { client ->
                 client.connect(InetSocketAddress("127.0.0.1", server.localPort), 5000)
@@ -25,8 +33,16 @@ class NativeKcpSocketTest {
                 (server.accept() as NativeKcpSocket).use { accepted ->
                     val received = LinkedBlockingQueue<Pair<Int, ByteArray>>()
                     val failures = LinkedBlockingQueue<String>()
-                    accepted.startReceiving({ NativeTcpSocket.MAX_PACKET_BYTES }, { type, bytes -> accepted.send(type, bytes) }, failures::offer)
-                    client.startReceiving({ NativeTcpSocket.MAX_PACKET_BYTES }, { type, bytes -> received.offer(type to bytes) }, failures::offer)
+                    accepted.startReceiving(
+                        { NativeTcpSocket.MAX_PACKET_BYTES },
+                        { type, bytes -> accepted.send(type, bytes) },
+                        failures::offer
+                    )
+                    client.startReceiving(
+                        { NativeTcpSocket.MAX_PACKET_BYTES },
+                        { type, bytes -> received.offer(type to bytes) },
+                        failures::offer
+                    )
                     for (size in listOf(0, 17, 2_000_000, 64)) {
                         val bytes = ByteArray(size) { (it * 31).toByte() }
                         assertTrue(client.send(size, bytes))
@@ -40,27 +56,31 @@ class NativeKcpSocketTest {
         }
     }
 
-    @Test fun silentUdpFallsBackToTcpWithinTheSameConnectBudget() {
+    @Test
+    fun silentUdpFallsBackToTcpWithinTheSameConnectBudget() {
         val old = System.getProperty("rwpp.network.probeMillis")
         System.setProperty("rwpp.network.probeMillis", "100")
         try {
             withTcpAndSilentUdp { server ->
-                    NativeKcpSocket().use { client ->
-                        val started = System.nanoTime()
-                        client.connect(InetSocketAddress("127.0.0.1", server.localPort), 3000)
-                        assertEquals("TCP", client.transportName)
-                        assertTrue(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started) < 3000)
-                        (server.accept() as NativeTcpSocket).use { accepted ->
-                            val reply = LinkedBlockingQueue<ByteArray>()
-                            accepted.startReceiving({ 10_000 }, { type, bytes -> accepted.send(type, bytes) }, {})
-                            client.startReceiving({ 10_000 }, { _, bytes -> reply.offer(bytes) }, {})
-                            assertTrue(client.send(1, byteArrayOf(1, 2, 3)))
-                            assertContentEquals(byteArrayOf(1, 2, 3), reply.poll(3, TimeUnit.SECONDS))
-                        }
+                NativeKcpSocket().use { client ->
+                    val started = System.nanoTime()
+                    client.connect(InetSocketAddress("127.0.0.1", server.localPort), 3000)
+                    assertEquals("TCP", client.transportName)
+                    assertTrue(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started) < 3000)
+                    (server.accept() as NativeTcpSocket).use { accepted ->
+                        val reply = LinkedBlockingQueue<ByteArray>()
+                        accepted.startReceiving({ 10_000 }, { type, bytes -> accepted.send(type, bytes) }, {})
+                        client.startReceiving({ 10_000 }, { _, bytes -> reply.offer(bytes) }, {})
+                        assertTrue(client.send(1, byteArrayOf(1, 2, 3)))
+                        assertContentEquals(byteArrayOf(1, 2, 3), reply.poll(3, TimeUnit.SECONDS))
                     }
+                }
             }
         } finally {
-            if (old == null) System.clearProperty("rwpp.network.probeMillis") else System.setProperty("rwpp.network.probeMillis", old)
+            if (old == null) System.clearProperty("rwpp.network.probeMillis") else System.setProperty(
+                "rwpp.network.probeMillis",
+                old
+            )
         }
     }
 
@@ -69,8 +89,11 @@ class NativeKcpSocketTest {
         // protocol does not prove the same port is free for the other.
         repeat(20) {
             NativeTcpServerSocket(0).use { server ->
-                val udp = try { DatagramSocket(server.localPort) }
-                catch (_: BindException) { return@use }
+                val udp = try {
+                    DatagramSocket(server.localPort)
+                } catch (_: BindException) {
+                    return@use
+                }
                 udp.use { block(server) }
                 return
             }
@@ -78,7 +101,8 @@ class NativeKcpSocketTest {
         error("Could not reserve a TCP/UDP test port")
     }
 
-    @Test fun closeAfterWritesWaitsForSlowInboundDelivery() {
+    @Test
+    fun closeAfterWritesWaitsForSlowInboundDelivery() {
         NativeKcpServerSocket(0).use { server ->
             NativeKcpSocket().use { client ->
                 client.connect(InetSocketAddress("127.0.0.1", server.localPort), 5000)
@@ -110,13 +134,18 @@ class NativeKcpSocketTest {
 
                     assertEquals(1, received.poll(3, TimeUnit.SECONDS))
                     assertEquals(2, received.poll(3, TimeUnit.SECONDS), "Trailing accepted frame was lost or reordered")
-                    assertEquals("KCP connection closed", clientFailures.poll(3, TimeUnit.SECONDS), "Close confirmation did not finish")
+                    assertEquals(
+                        "KCP connection closed",
+                        clientFailures.poll(3, TimeUnit.SECONDS),
+                        "Close confirmation did not finish"
+                    )
                 }
             }
         }
     }
 
-    @Test fun failureBeforeReceiverInstallationIsDeliveredWhenInstalled() {
+    @Test
+    fun failureBeforeReceiverInstallationIsDeliveredWhenInstalled() {
         NativeKcpSocket().use { socket ->
             socket.fail("early disconnect")
             val failures = LinkedBlockingQueue<String>()

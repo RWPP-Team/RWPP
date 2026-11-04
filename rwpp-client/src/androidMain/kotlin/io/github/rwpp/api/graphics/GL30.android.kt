@@ -1,17 +1,13 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 package io.github.rwpp.api.graphics
 
 import android.opengl.GLES30
-import java.nio.Buffer
-import java.nio.ByteBuffer
-import java.nio.FloatBuffer
-import java.nio.IntBuffer
-import java.nio.LongBuffer
+import java.nio.*
 
 actual object GL30 {
     actual fun glReadBuffer(mode: Int) {
@@ -26,23 +22,79 @@ actual object GL30 {
         GLES30.glDrawRangeElements(mode, start, end, count, type, offset)
     }
 
-    actual fun glTexImage3D(target: Int, level: Int, internalformat: Int, width: Int, height: Int, depth: Int, border: Int, format: Int, type: Int, pixels: Buffer?) {
+    actual fun glTexImage3D(
+        target: Int,
+        level: Int,
+        internalformat: Int,
+        width: Int,
+        height: Int,
+        depth: Int,
+        border: Int,
+        format: Int,
+        type: Int,
+        pixels: Buffer?
+    ) {
         GLES30.glTexImage3D(target, level, internalformat, width, height, depth, border, format, type, pixels)
     }
 
-    actual fun glTexImage3D(target: Int, level: Int, internalformat: Int, width: Int, height: Int, depth: Int, border: Int, format: Int, type: Int, offset: Int) {
+    actual fun glTexImage3D(
+        target: Int,
+        level: Int,
+        internalformat: Int,
+        width: Int,
+        height: Int,
+        depth: Int,
+        border: Int,
+        format: Int,
+        type: Int,
+        offset: Int
+    ) {
         GLES30.glTexImage3D(target, level, internalformat, width, height, depth, border, format, type, offset)
     }
 
-    actual fun glTexSubImage3D(target: Int, level: Int, xoffset: Int, yoffset: Int, zoffset: Int, width: Int, height: Int, depth: Int, format: Int, type: Int, pixels: Buffer?) {
+    actual fun glTexSubImage3D(
+        target: Int,
+        level: Int,
+        xoffset: Int,
+        yoffset: Int,
+        zoffset: Int,
+        width: Int,
+        height: Int,
+        depth: Int,
+        format: Int,
+        type: Int,
+        pixels: Buffer?
+    ) {
         GLES30.glTexSubImage3D(target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, pixels)
     }
 
-    actual fun glTexSubImage3D(target: Int, level: Int, xoffset: Int, yoffset: Int, zoffset: Int, width: Int, height: Int, depth: Int, format: Int, type: Int, offset: Int) {
+    actual fun glTexSubImage3D(
+        target: Int,
+        level: Int,
+        xoffset: Int,
+        yoffset: Int,
+        zoffset: Int,
+        width: Int,
+        height: Int,
+        depth: Int,
+        format: Int,
+        type: Int,
+        offset: Int
+    ) {
         GLES30.glTexSubImage3D(target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, offset)
     }
 
-    actual fun glCopyTexSubImage3D(target: Int, level: Int, xoffset: Int, yoffset: Int, zoffset: Int, x: Int, y: Int, width: Int, height: Int) {
+    actual fun glCopyTexSubImage3D(
+        target: Int,
+        level: Int,
+        xoffset: Int,
+        yoffset: Int,
+        zoffset: Int,
+        x: Int,
+        y: Int,
+        width: Int,
+        height: Int
+    ) {
         GLES30.glCopyTexSubImage3D(target, level, xoffset, yoffset, zoffset, x, y, width, height)
     }
 
@@ -110,11 +162,28 @@ actual object GL30 {
         GLES30.glUniformMatrix4x3fv(location, count, transpose, value)
     }
 
-    actual fun glBlitFramebuffer(srcX0: Int, srcY0: Int, srcX1: Int, srcY1: Int, dstX0: Int, dstY0: Int, dstX1: Int, dstY1: Int, mask: Int, filter: Int) {
+    actual fun glBlitFramebuffer(
+        srcX0: Int,
+        srcY0: Int,
+        srcX1: Int,
+        srcY1: Int,
+        dstX0: Int,
+        dstY0: Int,
+        dstX1: Int,
+        dstY1: Int,
+        mask: Int,
+        filter: Int
+    ) {
         GLES30.glBlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter)
     }
 
-    actual fun glRenderbufferStorageMultisample(target: Int, samples: Int, internalformat: Int, width: Int, height: Int) {
+    actual fun glRenderbufferStorageMultisample(
+        target: Int,
+        samples: Int,
+        internalformat: Int,
+        width: Int,
+        height: Int
+    ) {
         GLES30.glRenderbufferStorageMultisample(target, samples, internalformat, width, height)
     }
 
@@ -230,7 +299,13 @@ actual object GL30 {
         GLES30.glGetUniformIndices(program, uniformNames, uniformIndices)
     }
 
-    actual fun glGetActiveUniformsiv(program: Int, uniformCount: Int, uniformIndices: IntBuffer?, pname: Int, params: IntBuffer?) {
+    actual fun glGetActiveUniformsiv(
+        program: Int,
+        uniformCount: Int,
+        uniformIndices: IntBuffer?,
+        pname: Int,
+        params: IntBuffer?
+    ) {
         GLES30.glGetActiveUniformsiv(program, uniformCount, uniformIndices, pname, params)
     }
 
@@ -242,8 +317,18 @@ actual object GL30 {
         GLES30.glGetActiveUniformBlockiv(program, uniformBlockIndex, pname, params)
     }
 
-    actual fun glGetActiveUniformBlockName(program: Int, uniformBlockIndex: Int, length: Buffer?, uniformBlockName: Buffer?) {
-        GLES30.glGetActiveUniformBlockName(program, uniformBlockIndex, length as IntBuffer?, uniformBlockName as ByteBuffer?)
+    actual fun glGetActiveUniformBlockName(
+        program: Int,
+        uniformBlockIndex: Int,
+        length: Buffer?,
+        uniformBlockName: Buffer?
+    ) {
+        GLES30.glGetActiveUniformBlockName(
+            program,
+            uniformBlockIndex,
+            length as IntBuffer?,
+            uniformBlockName as ByteBuffer?
+        )
     }
 
     actual fun glUniformBlockBinding(program: Int, uniformBlockIndex: Int, uniformBlockBinding: Int) {
@@ -342,7 +427,15 @@ actual object GL30 {
         GLES30.glInvalidateFramebuffer(target, numAttachments, attachments)
     }
 
-    actual fun glInvalidateSubFramebuffer(target: Int, numAttachments: Int, attachments: IntBuffer?, x: Int, y: Int, width: Int, height: Int) {
+    actual fun glInvalidateSubFramebuffer(
+        target: Int,
+        numAttachments: Int,
+        attachments: IntBuffer?,
+        x: Int,
+        y: Int,
+        width: Int,
+        height: Int
+    ) {
         GLES30.glInvalidateSubFramebuffer(target, numAttachments, attachments, x, y, width, height)
     }
 }

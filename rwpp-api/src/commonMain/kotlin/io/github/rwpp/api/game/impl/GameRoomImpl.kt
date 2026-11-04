@@ -1,8 +1,8 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.api.game.impl
@@ -14,8 +14,8 @@ import com.corrodinggames.rts.gameFramework.network.Connection
 import com.corrodinggames.rts.gameFramework.network.GameSetup
 import com.corrodinggames.rts.gameFramework.network.GameSetupMapType
 import com.corrodinggames.rts.gameFramework.network.TeamLayout
-import io.github.rwpp.api.State
 import io.github.rwpp.api.ApiRuntime
+import io.github.rwpp.api.State
 import io.github.rwpp.api.appKoin
 import io.github.rwpp.api.coroutines.GameScope
 import io.github.rwpp.api.event.GameEventPublisher
@@ -23,14 +23,12 @@ import io.github.rwpp.api.game.Game
 import io.github.rwpp.api.game.GameRoom
 import io.github.rwpp.api.game.GameState
 import io.github.rwpp.api.game.RoomOption
-import io.github.rwpp.api.game.mode.GameModes
+import io.github.rwpp.api.game.map.GameMap
+import io.github.rwpp.api.game.map.MapNames
 import io.github.rwpp.api.game.mode.GameModeSession
+import io.github.rwpp.api.game.mode.GameModes
 import io.github.rwpp.api.game.mode.GameSpeedMode
 import io.github.rwpp.api.game.mode.MapTransformMode
-import io.github.rwpp.api.game.map.GameMap
-import io.github.rwpp.api.game.map.NetworkMap
-import io.github.rwpp.api.game.map.sameGameMapName
-import io.github.rwpp.api.game.map.sameGameMapPath
 import io.github.rwpp.api.game.team.TeamMode
 import io.github.rwpp.api.map.XMLMap
 import io.github.rwpp.api.net.packets.GamePacket
@@ -39,7 +37,6 @@ import io.github.rwpp.api.util.Reflect
 import kotlinx.coroutines.launch
 import org.koin.core.annotation.Single
 import java.io.File
-import java.util.Locale
 
 /**
  * Shared room behavior over the engine's network API.
@@ -60,6 +57,7 @@ class GameRoomImpl : GameRoom {
                 change(current)
                 network.applyChangedSetup(current)
             }
+
             network.proxyController -> {
                 val pending = network.getChangeableSetup()
                 change(pending)
@@ -87,17 +85,10 @@ class GameRoomImpl : GameRoom {
 
     override var selectedMap: GameMap
         get() {
-            val maps = game.getAllMaps()
             val currentPath = network.currentGameMapPath
             val configuredName = setup.mapName
-            return maps.firstOrNull {
-                it.mapType == setup.mapType && currentPath != null &&
-                        sameGameMapPath(it.enginePath, currentPath)
-            } ?: maps.firstOrNull {
-                it.mapType == setup.mapType && configuredName != null &&
-                    (sameGameMapName(it.mapName, configuredName) ||
-                            sameGameMapPath(it.enginePath, configuredName))
-            } ?: NetworkMap(configuredName ?: currentPath.orEmpty(), setup.mapType)
+            // A received setup is authoritative even when that map is unavailable locally.
+            return game.resolveSetupMap(setup.mapType, configuredName, currentPath)
         }
         set(value) {
             if (!isHost && !isHostServer) return
@@ -111,7 +102,7 @@ class GameRoomImpl : GameRoom {
         }
 
     override var displayMapName: String
-        get() = formatMapName(setup.mapName)
+        get() = MapNames.getPrettyMapName(setup.mapName)
         set(value) = updateSetup { it.mapName = value }
 
     override var startingCredits: Int
@@ -184,6 +175,7 @@ class GameRoomImpl : GameRoom {
         get() = network.networked && !network.isServer && network.localTeam == null
 
     private var generatedMapIndex = 0
+
     private data class GeneratedMapSelection(
         val type: GameSetupMapType,
         val name: String?,
@@ -191,6 +183,7 @@ class GameRoomImpl : GameRoom {
         val nativeMapName: String?,
         val generatedPath: String,
     )
+
     private var generatedSelection: GeneratedMapSelection? = null
     private val generatedMaps = mutableListOf<File>()
 
@@ -378,12 +371,15 @@ class GameRoomImpl : GameRoom {
                 require(source.mapType != GameSetupMapType.savedGame) { "GameMode map transforms require a TMX map, not a saved game." }
                 val map = XMLMap(source.openInputStream())
                 gameModes.transform(map)
-                val path = "${GamePlatform.generatedMapDirectory}/generated_${generatedMapIndex++}_${System.nanoTime()}.tmx"
+                val path =
+                    "${GamePlatform.generatedMapDirectory}/generated_${generatedMapIndex++}_${System.nanoTime()}.tmx"
                 generatedFile = File(path)
                 val file = map.saveToFile(path)
                 generatedMaps.add(file)
-                generatedSelection = GeneratedMapSelection(setup.mapType, setup.mapName,
-                    network.currentGameMapPath, network.mapName, path)
+                generatedSelection = GeneratedMapSelection(
+                    setup.mapType, setup.mapName,
+                    network.currentGameMapPath, network.mapName, path
+                )
                 network.currentGameMapPath = path
                 selectedPath = path
                 updateSetup {
@@ -402,14 +398,4 @@ class GameRoomImpl : GameRoom {
             throw failure
         }
     }
-
-    private fun formatMapName(raw: String?): String {
-        val name = File(raw.orEmpty()).name.removeSuffix(".tmx").removeSuffix(".rwsave")
-            .replace(Regex("^\\[.*?]"), "")
-            .replace('_', ' ')
-        return name.replaceFirstChar {
-            if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString()
-        }
-    }
-
 }

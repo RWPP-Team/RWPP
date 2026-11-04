@@ -1,24 +1,17 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * Use of this source code is governed by the GNU AGPLv3 license.
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.client.net
 
-import io.github.rwpp.api.net.transport.ClientLink
-import io.github.rwpp.api.net.transport.ClientSink
-import io.github.rwpp.api.net.transport.ClientTransport
-import io.github.rwpp.api.net.transport.TransportConfig
-import io.github.rwpp.api.net.transport.TransportMessages
-import java.io.BufferedInputStream
-import java.io.BufferedOutputStream
-import java.io.DataInputStream
-import java.io.DataOutputStream
-import java.io.EOFException
-import java.io.IOException
+import io.github.rwpp.api.net.transport.*
+import java.io.*
 import java.net.InetSocketAddress
 import java.net.Socket
-import java.util.ArrayDeque
+import java.util.*
 
 /** JDK TCP client using the game's four-byte big-endian length prefix. */
 class JdkTcpClientTransport internal constructor(

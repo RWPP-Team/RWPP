@@ -4,10 +4,14 @@ import io.github.rwpp.api.net.packets.ModPacket
 import io.github.rwpp.api.net.packets.ModPackets
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
-import kotlin.test.*
+import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+import kotlin.test.assertFails
 
 class NativePacketCodecTest {
-    @Test fun modPacketsRoundTripThroughTheSharedNativeCodec() {
+    @Test
+    fun modPacketsRoundTripThroughTheSharedNativeCodec() {
         val request = ModPacket.RequestPacket().apply { mods = "mod-a,模组" }
         assertEquals(request.mods, ModPackets.MOD_REQUEST.codec.decode(request.toBytes()).mods)
         val data = ModPacket.ModPackPacket().apply {
@@ -20,7 +24,8 @@ class NativePacketCodecTest {
         assertEquals(502, ModPackets.MOD_READY.codec.decode(ModPacket.ModReloadFinishPacket().toBytes()).type)
     }
 
-    @Test fun modCodecRejectsTruncationAndUnsafeNames() {
+    @Test
+    fun modCodecRejectsTruncationAndUnsafeNames() {
         fun frame(name: String, length: Int) = ByteArrayOutputStream().also { buffer ->
             DataOutputStream(buffer).use { it.writeInt(0); it.writeUTF(name); it.writeInt(length) }
         }.toByteArray()

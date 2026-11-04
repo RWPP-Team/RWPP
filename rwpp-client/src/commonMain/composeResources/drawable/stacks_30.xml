@@ -1,11 +1,12 @@
 <!--
   ~ Copyright 2023-2026 RWPP contributors
-  ~ 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
-  ~ Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
-  ~ https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+  ~ 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+  ~ Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+  ~ https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
   -->
 
-<vector android:height="30dp" android:viewportHeight="960"
-    android:viewportWidth="960" android:width="30dp" xmlns:android="http://schemas.android.com/apk/res/android">
-    <path android:fillColor="#e8eaed" android:pathData="M480,560 L40,320l440,-240 440,240 -440,240ZM480,720L63,493l84,-46 333,182 333,-182 84,46 -417,227ZM480,880L63,653l84,-46 333,182 333,-182 84,46L480,880ZM480,469 L753,320 480,171 207,320 480,469ZM480,320Z"/>
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:height="30dp"
+        android:viewportHeight="960" android:viewportWidth="960" android:width="30dp">
+    <path android:fillColor="#e8eaed"
+          android:pathData="M480,560 L40,320l440,-240 440,240 -440,240ZM480,720L63,493l84,-46 333,182 333,-182 84,46 -417,227ZM480,880L63,653l84,-46 333,182 333,-182 84,46L480,880ZM480,469 L753,320 480,171 207,320 480,469ZM480,320Z"/>
 </vector>

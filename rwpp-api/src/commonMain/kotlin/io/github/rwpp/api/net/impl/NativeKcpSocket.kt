@@ -1,3 +1,10 @@
+/*
+ * Copyright 2023-2026 RWPP contributors
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
+ */
+
 package io.github.rwpp.api.net.impl
 
 import io.github.rwpp.api.net.transport.*
@@ -5,15 +12,19 @@ import java.io.IOException
 import java.net.*
 import java.nio.ByteBuffer
 import java.security.SecureRandom
-import java.util.ArrayDeque
-import java.util.concurrent.*
+import java.util.*
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.Executor
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** Runtime switches also make comparisons use the same game hooks and application workload. */
 object NativeNetworkSettings {
-    val mode: String get() = System.getProperty("rwpp.network.mode", "auto").also {
-        require(it in setOf("auto", "tcp", "vanilla")) { "rwpp.network.mode must be auto, tcp or vanilla" }
-    }
+    val mode: String
+        get() = System.getProperty("rwpp.network.mode", "auto").also {
+            require(it in setOf("auto", "tcp", "vanilla")) { "rwpp.network.mode must be auto, tcp or vanilla" }
+        }
     val probeMillis: Long get() = System.getProperty("rwpp.network.probeMillis", "1500").toLong().coerceIn(50, 1500)
     val tcpOnly = ThreadLocal.withInitial { false }
 }
@@ -52,9 +63,13 @@ class NativeKcpSocket() : Socket(), NativePacketSocket {
     private var closeTimeout: ScheduledFuture<*>? = null
     private var terminalReason: String? = null
     private var failureNotified = false
-    override val transportName: String get() = (tcp as? NativePacketSocket)?.transportName ?: if (tcp != null) "TCP" else "KCP"
+    override val transportName: String
+        get() = (tcp as? NativePacketSocket)?.transportName ?: if (tcp != null) "TCP" else "KCP"
 
-    override val handlesNativePackets: Boolean get() = tcp?.let { (it as? NativePacketSocket)?.handlesNativePackets ?: false } ?: true
+    override val handlesNativePackets: Boolean
+        get() = tcp?.let {
+            (it as? NativePacketSocket)?.handlesNativePackets ?: false
+        } ?: true
 
     constructor(peer: TransportPeer, port: Int) : this() {
         remote = InetSocketAddress(peer.remoteHost ?: "127.0.0.1", 0)
@@ -81,6 +96,7 @@ class NativeKcpSocket() : Socket(), NativePacketSocket {
                         if (payload.contentEquals(control(WELCOME, nonce))) welcome.complete(Unit)
                     } else if (tcp == null) accept(payload)
                 }
+
                 override fun failure(reason: String) {
                     if (!welcome.isDone) welcome.completeExceptionally(IOException(reason))
                     else if (tcp == null) fail(reason)
@@ -97,7 +113,8 @@ class NativeKcpSocket() : Socket(), NativePacketSocket {
             tcp = replacement
             link = null; release = null; transport = null
             attempt.close()
-            val remaining = (budget - TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)).coerceAtLeast(1).toInt()
+            val remaining =
+                (budget - TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)).coerceAtLeast(1).toInt()
             replacement.connect(endpoint, remaining)
         }
     }
@@ -113,7 +130,8 @@ class NativeKcpSocket() : Socket(), NativePacketSocket {
         startPump()
     }
 
-    @Synchronized fun accept(payload: ByteArray) {
+    @Synchronized
+    fun accept(payload: ByteArray) {
         if (closed.get()) return
         try {
             require(payload.isNotEmpty())
@@ -129,8 +147,15 @@ class NativeKcpSocket() : Socket(), NativePacketSocket {
                     assembly = ByteArray(length); assemblyOffset = 0
                     append(input)
                 }
-                CONTINUE -> { check(!peerDrainReceived) { "KCP data arrived after drain" }; check(assembly != null); append(input) }
-                CLOSE -> { require(!input.hasRemaining()); fail("KCP connection closed") }
+
+                CONTINUE -> {
+                    check(!peerDrainReceived) { "KCP data arrived after drain" }; check(assembly != null); append(input)
+                }
+
+                CLOSE -> {
+                    require(!input.hasRemaining()); fail("KCP connection closed")
+                }
+
                 DRAIN -> {
                     require(!input.hasRemaining())
                     require(assembly == null) { "KCP drain arrived before packet completion" }
@@ -139,6 +164,7 @@ class NativeKcpSocket() : Socket(), NativePacketSocket {
                     armCloseTimeout()
                     queueDrainAckIfReady()
                 }
+
                 DRAIN_ACK -> {
                     require(!input.hasRemaining())
                     check(closeAfterWritesRequested && drainRecordSent && !drainAckReceived) {
@@ -147,9 +173,12 @@ class NativeKcpSocket() : Socket(), NativePacketSocket {
                     drainAckReceived = true
                     finishDrainIfReady()
                 }
+
                 else -> error("Invalid native KCP record")
             }
-        } catch (problem: Exception) { fail(problem.message ?: "Invalid KCP packet") }
+        } catch (problem: Exception) {
+            fail(problem.message ?: "Invalid KCP packet")
+        }
     }
 
     private fun append(input: ByteBuffer) {
@@ -166,7 +195,8 @@ class NativeKcpSocket() : Socket(), NativePacketSocket {
         }
     }
 
-    @Synchronized override fun send(type: Int, bytes: ByteArray, delayAfterMillis: Int): Boolean {
+    @Synchronized
+    override fun send(type: Int, bytes: ByteArray, delayAfterMillis: Int): Boolean {
         tcp?.let { return (it as NativePacketSocket).send(type, bytes, delayAfterMillis) }
         if (closed.get() || closeAfterWritesRequested || drainAckQueued || link == null) return false
         if (bytes.size > NativePacketSocket.MAX_PACKET_BYTES || outboundPackets >= 512 || outboundBytes + bytes.size > QUEUE_BYTES) {
@@ -181,7 +211,8 @@ class NativeKcpSocket() : Socket(), NativePacketSocket {
         return true
     }
 
-    @Synchronized private fun startPump(delayMillis: Long = 0) {
+    @Synchronized
+    private fun startPump(delayMillis: Long = 0) {
         if (pump != null) return
         if (closed.get() && (receiver == null || incoming.isEmpty())) {
             notifyFailureIfDrained()
@@ -202,11 +233,15 @@ class NativeKcpSocket() : Socket(), NativePacketSocket {
                         try {
                             repeat(64) {
                                 val frame = synchronized(this) { incoming.pollFirst() } ?: return@execute
-                                try { receiver!!(frame.first, frame.second) }
-                                finally { synchronized(this) { inboundBytes -= frame.second.size } }
+                                try {
+                                    receiver!!(frame.first, frame.second)
+                                } finally {
+                                    synchronized(this) { inboundBytes -= frame.second.size }
+                                }
                             }
-                        } catch (problem: Exception) { fail(problem.message ?: "Native KCP receive failed") }
-                        finally {
+                        } catch (problem: Exception) {
+                            fail(problem.message ?: "Native KCP receive failed")
+                        } finally {
                             deliveryScheduled.set(false)
                             synchronized(this) {
                                 if (incoming.isNotEmpty()) startPump()
@@ -215,7 +250,9 @@ class NativeKcpSocket() : Socket(), NativePacketSocket {
                             }
                         }
                     }
-                } catch (_: RuntimeException) { deliveryScheduled.set(false); fail("Native KCP worker queue full") }
+                } catch (_: RuntimeException) {
+                    deliveryScheduled.set(false); fail("Native KCP worker queue full")
+                }
             }
             if (closed.get()) {
                 notifyFailureIfDrained()
@@ -224,9 +261,13 @@ class NativeKcpSocket() : Socket(), NativePacketSocket {
             var sent = 0
             while (sent++ < 16 && outgoing.isNotEmpty()) {
                 val write = outgoing.peekFirst()
-                if (System.nanoTime() < write.due) { startPump(1); return }
+                if (System.nanoTime() < write.due) {
+                    startPump(1); return
+                }
                 val message = write.pending ?: write.next().also { write.pending = it }
-                if (link?.invoke(message) != true) { startPump(2); return }
+                if (link?.invoke(message) != true) {
+                    startPump(2); return
+                }
                 write.pending = null
                 if (write.controlRecord != null) {
                     outgoing.removeFirst()
@@ -250,7 +291,8 @@ class NativeKcpSocket() : Socket(), NativePacketSocket {
     }
 
     private val deliveryScheduled = AtomicBoolean()
-    @Synchronized override fun closeAfterWrites() {
+    @Synchronized
+    override fun closeAfterWrites() {
         tcp?.let { (it as NativePacketSocket).closeAfterWrites(); return }
         if (closed.get() || closeAfterWritesRequested) return
         closeAfterWritesRequested = true
@@ -259,16 +301,19 @@ class NativeKcpSocket() : Socket(), NativePacketSocket {
         startPump()
     }
 
-    @Synchronized private fun queueDrainAckIfReady() {
+    @Synchronized
+    private fun queueDrainAckIfReady() {
         if (closed.get() || !peerDrainReceived || drainAckQueued || receiver == null ||
-            incoming.isNotEmpty() || deliveryScheduled.get()) return
+            incoming.isNotEmpty() || deliveryScheduled.get()
+        ) return
         drainAckQueued = true
         outgoing.addLast(Write.control(DRAIN_ACK, maxOf(System.nanoTime(), lastSendAfter)))
         startPump()
     }
 
     /** Start one bounded wait only while a drain exchange still needs confirmation. */
-    @Synchronized private fun armCloseTimeout() {
+    @Synchronized
+    private fun armCloseTimeout() {
         if (closed.get() || closeTimeout != null || !closeConfirmationPending()) return
         closeTimeout = TransportRuntime.backend.scheduler.schedule({
             synchronized(this) {
@@ -282,10 +327,11 @@ class NativeKcpSocket() : Socket(), NativePacketSocket {
 
     private fun closeConfirmationPending(): Boolean =
         (closeAfterWritesRequested && !(drainRecordSent && drainAckReceived && (!peerDrainReceived || drainAckSent))) ||
-            (peerDrainReceived && !drainAckSent)
+                (peerDrainReceived && !drainAckSent)
 
     /** Complete only after our DRAIN has been acknowledged and any peer DRAIN has been answered. */
-    @Synchronized private fun finishDrainIfReady() {
+    @Synchronized
+    private fun finishDrainIfReady() {
         if (closed.get()) return
         if (closeAfterWritesRequested && drainRecordSent && drainAckReceived && (!peerDrainReceived || drainAckSent)) {
             closeTimeout?.cancel(false); closeTimeout = null
@@ -298,17 +344,22 @@ class NativeKcpSocket() : Socket(), NativePacketSocket {
     }
 
     /** Deliver terminal notification on the ordered packet executor after accepted frames. */
-    @Synchronized private fun notifyFailureIfDrained() {
+    @Synchronized
+    private fun notifyFailureIfDrained() {
         val reason = terminalReason ?: return
         val callback = failure ?: return
         val executor = packetExecutor ?: return
         if (!closed.get() || incoming.isNotEmpty() || deliveryScheduled.get() || failureNotified) return
         failureNotified = true
-        try { executor.execute { callback(reason) } }
-        catch (_: RuntimeException) { callback(reason) }
+        try {
+            executor.execute { callback(reason) }
+        } catch (_: RuntimeException) {
+            callback(reason)
+        }
     }
 
-    @Synchronized fun fail(reason: String) {
+    @Synchronized
+    fun fail(reason: String) {
         if (!closed.compareAndSet(false, true)) return
         terminalReason = reason
         if (!welcome.isDone) welcome.completeExceptionally(IOException(reason))
@@ -318,8 +369,11 @@ class NativeKcpSocket() : Socket(), NativePacketSocket {
         val owned = transport
         // Backend close is nonblocking and safe from its own callback; the API owns no threads.
         val dispose = Runnable { cleanup?.invoke(); owned?.close() }
-        try { TransportRuntime.backend.scheduler.execute(dispose) }
-        catch (_: RuntimeException) { dispose.run() }
+        try {
+            TransportRuntime.backend.scheduler.execute(dispose)
+        } catch (_: RuntimeException) {
+            dispose.run()
+        }
         if (receiver != null && incoming.isNotEmpty()) startPump()
         else notifyFailureIfDrained()
     }
@@ -329,6 +383,7 @@ class NativeKcpSocket() : Socket(), NativePacketSocket {
         runCatching { link?.invoke(byteArrayOf(CLOSE.toByte())) }
         fail("KCP connection closed")
     }
+
     override fun isClosed(): Boolean = tcp?.isClosed ?: closed.get()
     override fun isConnected(): Boolean = tcp?.isConnected ?: (welcome.isDone && !welcome.isCompletedExceptionally)
     override fun isBound(): Boolean = tcp?.isBound ?: isConnected
@@ -337,12 +392,22 @@ class NativeKcpSocket() : Socket(), NativePacketSocket {
     override fun getLocalPort(): Int = tcp?.localPort ?: localPortValue
     override fun getRemoteSocketAddress(): SocketAddress? = tcp?.remoteSocketAddress ?: remote
 
-    override fun getInputStream(): java.io.InputStream = tcp?.getInputStream() ?: throw SocketException("KCP uses native packet framing")
-    override fun getOutputStream(): java.io.OutputStream = tcp?.getOutputStream() ?: throw SocketException("KCP uses native packet framing")
+    override fun getInputStream(): java.io.InputStream =
+        tcp?.getInputStream() ?: throw SocketException("KCP uses native packet framing")
+
+    override fun getOutputStream(): java.io.OutputStream =
+        tcp?.getOutputStream() ?: throw SocketException("KCP uses native packet framing")
+
     private var readTimeout = 0
-    override fun setSoTimeout(value: Int) { require(value >= 0); readTimeout = value; tcp?.soTimeout = value }
+    override fun setSoTimeout(value: Int) {
+        require(value >= 0); readTimeout = value; tcp?.soTimeout = value
+    }
+
     override fun getSoTimeout(): Int = tcp?.soTimeout ?: readTimeout
-    override fun setTcpNoDelay(value: Boolean) { tcp?.tcpNoDelay = value }
+    override fun setTcpNoDelay(value: Boolean) {
+        tcp?.tcpNoDelay = value
+    }
+
     override fun getTcpNoDelay(): Boolean = tcp?.tcpNoDelay ?: true
 
     private class Write(
@@ -352,16 +417,21 @@ class NativeKcpSocket() : Socket(), NativePacketSocket {
         val controlRecord: Int? = null,
     ) {
         val control = controlRecord != null
-        var first = !control; var offset = 0; var pending: ByteArray? = null
+        var first = !control;
+        var offset = 0;
+        var pending: ByteArray? = null
         fun next(): ByteArray {
             if (control) return bytes
             val size = minOf(CHUNK_BYTES, bytes.size - offset)
             return ByteBuffer.allocate(size + if (first) 9 else 1).apply {
                 put((if (first) START else CONTINUE).toByte())
-                if (first) { putInt(type); putInt(bytes.size) }
+                if (first) {
+                    putInt(type); putInt(bytes.size)
+                }
                 put(bytes, offset, size)
             }.array()
         }
+
         companion object {
             fun control(record: Int, due: Long) = Write(0, byteArrayOf(record.toByte()), due, record)
         }
@@ -379,10 +449,13 @@ class NativeKcpSocket() : Socket(), NativePacketSocket {
         private val WELCOME = byteArrayOf(82, 87, 80, 80, 75, 67, 80, 2)
         fun helloNonce(bytes: ByteArray): ByteArray? =
             bytes.takeIf { it.size == 24 && it.copyOfRange(0, 8).contentEquals(HELLO) }?.copyOfRange(8, 24)
+
         fun welcome(nonce: ByteArray) = control(WELCOME, nonce)
         private fun control(prefix: ByteArray, nonce: ByteArray) = prefix + nonce
-        fun config(port: Int) = TransportConfig(bindHost = "0.0.0.0", port = port,
-            conv = 0x52575050, maxPayloadBytes = 60 * 1024, messageThreads = 4)
+        fun config(port: Int) = TransportConfig(
+            bindHost = "0.0.0.0", port = port,
+            conv = 0x52575050, maxPayloadBytes = 60 * 1024, messageThreads = 4
+        )
     }
 }
 

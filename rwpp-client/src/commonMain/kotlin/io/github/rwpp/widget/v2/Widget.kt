@@ -1,8 +1,8 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.widget.v2
@@ -12,22 +12,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -45,7 +31,6 @@ import io.github.rwpp.ui.UI
 import io.github.rwpp.widget.LargeDropdownMenu
 import io.github.rwpp.widget.RWSingleOutlinedTextField
 import io.github.rwpp.widget.RWSliderColors
-
 import io.github.rwpp.widget.WindowManager
 import org.koin.compose.koinInject
 import kotlin.math.roundToInt
@@ -53,13 +38,17 @@ import kotlin.math.roundToInt
 @Composable
 fun ExpandedCard(
     modifier: Modifier = Modifier,
-    backgroundColor: Color = MaterialTheme.colorScheme.background.copy((UI.backgroundTransparency + 0.2f).coerceAtMost(1f)),
+    backgroundColor: Color = MaterialTheme.colorScheme.background.copy(
+        (UI.backgroundTransparency + 0.2f).coerceAtMost(
+            1f
+        )
+    ),
     content: @Composable ColumnScope.() -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         Card(
             shape = RectangleShape,
-            elevation =  CardDefaults.cardElevation(defaultElevation = 10.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
             colors = CardDefaults.cardColors(containerColor = backgroundColor),
             modifier = Modifier
                 .fillMaxHeight()
@@ -152,7 +141,7 @@ fun SettingsSwitchComp(
     val configIO = koinInject<ConfigIO>()
 
     var state by remember { mutableStateOf(defaultValue ?: configIO.getGameConfig(name)) }
-    val onClick = customConfigSettingAction?.let{
+    val onClick = customConfigSettingAction?.let {
         {
             state = !state
             customConfigSettingAction(state)
@@ -175,7 +164,7 @@ fun SettingsSwitchComp(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if(customConfigSettingAction != null) labelName else readI18n("menus.settings.option.$labelName"),
+                        text = if (customConfigSettingAction != null) labelName else readI18n("menus.settings.option.$labelName"),
                         modifier = Modifier.padding(16.dp),
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Start,
@@ -186,7 +175,10 @@ fun SettingsSwitchComp(
                     checked = state,
                     modifier = Modifier.padding(end = 15.dp),
                     onCheckedChange = { onClick() },
-                    colors = SwitchDefaults.colors(checkedTrackColor = MaterialTheme.colorScheme.primary, checkedThumbColor = MaterialTheme.colorScheme.onSurface),
+                    colors = SwitchDefaults.colors(
+                        checkedTrackColor = MaterialTheme.colorScheme.primary,
+                        checkedThumbColor = MaterialTheme.colorScheme.onSurface
+                    ),
                 )
             }
             HorizontalDivider()
@@ -333,7 +325,11 @@ fun SettingsSlider(
                 colors = RWSliderColors
             )
 
-            Text(valueFormat(value), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(50.dp).padding(top = 6.dp, end = 5.dp))
+            Text(
+                valueFormat(value),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.width(50.dp).padding(top = 6.dp, end = 5.dp)
+            )
         }
 
         HorizontalDivider()

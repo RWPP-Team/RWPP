@@ -1,13 +1,12 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.ui
 
-import io.github.rwpp.api.coroutines.GameScope
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -45,19 +44,37 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.corrodinggames.rts.gameFramework.GameEngine
 import com.corrodinggames.rts.gameFramework.mod.Mod
-import io.github.rwpp.*
-import io.github.rwpp.data.ComposeServerData
+import io.github.rwpp.AppContext
+import io.github.rwpp.api.config.ConfigIO
+import io.github.rwpp.api.config.ServerConfig
+import io.github.rwpp.api.config.ServerType
+import io.github.rwpp.api.coroutines.GameMainDispatcher
 import io.github.rwpp.api.game.Game
+import io.github.rwpp.api.game.LoadingContext
+import io.github.rwpp.api.game.RoomJoinTimeoutException
 import io.github.rwpp.api.game.RoomOption
+import io.github.rwpp.api.i18n.readI18n
+import io.github.rwpp.api.io.SizeUtils
+import io.github.rwpp.api.logging.logger
+import io.github.rwpp.api.net.Net
+import io.github.rwpp.api.net.RoomDescription
+import io.github.rwpp.api.net.sorted
+import io.github.rwpp.api.server.ServerData
+import io.github.rwpp.api.server.ServerInfoQuery
+import io.github.rwpp.api.server.SocketServerInfoQuery
+import io.github.rwpp.api.util.calculateSize
+import io.github.rwpp.appKoin
+import io.github.rwpp.config.Blacklist
+import io.github.rwpp.config.Blacklists
+import io.github.rwpp.config.MultiplayerPreferences
+import io.github.rwpp.config.Settings
+import io.github.rwpp.data.ComposeServerData
+import io.github.rwpp.gameVersion
 import io.github.rwpp.generated.Res
 import io.github.rwpp.generated.drag_30
 import io.github.rwpp.generated.error_missingmap
 import io.github.rwpp.generated.tune_30
-import io.github.rwpp.api.i18n.readI18n
-import io.github.rwpp.api.io.SizeUtils
-import io.github.rwpp.api.net.Net
-import io.github.rwpp.api.net.RoomDescription
-import io.github.rwpp.api.net.sorted
+import io.github.rwpp.maxModSize
 import io.github.rwpp.platform.readPainterByBytes
 import io.github.rwpp.screen.LocalScreenNavigator
 import io.github.rwpp.screen.Screen
@@ -69,27 +86,15 @@ import io.github.rwpp.widget.v2.scrollbar.LazyColumnScrollbar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.jetbrains.compose.resources.painterResource
 import org.koin.compose.koinInject
 import org.koin.core.annotation.Single
-import io.github.rwpp.api.util.calculateSize
-import java.io.File
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.ReorderableLazyListState
 import sh.calvin.reorderable.rememberReorderableLazyListState
+import java.io.File
 import kotlin.math.roundToInt
-import io.github.rwpp.AppContext
-import io.github.rwpp.config.Blacklist
-import io.github.rwpp.config.Blacklists
-import io.github.rwpp.api.config.ConfigIO
-import io.github.rwpp.config.MultiplayerPreferences
-import io.github.rwpp.api.config.ServerConfig
-import io.github.rwpp.api.config.ServerType
-import io.github.rwpp.api.server.ServerData
-import io.github.rwpp.api.server.ServerInfoQuery
-import io.github.rwpp.api.server.SocketServerInfoQuery
-import io.github.rwpp.config.Settings
-import io.github.rwpp.api.logging.logger
 
 @Single
 class MultiplayerScreen : Screen {
@@ -131,6 +136,9 @@ class MultiplayerScreen : Screen {
 
     var serverAddress by mutableStateOf("")
     var isConnecting by mutableStateOf(false)
+    var joinAttemptNumber by mutableIntStateOf(0)
+    private var joinNavigationCommitted by mutableStateOf(false)
+    private var joinCancelled by mutableStateOf(false)
 
     var isShowingRoomList by mutableStateOf(false)
     var selectedServerConfig by run {
@@ -147,6 +155,33 @@ class MultiplayerScreen : Screen {
 
     var hostDialogVisible by mutableStateOf(false)
     var filterSurfaceDialogVisible by mutableStateOf(false)
+
+    private fun beginJoinAttempt() {
+        if (isConnecting) return
+        joinAttemptNumber++
+        joinNavigationCommitted = false
+        joinCancelled = false
+        isConnecting = true
+        // The native host may send welcome text as soon as transport starts. Clear before that
+        // can happen; BattleRoom composition can occur after those messages have been received.
+        UI.clearChatMessages()
+    }
+
+    private fun cancelCurrentJoin() {
+        if (!isConnecting || joinNavigationCommitted || joinCancelled) return
+        joinCancelled = true
+        isConnecting = false
+        game.cancelJoinServer()
+    }
+
+    private fun releaseJoinOnDispose() {
+        // A server may start a verification map before the lobby/loading coroutine commits.
+        // The native gameplay transition transfers ownership, rather than cancelling its socket.
+        if (isConnecting && game.state.state != io.github.rwpp.api.State.Menu && game.completeJoinServer()) {
+            joinNavigationCommitted = true
+            isConnecting = false
+        } else cancelCurrentJoin()
+    }
 
     @Suppress("UnusedMaterial3ScaffoldPaddingParameter")
     @Composable
@@ -173,6 +208,7 @@ class MultiplayerScreen : Screen {
 
         DisposableEffect(Unit) {
             onDispose {
+                releaseJoinOnDispose()
                 game.setUserName(userName)
                 showServerInfoConfig = false
                 showJoinRequestDialog = false
@@ -193,29 +229,66 @@ class MultiplayerScreen : Screen {
             blacklists
         ) { dismiss ->
             serverAddress = selectedRoomDescription!!.addressProvider()
-            isConnecting = true
+            beginJoinAttempt()
             dismiss()
         }
 
-        AeroLoadingView(isConnecting, onLoaded = { game.cancelJoinServer(); isConnecting = false }, cancellable = true) {
-            if (serverAddress.isBlank()) {
-                message("That server no longer exists")
-                return@AeroLoadingView false
-            }
+        key(joinAttemptNumber) {
+            AeroLoadingView(
+                visible = isConnecting,
+                onLoaded = {
+                    cancelCurrentJoin()
+                    isConnecting = false
+                },
+                cancellable = true,
+                onCancel = ::cancelCurrentJoin,
+            ) {
+                val activeAttemptNumber = joinAttemptNumber
+                val updateLoadingMessage: (String) -> Unit = this::message
+                if (serverAddress.isBlank()) {
+                    message(readI18n("rwpp.multiplayer.join.serverNotFound"))
+                    return@AeroLoadingView false
+                }
 
-            message("connecting...")
+                message(readI18n("rwpp.multiplayer.join.connecting"))
 
-            game.setUserName(userName)
-            configIO.setGameConfig("lastNetworkIP", serverAddress)
+                game.setUserName(userName)
+                configIO.setGameConfig("lastNetworkIP", serverAddress)
 
-            val result = game.directJoinServer(serverAddress, selectedRoomDescription?.uuid2, this)
-            selectedRoomDescription = null
-            if (result.isSuccess) {
-                navigator.push<BattleRoomScreen>()
-                true
-            } else {
-                message(result.exceptionOrNull()!!.message!!)
-                false
+                val result = game.directJoinServer(
+                    serverAddress,
+                    selectedRoomDescription?.uuid2,
+                    LoadingContext { messageKey -> updateLoadingMessage(readI18n(messageKey)) },
+                )
+                selectedRoomDescription = null
+                if (result.isSuccess) {
+                    withContext(GameMainDispatcher) {
+                        if (activeAttemptNumber != joinAttemptNumber || joinCancelled || !game.completeJoinServer()) {
+                            false
+                        } else {
+                            joinNavigationCommitted = true
+                            isConnecting = false
+                            if (game.state.state == io.github.rwpp.api.State.Menu) {
+                                if (navigator.current !is BattleRoomScreen) navigator.push<BattleRoomScreen>()
+                            } else if (navigator.current !is GameScreen) navigator.push<GameScreen>()
+                            true
+                        }
+                    }
+                } else {
+                    val failure = result.exceptionOrNull()
+                    withContext(GameMainDispatcher) {
+                        if (activeAttemptNumber == joinAttemptNumber && !joinCancelled) {
+                            message(
+                                when (failure) {
+                                    is RoomJoinTimeoutException -> readI18n("rwpp.multiplayer.join.timeout")
+                                    else -> failure?.message?.takeIf(String::isNotBlank)
+                                        ?: readI18n("rwpp.multiplayer.join.failed")
+                                }
+                            )
+                        }
+                    }
+                    false
+                }
             }
         }
 
@@ -302,7 +375,7 @@ class MultiplayerScreen : Screen {
                                     val lastIp = configIO.getGameConfig<String?>("lastNetworkIP")
                                     if (lastIp != null) {
                                         serverAddress = lastIp
-                                        isConnecting = true
+                                        beginJoinAttempt()
                                     }
                                 }
                             )
@@ -364,7 +437,11 @@ class MultiplayerScreen : Screen {
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                AeroHeader(title = "MULTIPLAYER LOBBY", tag = "${currentViewList.size} ONLINE", modifier = Modifier.weight(1f))
+                                AeroHeader(
+                                    title = "MULTIPLAYER LOBBY",
+                                    tag = "${currentViewList.size} ONLINE",
+                                    modifier = Modifier.weight(1f),
+                                )
                                 Spacer(modifier = Modifier.width(16.dp))
                                 AeroButton(
                                     text = readI18n("rwpp.common.exit"),
@@ -388,7 +465,14 @@ class MultiplayerScreen : Screen {
                                     value = userName,
                                     onValueChange = { userName = it },
                                     placeholder = readI18n("rwpp.multiplayer.userName"),
-                                    leadingIcon = { Icon(Icons.Default.Person, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary) },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.Person,
+                                            null,
+                                            modifier = Modifier.size(16.dp),
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    },
                                     modifier = Modifier.width(180.dp)
                                 )
 
@@ -399,14 +483,21 @@ class MultiplayerScreen : Screen {
                                         configIO.setGameConfig("lastNetworkIP", it)
                                     },
                                     placeholder = readI18n("rwpp.multiplayer.joinServer"),
-                                    leadingIcon = { Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary) },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.Add,
+                                            null,
+                                            modifier = Modifier.size(16.dp),
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    },
                                     trailingIcon = {
                                         AeroIconButton(
                                             painter = rememberVectorPainter(Icons.AutoMirrored.Filled.ArrowForward),
                                             onClick = {
                                                 if (joinServerAddress.isNotBlank()) {
                                                     serverAddress = joinServerAddress
-                                                    isConnecting = true
+                                                    beginJoinAttempt()
                                                 }
                                             },
                                             size = 28.dp,
@@ -516,7 +607,11 @@ class MultiplayerScreen : Screen {
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                AeroHeaderWithCloseButton(title = "HOST GAME", tag = "NET_HOST", onDismissRequest = dismiss)
+                AeroHeaderWithCloseButton(
+                    title = "HOST GAME",
+                    tag = "NET_HOST",
+                    onDismissRequest = dismiss
+                )
                 AeroDivider()
 
                 var enableMods by remember { mutableStateOf(false) }
@@ -556,9 +651,15 @@ class MultiplayerScreen : Screen {
                 )
 
                 AeroToggleTile(
-                    label = "${readI18n("rwpp.multiplayer.transferMod")} ${
-                        if (modSize > maxModSize) "(Disabled: ${SizeUtils.byteToMB(modSize)}MB > ${SizeUtils.byteToMB(maxModSize)}MB)" else ""
-                    }",
+                    label = if (modSize > maxModSize) {
+                        readI18n(
+                            "rwpp.multiplayer.transferModDisabled",
+                            SizeUtils.byteToMB(modSize),
+                            SizeUtils.byteToMB(maxModSize),
+                        )
+                    } else {
+                        readI18n("rwpp.multiplayer.transferMod")
+                    },
                     checked = transferMod,
                     onCheckedChange = { if (enableMods && modSize <= maxModSize) transferMod = !transferMod },
                     modifier = Modifier.fillMaxWidth()
@@ -614,7 +715,7 @@ class MultiplayerScreen : Screen {
                                 serverAddress = net.roomListHostProtocol[selectedRoomListHostProtocol]!!(
                                     maxPlayer?.coerceAtMost(100)?.coerceAtLeast(10) ?: 10, enableMods, false
                                 )
-                                isConnecting = true
+                                beginJoinAttempt()
                             } else {
                                 onHost()
                                 game.hostStartWithPasswordAndMods(
@@ -634,7 +735,7 @@ class MultiplayerScreen : Screen {
                                 serverAddress = net.roomListHostProtocol[selectedRoomListHostProtocol]!!(
                                     maxPlayer?.coerceAtMost(100)?.coerceAtLeast(10) ?: 10, enableMods, true
                                 )
-                                isConnecting = true
+                                beginJoinAttempt()
                             } else {
                                 onHost()
                                 game.hostStartWithPasswordAndMods(
@@ -657,7 +758,7 @@ class MultiplayerScreen : Screen {
         ) { index ->
             val desc = descriptions[index]
 
-            val accentColor :Color = MaterialTheme.colorScheme.primary
+            val accentColor: Color = MaterialTheme.colorScheme.primary
             val interactionSource = remember { MutableInteractionSource() }
             val isHovered by interactionSource.collectIsHoveredAsState()
             val isPressed by interactionSource.collectIsPressedAsState()
@@ -713,7 +814,7 @@ class MultiplayerScreen : Screen {
                     .clickable(interactionSource = interactionSource, indication = null) {
                         selectedRoomDescription = desc
                         showJoinRequestDialog = true
-                        Sounds.openPopup?.play(GameScope.coroutineContext)
+                        Sounds.playSound(Sounds.openPopup)
                     }
             ) {
                 val color: Color =
@@ -781,7 +882,10 @@ class MultiplayerScreen : Screen {
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         AeroBadge(text = desc.version, color = MaterialTheme.colorScheme.outline)
-                        AeroBadge(text = open, color = if (open == "Y") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+                        AeroBadge(
+                            text = open,
+                            color = if (open == "Y") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                        )
                     }
                 }
             }
@@ -810,7 +914,11 @@ class MultiplayerScreen : Screen {
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    AeroHeaderWithCloseButton(title = "SERVER CONFIG", tag = "EDIT", onDismissRequest = dismiss)
+                    AeroHeaderWithCloseButton(
+                        title = "SERVER CONFIGURATION",
+                        tag = "EDIT",
+                        onDismissRequest = dismiss
+                    )
                     AeroDivider()
 
                     var type by remember { mutableStateOf(serverConfig?.type ?: ServerType.Server) }
@@ -819,8 +927,10 @@ class MultiplayerScreen : Screen {
 
                     if (serverConfig == null) {
                         AeroDropdownMenu(
-                            label = "Type",
-                            items = ServerType.entries.map { it.name },
+                            label = readI18n("rwpp.multiplayer.server.type.label"),
+                            items = ServerType.entries.map { serverType ->
+                                readI18n("rwpp.multiplayer.server.type.${serverType.name.lowercase()}")
+                            },
                             selectedIndex = type.ordinal,
                             onItemSelected = { type = ServerType.entries[it] },
                             modifier = Modifier.fillMaxWidth()
@@ -830,19 +940,19 @@ class MultiplayerScreen : Screen {
                     AeroTextField(
                         value = name,
                         onValueChange = { name = it },
-                        placeholder = "Name",
+                        placeholder = readI18n("rwpp.common.name"),
                         modifier = Modifier.fillMaxWidth()
                     )
 
                     AeroTextField(
                         value = url,
                         onValueChange = { url = it },
-                        placeholder = "Url / IP",
+                        placeholder = readI18n("rwpp.multiplayer.server.address"),
                         modifier = Modifier.fillMaxWidth()
                     )
 
                     AeroButton(
-                        text = "APPLY",
+                        text = readI18n("rwpp.multiplayer.room.apply").uppercase(),
                         modifier = Modifier.fillMaxWidth(),
                         onClick = {
                             if (serverConfig != null) {
@@ -873,25 +983,43 @@ class MultiplayerScreen : Screen {
         ) { serverData ->
             ReorderableItem(state, serverData.hashCode()) {
                 val interactionSource = remember { MutableInteractionSource() }
+                val cardInteractionSource = remember { MutableInteractionSource() }
+                val cardHovered by cardInteractionSource.collectIsHoveredAsState()
+                val cardPressed by cardInteractionSource.collectIsPressedAsState()
+                val cardBorderColor by animateColorAsState(
+                    targetValue = when {
+                        cardPressed -> Color.White
+                        cardHovered -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                    },
+                    animationSpec = tween(150),
+                    label = "serverCardBorder"
+                )
+
+                LaunchedEffect(cardHovered) {
+                    if (cardHovered) Sounds.playSound(Sounds.hover2)
+                }
 
                 AeroPanel(
                     modifier = Modifier
-                        .then( Modifier.animateItem())
+                        .then(Modifier.animateItem())
                         .fillMaxWidth()
                         .padding(horizontal = 6.dp, vertical = 4.dp)
-                        .clickable {
+                        .clickable(interactionSource = cardInteractionSource, indication = null) {
+                            Sounds.playSound(Sounds.select)
                             if (serverData.config.type == ServerType.Server) {
                                 val ip = serverData.config.ip
                                 serverAddress = ip
                                 configIO.setGameConfig("lastNetworkIP", ip)
-                                isConnecting = true
+                                beginJoinAttempt()
                             } else if (serverData.config.type == ServerType.RoomList) {
                                 selectedServerConfig = serverData.config
                                 isShowingRoomList = true
                                 currentViewList = listOf()
                                 refresh.trySend(Unit)
                             }
-                        }
+                        },
+                    borderColor = cardBorderColor
                 ) {
                     Column(
                         modifier = Modifier
@@ -1017,7 +1145,11 @@ class MultiplayerScreen : Screen {
                                 if (serverData.config.type == ServerType.Server) {
                                     if (playerCount.isNotEmpty()) {
                                         Text(
-                                            text = "PLAYERS: $playerCount | MAP: $mapName",
+                                            text = readI18n(
+                                                "rwpp.multiplayer.server.playersAndMap",
+                                                playerCount,
+                                                mapName
+                                            ),
                                             fontSize = 11.sp,
                                             color = MaterialTheme.colorScheme.primary
                                         )
@@ -1033,7 +1165,7 @@ class MultiplayerScreen : Screen {
                                     }
                                     if (mods.isNotBlank()) {
                                         Text(
-                                            text = "MODS: $mods",
+                                            text = readI18n("rwpp.multiplayer.server.mods", mods),
                                             fontSize = 10.sp,
                                             color = MaterialTheme.colorScheme.secondary
                                         )
@@ -1091,7 +1223,11 @@ class MultiplayerScreen : Screen {
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    AeroHeaderWithCloseButton(title = readI18n("rwpp.common.filter"), tag = "FILTER", onDismissRequest = dismiss)
+                    AeroHeaderWithCloseButton(
+                        title = "FILTER",
+                        tag = "FILTER",
+                        onDismissRequest = dismiss
+                    )
                     AeroDivider()
 
                     var showBlacklistDialog by remember { mutableStateOf(false) }
@@ -1199,7 +1335,11 @@ class MultiplayerScreen : Screen {
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        AeroHeaderWithCloseButton(title = readI18n("rwpp.multiplayer.blacklist"), tag = "LIST", onDismissRequest = dismiss)
+                        AeroHeaderWithCloseButton(
+                            title = "BLACKLIST",
+                            tag = "LIST",
+                            onDismissRequest = dismiss
+                        )
                         AeroDivider()
 
                         LazyColumn(
@@ -1284,7 +1424,11 @@ class MultiplayerScreen : Screen {
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    AeroHeaderWithCloseButton(title = "JOIN SERVER?", tag = "ROOM", onDismissRequest = dismiss)
+                    AeroHeaderWithCloseButton(
+                        title = "JOIN SERVER?",
+                        tag = "ROOM",
+                        onDismissRequest = dismiss
+                    )
                     AeroDivider()
 
                     Text(
@@ -1311,7 +1455,10 @@ class MultiplayerScreen : Screen {
                             isDanger = true,
                             onClick = {
                                 blacklists.add(
-                                    Blacklist("${roomDescription.creator}: ${roomDescription.mapName}", roomDescription.uuid)
+                                    Blacklist(
+                                        "${roomDescription.creator}: ${roomDescription.mapName}",
+                                        roomDescription.uuid
+                                    )
                                 )
                                 dismiss()
                             }
@@ -1351,7 +1498,7 @@ class MultiplayerScreen : Screen {
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    AeroHeader(title = "ADMITTING", tag = "INFO")
+                    AeroHeader(title = "WELCOME MESSAGE", tag = "INFO")
                     AeroDivider()
 
                     Text(
@@ -1365,7 +1512,7 @@ class MultiplayerScreen : Screen {
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         AeroButton(
-                            text = "YES",
+                            text = readI18n("rwpp.common.yes"),
                             modifier = Modifier.weight(1f),
                             onClick = {
                                 settings.showWelcomeMessage = true
@@ -1374,7 +1521,7 @@ class MultiplayerScreen : Screen {
                         )
 
                         AeroButton(
-                            text = "NO",
+                            text = readI18n("rwpp.common.no"),
                             modifier = Modifier.weight(1f),
                             isDanger = true,
                             onClick = {

@@ -1,8 +1,8 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.widget
@@ -17,8 +17,8 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
-import io.github.rwpp.config.Settings
 import com.corrodinggames.rts.gameFramework.GameEngine
+import io.github.rwpp.config.Settings
 import io.github.rwpp.ui.UI
 import org.koin.compose.koinInject
 
@@ -30,7 +30,10 @@ val RWOutlinedTextColors
             focusedContainerColor = MaterialTheme.colorScheme.surface,
             unfocusedContainerColor = MaterialTheme.colorScheme.surface,
             cursorColor = MaterialTheme.colorScheme.secondary,
-            selectionColors = TextSelectionColors(MaterialTheme.colorScheme.onSurface, MaterialTheme.colorScheme.primaryContainer.copy(.4f)),
+            selectionColors = TextSelectionColors(
+                MaterialTheme.colorScheme.onSurface,
+                MaterialTheme.colorScheme.primaryContainer.copy(.4f)
+            ),
             focusedBorderColor = MaterialTheme.colorScheme.secondaryContainer,
             unfocusedBorderColor = MaterialTheme.colorScheme.surfaceContainer,
             focusedLabelColor = MaterialTheme.colorScheme.primary,
@@ -41,8 +44,8 @@ val RWOutlinedTextColors
 val RWSliderColors
     @Composable get() =
         SliderDefaults.colors(
-            thumbColor =  MaterialTheme.colorScheme.primary,
-            activeTrackColor =  MaterialTheme.colorScheme.primary,
+            thumbColor = MaterialTheme.colorScheme.primary,
+            activeTrackColor = MaterialTheme.colorScheme.primary,
             activeTickColor = MaterialTheme.colorScheme.secondary,
             inactiveTrackColor = MaterialTheme.colorScheme.onSurface,
             inactiveTickColor = MaterialTheme.colorScheme.onSurface
@@ -58,8 +61,16 @@ val RWTextFieldColors
     @Composable get() = TextFieldDefaults.colors(
         focusedTextColor = MaterialTheme.colorScheme.onSurface,
         unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = UI.backgroundTransparency + 0.1f.coerceAtMost(1f)),
-        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha =  UI.backgroundTransparency + 0.1f.coerceAtMost(1f)),
+        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer.copy(
+            alpha = UI.backgroundTransparency + 0.1f.coerceAtMost(
+                1f
+            )
+        ),
+        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer.copy(
+            alpha = UI.backgroundTransparency + 0.1f.coerceAtMost(
+                1f
+            )
+        ),
         cursorColor = MaterialTheme.colorScheme.primary,
         focusedLabelColor = MaterialTheme.colorScheme.primary,
         unfocusedLabelColor = MaterialTheme.colorScheme.onSurface,
@@ -73,21 +84,21 @@ val RWCheckBoxColors
 
 
 val defaultRWPPColorScheme = darkColorScheme(
-        surface = Color(27, 18, 18),
-        surfaceContainer = Color.DarkGray,
-        onSurface = Color.White,
-        primaryContainer = Color(151, 188, 98),
-        secondary = Color(95, 190, 95),
-        secondaryContainer = Color(151, 188, 98),
-        onSecondaryContainer = Color(151, 188, 98),
-        primary = Color(151, 188, 98),
-        onSecondary = Color(0xFF000000),
-        background = Color(53, 57, 53),
-        inversePrimary = Color(44, 95, 45),
-        onTertiaryContainer = Color.White,
-        surfaceTint = Color.White,
-        onPrimary = Color(0xFF000000),
-    )
+    surface = Color(27, 18, 18),
+    surfaceContainer = Color.DarkGray,
+    onSurface = Color.White,
+    primaryContainer = Color(151, 188, 98),
+    secondary = Color(95, 190, 95),
+    secondaryContainer = Color(151, 188, 98),
+    onSecondaryContainer = Color(151, 188, 98),
+    primary = Color(151, 188, 98),
+    onSecondary = Color(0xFF000000),
+    background = Color(53, 57, 53),
+    inversePrimary = Color(44, 95, 45),
+    onTertiaryContainer = Color.White,
+    surfaceTint = Color.White,
+    onPrimary = Color(0xFF000000),
+)
 
 @Composable
 fun RWPPTheme(default: Boolean = false, content: @Composable () -> Unit) {
@@ -271,7 +282,7 @@ val themes = mapOf(
         surfaceContainer = Color(60, 70, 76),
     ),
 
-    "Hippie Blue" to  darkColorScheme(
+    "Hippie Blue" to darkColorScheme(
         primary = Color(0xFF669DB3),
         onPrimary = Color(0xFFFFFFFF),
         primaryContainer = Color(0xFF078282),

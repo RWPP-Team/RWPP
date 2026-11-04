@@ -1,8 +1,8 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.widget.v2
@@ -32,8 +32,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.rwpp.api.game.LoadingContext
 import io.github.rwpp.api.coroutines.GameMainDispatcher
+import io.github.rwpp.api.game.LoadingContext
+import io.github.rwpp.api.i18n.readI18n
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -43,12 +44,23 @@ fun AeroLoadingView(
     onLoaded: () -> Unit,
     enableAnimation: Boolean = true,
     cancellable: Boolean = false,
+    onCancel: () -> Unit = {},
     loadContent: suspend LoadingContext.() -> Boolean?
 ) {
+    var loadedSuccessfully by remember { mutableStateOf(false) }
+    var cancelReported by remember { mutableStateOf(false) }
+    val reportCancel = {
+        if (!loadedSuccessfully && !cancelReported) {
+            cancelReported = true
+            onCancel()
+        }
+    }
+
     AnimatedAlertDialog(
         visible = visible,
         onDismissRequest = onLoaded,
-        enableDismiss = cancellable
+        enableDismiss = cancellable,
+        onDismissStarted = reportCancel,
     ) { dismiss ->
         var cancel by remember { mutableStateOf(false) }
         var loadingMessage by remember { mutableStateOf("") }
@@ -58,6 +70,7 @@ fun AeroLoadingView(
                 val result = loadContent(LoadingContext { loadingMessage = it })
                 withContext(GameMainDispatcher) {
                     if (result == true) {
+                        loadedSuccessfully = true
                         loadingMessage = ""
                         dismiss()
                     } else if (result == false) {
@@ -84,7 +97,7 @@ fun AeroLoadingView(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     AeroHeader(
-                        title = if (cancel) "PROCESS ABORTED" else "EXECUTING TASK",
+                        title = if (cancel) "ABORTED" else "EXECUTING",
                         tag = if (cancel) "ERR.HALT" else "SYS.BUSY",
                         color = if (cancel) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                         modifier = Modifier.weight(1f)
@@ -96,6 +109,7 @@ fun AeroLoadingView(
                             painter = rememberVectorPainter(Icons.Default.Close),
                             size = 28.dp,
                             iconSize = 14.dp,
+                            contentDescription = readI18n("rwpp.common.close"),
                             isDanger = true,
                             onClick = dismiss
                         )
@@ -134,7 +148,7 @@ fun AeroLoadingView(
 
                     Text(
                         text = loadingMessage.ifEmpty {
-                            if (cancel) "OPERATION TERMINATED BY SYSTEM" else "PROCESSING DATA STREAM..."
+                            readI18n(if (cancel) "rwpp.loading.terminated" else "rwpp.loading.processing")
                         },
                         color = if (cancel) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.bodyMedium,
@@ -147,7 +161,9 @@ fun AeroLoadingView(
 
                     Text(
                         text = if (cancel) "[ STATUS: 0x404_ABORT ]" else "[ STATUS: RUNNING ]",
-                        color = (if (cancel) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary).copy(alpha = 0.6f),
+                        color = (if (cancel) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary).copy(
+                            alpha = 0.6f
+                        ),
                         fontSize = 10.sp,
                         fontFamily = FontFamily.Monospace,
                         letterSpacing = 1.5.sp

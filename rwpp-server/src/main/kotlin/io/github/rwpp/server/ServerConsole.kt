@@ -1,15 +1,14 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.server
 
-import io.github.rwml.api.ProgressListener
-import io.github.rwml.core.ExtensionManager
 import io.github.rwml.core.ExtensionDescriptorReader
+import io.github.rwml.core.ExtensionManager
 import io.github.rwml.host.HostPlatform
 import io.github.rwpp.api.ApiExtensionDescriptor
 import io.github.rwpp.api.command.CommandSender
@@ -18,20 +17,60 @@ import io.github.rwpp.api.command.GameCommandRuntime
 import io.github.rwpp.api.command.SERVER
 import io.github.rwpp.api.commands
 import io.github.rwpp.api.net.ServerStatus
-import org.jline.reader.Candidate
-import org.jline.reader.EndOfFileException
-import org.jline.reader.LineReader
-import org.jline.reader.LineReaderBuilder
-import org.jline.reader.UserInterruptException
+import org.jline.reader.*
 import org.jline.terminal.Terminal
 import org.jline.terminal.TerminalBuilder
 import java.nio.file.Paths
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.LinkedBlockingQueue
-import java.util.concurrent.locks.LockSupport
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.locks.LockSupport
+
+internal data class NativeReturnState(val isServer: Boolean, val gameStarted: Boolean)
+
+internal enum class NativeReturnOutcome { NOT_SERVER, NO_ACTIVE_MATCH, SCHEDULED }
+
+/** Request the game's normal return-to-battleroom transition from the owning simulation thread. */
+internal fun requestNativeReturnToBattleroom(
+    state: NativeReturnState,
+    scheduleReturn: (Float) -> Unit,
+): NativeReturnOutcome = when {
+    !state.isServer -> NativeReturnOutcome.NOT_SERVER
+    !state.gameStarted -> NativeReturnOutcome.NO_ACTIVE_MATCH
+    else -> {
+        scheduleReturn(0f)
+        NativeReturnOutcome.SCHEDULED
+    }
+}
+
+internal fun registerNativeReturnCommand(
+    commands: io.github.rwpp.api.command.Commands,
+    state: () -> NativeReturnState,
+    scheduleReturn: (Float) -> Unit,
+) {
+    commands.command("return", "Return the current match to the lobby") {
+        requireVisibility(CommandVisibility.SERVER)
+        requirePermission(SERVER_ADMIN_PERMISSION)
+        body {
+            if (args.isNotEmpty()) {
+                reply("Usage: return")
+                return@body
+            }
+            val result = runCatching { requestNativeReturnToBattleroom(state(), scheduleReturn) }
+                .getOrElse {
+                    reply(it.message ?: "Could not return to the lobby.")
+                    return@body
+                }
+            when (result) {
+                NativeReturnOutcome.NOT_SERVER -> reply("Only a hosted server can return to the lobby.")
+                NativeReturnOutcome.NO_ACTIVE_MATCH -> reply("There is no active match to return from.")
+                NativeReturnOutcome.SCHEDULED -> reply("Returning to the lobby.")
+            }
+        }
+    }
+}
 
 /**
  * JVM server launcher, frame loop and optional JLine console.
@@ -127,8 +166,9 @@ object ServerConsole {
 
     private fun runConsole(server: NativeHeadlessServer, config: LaunchConfig, running: AtomicBoolean) {
         val pendingCommands = LinkedBlockingQueue<String>()
+        val prompt = AtomicReference(PROMPT)
         try {
-            registerServerCommands(server) { running.set(false) }
+            registerServerCommands(server, { running.set(false) }) { prompt.set(it) }
 
             if (config.noConsole) {
                 runFrames(server, pendingCommands, running, config.ticks, null)
@@ -142,7 +182,7 @@ object ServerConsole {
                     try {
                         while (running.get()) {
                             try {
-                                pendingCommands.put(lineReader.readLine(PROMPT))
+                                pendingCommands.put(lineReader.readLine(prompt.get()))
                             } catch (_: UserInterruptException) {
                                 // Ctrl+C cancels the current edit; the server keeps running.
                             } catch (_: EndOfFileException) {
@@ -229,25 +269,52 @@ object ServerConsole {
 
     /** Registers the native server's console actions in the API's shared command registry. */
     @JvmStatic
-    fun registerServerCommands(server: NativeHeadlessServer, stop: () -> Unit) {
+    fun registerServerCommands(
+        server: NativeHeadlessServer,
+        stop: () -> Unit,
+        setConsolePrompt: (String) -> Unit = {},
+    ) {
         commands.command("start", "Start the selected map") {
             requireVisibility(CommandVisibility.SERVER)
+            requirePermission(SERVER_ADMIN_PERMISSION)
             body {
+                if (args.isNotEmpty()) {
+                    reply("Usage: start")
+                    return@body
+                }
                 runCatching { server.startMatch() }
                     .onSuccess { reply("Game start requested.") }
                     .onFailure { reply(it.message ?: "Could not start the game.") }
             }
         }
         commands.command("map", "Select a map") {
-            usage = "<path>"
+            usage = "<index|path|name>"
             requireVisibility(CommandVisibility.SERVER)
+            requirePermission(SERVER_ADMIN_PERMISSION)
             body {
                 val path = args.joinToString(" ").trim()
                 if (path.isBlank()) {
-                    reply("Usage: map <path>")
+                    reply("Usage: map <index|path|name>")
                 } else {
-                    runCatching { server.changeMap(path) }
-                        .onSuccess { reply("Selected map: $path") }
+                    runCatching {
+                        server.assertOwnerThread()
+                        val selected = runCatching {
+                            resolveNativeMapArgument(
+                                path,
+                                io.github.rwpp.api.appKoin.get<io.github.rwpp.api.game.Game>().getAllMaps()
+                            )
+                        }.getOrElse {
+                            val normalized = path.replace('\\', '/')
+                            if (normalized.startsWith("maps/skirmish/") || normalized.startsWith("mods/maps/") || normalized.startsWith(
+                                    "saves/"
+                                )
+                            ) normalized
+                            else throw it
+                        }
+                        server.changeMap(selected)
+                        selected
+                    }
+                        .onSuccess { selected -> reply("Selected map: $selected") }
                         .onFailure { reply(it.message ?: "Could not select map.") }
                 }
             }
@@ -255,16 +322,23 @@ object ServerConsole {
         commands.command("status", "Show server status") {
             requireVisibility(CommandVisibility.SERVER)
             body {
-                runCatching { server.describeSelf() }.onSuccess { data ->
+                if (args.isNotEmpty()) {
+                    reply("Usage: status")
+                    return@body
+                }
+                runCatching {
+                    server.assertOwnerThread()
+                    server.describeSelf()
+                }.onSuccess { data ->
                     val info = data.infoPacket
                     reply(
                         if (info == null) {
                             "lobby; port ${server.options.port}; map ${server.engine.networkEngine.currentGameMapPath ?: "(none)"}"
                         } else {
                             "${if (info.status == ServerStatus.InGame) "running" else "lobby"}; " +
-                                "${info.name} (${info.version}); port ${server.options.port}; " +
-                                "players ${info.currentPlayer}/${info.maxPlayerSize}; map ${info.mapName}; " +
-                                "mods ${info.mods.ifBlank { "(none)" }}"
+                                    "${info.name} (${info.version}); port ${server.options.port}; " +
+                                    "players ${info.currentPlayer}/${info.maxPlayerSize}; map ${info.mapName}; " +
+                                    "mods ${info.mods.ifBlank { "(none)" }}"
                         },
                     )
                 }.onFailure { reply(it.message ?: "Could not read the server description.") }
@@ -273,24 +347,47 @@ object ServerConsole {
         commands.command("say", "Send a chat message") {
             usage = "<message>"
             requireVisibility(CommandVisibility.SERVER)
+            requirePermission(SERVER_ADMIN_PERMISSION)
             body {
                 val message = args.joinToString(" ").trim()
                 if (message.isBlank()) {
                     reply("Usage: say <message>")
                 } else {
-                    runCatching { server.engine.networkEngine.sendChatMessage(message) }
+                    runCatching {
+                        server.assertOwnerThread()
+                        server.engine.networkEngine.sendChatMessage(message)
+                    }
                         .onSuccess { reply("Message sent.") }
                         .onFailure { reply(it.message ?: "Could not send message.") }
                 }
             }
         }
+        registerNativeReturnCommand(
+            commands = commands,
+            state = {
+                server.assertOwnerThread()
+                val network = server.engine.networkEngine
+                NativeReturnState(network.isServer, network.gameStarted)
+            },
+            scheduleReturn = { seconds ->
+                server.assertOwnerThread()
+                server.engine.networkEngine.scheduleReturnToBattleroom(seconds)
+            },
+        )
         commands.command("stop", "Stop the server") {
             requireVisibility(CommandVisibility.SERVER)
+            aliases("exit", "quit")
+            requirePermission(SERVER_ADMIN_PERMISSION)
             body {
+                if (args.isNotEmpty()) {
+                    reply("Usage: stop")
+                    return@body
+                }
                 reply("Stopping server.")
                 stop()
             }
         }
+        registerNativeRoomAdminCommands(commands, server, setConsolePrompt)
     }
 
     private class ConsoleSender(private val terminal: Terminal) : CommandSender {
@@ -355,6 +452,7 @@ object ServerConsole {
                     extensionArguments = args.drop(index + 1)
                     break
                 }
+
                 "--help", "-h" -> showHelp = true
                 "--port" -> port = value().toInt()
                 "--map" -> map = value()
@@ -391,7 +489,12 @@ object ServerConsole {
           --ticks <count>        Stop cleanly after this many native frames
           -- <extension-args>    Arguments for the installed server extension
 
-        Console commands: help, start, map <path>, status, say <message>, stop
+        Console commands: help, players, maps [page], map <index|path|name>, maxplayers <10..100>,
+          start, addai [count], kick <slot>, ai <-2..3> [AI slot], team <slot> <1..99|-1>,
+          move <from> <to> [0..98|-1], credits <default|amount>, startingunits <preset-id>, income <value>,
+          fog <off|basic|los>, revealed <on|off>, revealedmap <true|false>, nukes <on|off>,
+          sharedcontrol <on|off>, replay <on|off|status>, language <system|code>, prompt <text>,
+          status, say <message>, return, stop
     """
 
     private const val PROMPT = "> "

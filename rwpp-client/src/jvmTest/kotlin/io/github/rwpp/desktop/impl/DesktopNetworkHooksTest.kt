@@ -9,24 +9,16 @@ package io.github.rwpp.desktop.impl
 
 import io.github.rwpp.api.game.RoomOption
 import io.github.rwpp.api.net.InternalPacketType
-import io.github.rwpp.net.PreregisterPacketResult
-import io.github.rwpp.net.applyPreregisterRoomOption
-import io.github.rwpp.net.claimPlayerDefeatOnce
-import io.github.rwpp.net.isBannedUnitCommand
-import io.github.rwpp.net.shouldRouteLocalCommand
-import io.github.rwpp.net.shouldRouteRemoteCommand
+import io.github.rwpp.mixin.desktop.DesktopNetworkPacketMixin
+import io.github.rwpp.mixin.desktop.DesktopRoomOptionHandshakeMixin
+import io.github.rwpp.net.*
 import kim.der.asm.AsmRegistry
 import kim.der.asm.transformer.AsmProcessor
 import org.objectweb.asm.ClassReader
 import org.objectweb.asm.tree.ClassNode
 import org.objectweb.asm.tree.MethodInsnNode
 import org.objectweb.asm.tree.MethodNode
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertNull
-import kotlin.test.assertSame
-import kotlin.test.assertTrue
+import kotlin.test.*
 
 class DesktopNetworkHooksTest {
     @Test
@@ -138,8 +130,6 @@ class DesktopNetworkHooksTest {
         try {
             AsmRegistry.register(DesktopRoomOptionHandshakeMixin::class.java)
             AsmRegistry.register(DesktopNetworkPacketMixin::class.java)
-            AsmRegistry.register(DesktopNetworkCommandMixin::class.java)
-            AsmRegistry.register(DesktopNetworkChatMixin::class.java)
 
             val transformedBytes = AsmProcessor().transform(className, originalBytes, classLoader)
             val transformedNode = ClassNode()
@@ -148,38 +138,14 @@ class DesktopNetworkHooksTest {
             assertTransformedCall(
                 transformedNode,
                 "sendPreregisterInfo",
-                "io/github/rwpp/desktop/impl/DesktopRoomOptionHandshakeMixin",
+                "io/github/rwpp/mixin/desktop/DesktopRoomOptionHandshakeMixin",
                 "includeServerRoomOption",
             )
             assertTransformedCall(
                 transformedNode,
                 "processSystemPacket",
-                "io/github/rwpp/desktop/impl/DesktopNetworkPacketMixin",
+                "io/github/rwpp/mixin/desktop/DesktopNetworkPacketMixin",
                 "receiveRwppPackets",
-            )
-            assertTransformedCall(
-                transformedNode,
-                "queueCommand",
-                "io/github/rwpp/desktop/impl/DesktopNetworkCommandMixin",
-                "blockBannedUnits",
-            )
-            assertTransformedCall(
-                transformedNode,
-                "routeChatMessageViaRelay",
-                "io/github/rwpp/desktop/impl/DesktopNetworkCommandMixin",
-                "routeRemoteCommands",
-            )
-            assertTransformedCall(
-                transformedNode,
-                "sendChatMessage",
-                "io/github/rwpp/desktop/impl/DesktopNetworkCommandMixin",
-                "routeLocalCommands",
-            )
-            assertTransformedCall(
-                transformedNode,
-                "receiveChatMessage",
-                "io/github/rwpp/desktop/impl/DesktopNetworkChatMixin",
-                "broadcastChatMessage",
             )
         } finally {
             AsmRegistry.clear()

@@ -1,22 +1,8 @@
 /*
- * KCP wire protocol and ARQ logic adapted from https://github.com/skywind3000/kcp.
- * Copyright (c) 2017 Lin Wei (skywind3000 at gmail.com)
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
+ * Copyright 2023-2026 RWPP contributors
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 package io.github.rwpp.api.net.kcp
 
@@ -131,8 +117,10 @@ class Kcp(
                     parseAck(header.sequence)
                     val previous = greatestAck
                     if (previous == null || (header.sequence - previous.sequence > 0 &&
-                                header.timestamp - previous.timestamp >= 0)) greatestAck = header
+                                header.timestamp - previous.timestamp >= 0)
+                    ) greatestAck = header
                 }
+
                 PUSH -> {
                     if (header.sequence - (receiveNext + receiveWindow) < 0) {
                         if (header.sequence - receiveNext < 0) {
@@ -140,20 +128,25 @@ class Kcp(
                         } else {
                             val index = insertionIndex(header.sequence)
                             val duplicate = index < receiveBuffer.size &&
-                                receiveBuffer[index].sequence == header.sequence
+                                    receiveBuffer[index].sequence == header.sequence
                             val cost = header.length + HEADER_SIZE
                             if (duplicate || queuedReceiveBytes <= maxQueuedBytes - cost) {
                                 acknowledge(header.sequence, header.timestamp, now)
                                 if (!duplicate) {
-                                    receiveBuffer.add(index, Segment(datagram.copyOfRange(
-                                        header.offset, header.offset + header.length,
-                                    ), header.fragment, header.sequence))
+                                    receiveBuffer.add(
+                                        index, Segment(
+                                            datagram.copyOfRange(
+                                                header.offset, header.offset + header.length,
+                                            ), header.fragment, header.sequence
+                                        )
+                                    )
                                     queuedReceiveBytes += cost
                                 }
                             }
                         }
                     }
                 }
+
                 ASK -> tellWindow = true
                 TELL -> Unit
             }
@@ -224,7 +217,8 @@ class Kcp(
         for (index in 0 until count) {
             val fragment = receiveQueue[index]
             if (fragment.fragment != count - index - 1 ||
-                length > MAX_MESSAGE_SIZE - fragment.data.size) {
+                length > MAX_MESSAGE_SIZE - fragment.data.size
+            ) {
                 isDead = true
                 return null
             }
@@ -259,9 +253,13 @@ class Kcp(
                 // output only; accepting a larger peer segment is standard KCP.
                 if (fragment >= MAX_FRAGMENTS - 1 || fragment >= receiveWindow || length > MAX_MESSAGE_SIZE) return null
             } else if (length != 0 || fragment != 0) return null
-            headers.add(Header(command, fragment, read16(datagram, offset + 6),
-                read32(datagram, offset + 8), read32(datagram, offset + 12),
-                read32(datagram, offset + 16), offset + HEADER_SIZE, length))
+            headers.add(
+                Header(
+                    command, fragment, read16(datagram, offset + 6),
+                    read32(datagram, offset + 8), read32(datagram, offset + 12),
+                    read32(datagram, offset + 16), offset + HEADER_SIZE, length
+                )
+            )
             offset += HEADER_SIZE + length
         }
         return headers
@@ -323,7 +321,8 @@ class Kcp(
     private fun moveReceiveBuffer() {
         var count = 0
         while (count < receiveBuffer.size && receiveBuffer[count].sequence == receiveNext &&
-            receiveQueue.size < receiveWindow) {
+            receiveQueue.size < receiveWindow
+        ) {
             receiveQueue.addLast(receiveBuffer[count])
             receiveNext++
             count++
@@ -387,17 +386,20 @@ class Kcp(
                     segment.resendAt = now + segment.rto
                     true
                 }
+
                 now - segment.resendAt >= 0 -> {
                     segment.rto = min(RTO_MAX, segment.rto + segment.rto / 2)
                     segment.resendAt = now + segment.rto
                     segment.fastAck = 0
                     true
                 }
+
                 segment.fastAck >= 2 && segment.transmissions <= 5 -> {
                     segment.fastAck = 0
                     segment.resendAt = now + segment.rto
                     true
                 }
+
                 else -> false
             }
             if (needsSend) {

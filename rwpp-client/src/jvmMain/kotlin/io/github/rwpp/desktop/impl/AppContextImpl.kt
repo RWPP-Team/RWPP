@@ -1,24 +1,24 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.desktop.impl
 
 import com.corrodinggames.librocket.scripts.ScriptEngine
+import com.corrodinggames.rts.gameFramework.GameEngine
 import io.github.rwpp.AppContext
 import io.github.rwpp.api.config.ConfigIO
-import io.github.rwpp.desktop.GameEngine
 import io.github.rwpp.impl.BaseAppContextImpl
 import org.koin.core.annotation.Single
 import org.koin.core.component.get
-import kotlin.concurrent.thread
-import kotlin.system.exitProcess
 import java.awt.FileDialog
 import java.awt.Frame
 import java.io.File
+import kotlin.concurrent.thread
+import kotlin.system.exitProcess
 
 @Single([AppContext::class])
 class AppContextImpl : BaseAppContextImpl() {
@@ -46,6 +46,39 @@ class AppContextImpl : BaseAppContextImpl() {
             if (directory != null && fileName != null) {
                 onChooseFile(File(directory, fileName))
             }
+        }
+    }
+
+    override fun shareFile(
+        name: String,
+        sourcePath: String,
+        openSource: () -> java.io.InputStream,
+        onResult: (Result<Unit>) -> Unit
+    ) {
+        thread(isDaemon = true) {
+            val dialog = FileDialog(
+                null as Frame?,
+                io.github.rwpp.api.i18n.readI18n("rwpp.replay.saveCopy"),
+                FileDialog.SAVE
+            ).apply {
+                file = name
+                isVisible = true
+            }
+            val directory = dialog.directory ?: return@thread
+            val chosen = dialog.file ?: return@thread
+            val result = runCatching {
+                val destination = File(directory, chosen)
+                require(destination.canonicalFile != File(sourcePath).canonicalFile) { "Choose a different file for the exported replay" }
+                val temporary = File.createTempFile("rwpp-replay-", ".tmp")
+                try {
+                    openSource().use { input -> temporary.outputStream().use { input.copyTo(it) } }
+                    temporary.inputStream().use { input -> destination.outputStream().use { input.copyTo(it) } }
+                    Unit
+                } finally {
+                    temporary.delete()
+                }
+            }
+            onResult(result)
         }
     }
 

@@ -1,8 +1,8 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.ui
@@ -29,10 +29,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import io.github.rwpp.api.game.Game
 import com.corrodinggames.rts.game.units.MovementType
 import com.corrodinggames.rts.game.units.UnitTypeInterface
+import io.github.rwpp.api.game.Game
+import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.sound.Sounds
 import io.github.rwpp.widget.v2.*
 import io.github.rwpp.widget.v2.scrollbar.LazyColumnScrollbar
@@ -43,7 +43,9 @@ fun BanUnitViewDialog(
     visible: Boolean,
     onDismissRequest: () -> Unit,
     lastSelectedUnits: List<UnitTypeInterface>,
-    onSelectedUnits: (List<UnitTypeInterface>) -> Unit
+    onSelectedUnits: (List<UnitTypeInterface>) -> Unit,
+    title: String = "TACTICAL UNIT RESTRICTIONS",
+    tagPrefix: String = "BANNED",
 ) {
     if (!visible) return
 
@@ -52,7 +54,10 @@ fun BanUnitViewDialog(
         SnapshotStateList<UnitTypeInterface>().apply { addAll(lastSelectedUnits) }
     }
 
-    Dialog(onDismissRequest = onDismissRequest) {
+    AnimatedAlertDialog(
+        visible = visible,
+        onDismissRequest = onDismissRequest
+    ) { dismiss ->
         AeroPanel(
             modifier = Modifier
                 .fillMaxWidth(0.95f)
@@ -71,8 +76,8 @@ fun BanUnitViewDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     AeroHeader(
-                        title = "TACTICAL UNIT RESTRICTIONS",
-                        tag = "BANNED: ${selectedUnits.size}",
+                        title = title,
+                        tag = "$tagPrefix: ${selectedUnits.size}",
                         color = MaterialTheme.colorScheme.error
                     )
                     AeroIconButton(
@@ -81,7 +86,7 @@ fun BanUnitViewDialog(
                         iconSize = 16.dp,
                         isDanger = true,
                         clickSound = Sounds.closePopup,
-                        onClick = onDismissRequest
+                        onClick = dismiss
                     )
                 }
 
@@ -91,15 +96,15 @@ fun BanUnitViewDialog(
                 val allUnits = remember(filter) {
                     game.getAllUnitTypes().filter {
                         filter.isBlank() ||
-                                it.getDisplayName().contains(filter, ignoreCase = true) ||
-                                it.getInternalName().contains(filter, ignoreCase = true)
+                                it.displayName.contains(filter, ignoreCase = true) ||
+                                it.internalName.contains(filter, ignoreCase = true)
                     }
                 }
 
                 AeroTextField(
                     value = filter,
                     onValueChange = { filter = it },
-                    placeholder = "FILTER_UNIT_PROFILES",
+                    placeholder = readI18n("rwpp.units.filter"),
                     modifier = Modifier.fillMaxWidth(),
                     leadingIcon = {
                         Icon(
@@ -146,8 +151,8 @@ fun BanUnitViewDialog(
                                 val isExpanded = expandedMap[type] ?: false
 
                                 AeroBanUnitHeader(
-                                    title = "${type.name} DIRECTORY",
-                                    countText = "${units.size} UNITS",
+                                    title = readI18n("rwpp.units.movementType.${type.name.lowercase()}"),
+                                    countText = readI18n("rwpp.units.count", units.size),
                                     isExpanded = isExpanded,
                                     isChecked = isAllChecked,
                                     onToggleAll = {
@@ -198,23 +203,23 @@ fun BanUnitViewDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     AeroButton(
-                        text = "RESET ALL",
+                        text = readI18n("rwpp.common.resetAll"),
                         isDanger = true,
                         modifier = Modifier.weight(1f),
                         onClick = {
                             selectedUnits.clear()
                             onSelectedUnits(emptyList())
-                            onDismissRequest()
+                            dismiss()
                         }
                     )
 
                     AeroButton(
-                        text = "APPLY RESTRICTIONS",
+                        text = readI18n("rwpp.units.applyRestrictions"),
                         accentColor = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.weight(1f),
                         onClick = {
                             onSelectedUnits(selectedUnits.toList())
-                            onDismissRequest()
+                            dismiss()
                         }
                     )
                 }
@@ -270,7 +275,7 @@ private fun AeroBanUnitHeader(
             }
 
             AeroToggleTile(
-                label = if (isChecked) "BAN ALL" else "ALLOW ALL",
+                label = readI18n(if (isChecked) "rwpp.units.allowAll" else "rwpp.units.banAll"),
                 checked = isChecked,
                 onCheckedChange = { onToggleAll() }
             )
@@ -285,7 +290,9 @@ private fun AeroBanUnitCard(
     onCheckedChange: (Boolean) -> Unit
 ) {
     AeroPanel(
-        borderColor = if (isChecked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+        borderColor = if (isChecked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outlineVariant.copy(
+            alpha = 0.4f
+        ),
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = 12.dp, top = 2.dp, bottom = 2.dp)
@@ -317,7 +324,7 @@ private fun AeroBanUnitCard(
             }
 
             AeroToggleTile(
-                label = if (isChecked) "BANNED" else "ACTIVE",
+                label = readI18n(if (isChecked) "rwpp.units.banned" else "rwpp.units.active"),
                 checked = isChecked,
                 onCheckedChange = onCheckedChange
             )

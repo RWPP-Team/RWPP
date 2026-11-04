@@ -1,8 +1,15 @@
+/*
+ * Copyright 2023-2026 RWPP contributors
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
+ */
+
 package io.github.rwpp.api.net.packets
 
-import com.corrodinggames.rts.gameFramework.mod.Mod
 import com.corrodinggames.rts.game.Team
 import com.corrodinggames.rts.gameFramework.GameEngine
+import com.corrodinggames.rts.gameFramework.mod.Mod
 import io.github.rwpp.api.appKoin
 import io.github.rwpp.api.coroutines.GameScope
 import io.github.rwpp.api.event.EventOwner
@@ -14,19 +21,22 @@ import io.github.rwpp.api.net.sendPacketToClient
 import io.github.rwpp.api.util.zipFolderToByte
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import java.io.File
 
 /** The same mod-serving protocol for dedicated servers and client-hosted rooms. */
 object ModTransferHost {
     private val transfers = Semaphore(2)
-    private val activeTransfers = java.util.concurrent.ConcurrentHashMap.newKeySet<com.corrodinggames.rts.gameFramework.network.Connection>()
+    private val activeTransfers =
+        java.util.concurrent.ConcurrentHashMap.newKeySet<com.corrodinggames.rts.gameFramework.network.Connection>()
     private val readiness = java.util.Collections.synchronizedMap(java.util.WeakHashMap<Team, Boolean>())
 
     fun isReady(player: Team): Boolean = readiness[player] ?: true
-    fun setReady(player: Team, ready: Boolean) { readiness[player] = ready }
+    fun setReady(player: Team, ready: Boolean) {
+        readiness[player] = ready
+    }
 
     fun install(owner: EventOwner, net: Net) {
         net.registerPacketListener(owner, ModPackets.MOD_REQUEST) { client, packet ->
@@ -48,7 +58,8 @@ object ModTransferHost {
                                     if (!client.isOpen) return@withContext
                                     val file = File(path)
                                     require(file.isDirectory || file.length() <= ModPacket.MAX_MOD_BYTES) { "Mod is too large" }
-                                    val data = if (file.isDirectory) file.zipFolderToByte(ModPacket.MAX_MOD_BYTES) else file.readBytes()
+                                    val data =
+                                        if (file.isDirectory) file.zipFolderToByte(ModPacket.MAX_MOD_BYTES) else file.readBytes()
                                     client.sendPacketToClient(ModPacket.ModPackPacket().apply {
                                         this.index = index
                                         this.name = name
@@ -58,7 +69,9 @@ object ModTransferHost {
                             }
                         }
                     }.onFailure { logger().error("Mod transfer failed", it) }
-                } finally { activeTransfers.remove(client) }
+                } finally {
+                    activeTransfers.remove(client)
+                }
             }
             true
         }

@@ -1,35 +1,23 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.api.event.hooks
 
 import android.graphics.Paint
 import android.graphics.RectF
-import com.corrodinggames.rts.game.units.Unit as GameUnit
 import com.corrodinggames.rts.gameFramework.CommandControllerCommand
 import com.corrodinggames.rts.gameFramework.GameEngine
 import com.corrodinggames.rts.gameFramework.render.GraphicsEngine
-import io.github.rwpp.api.event.events.UnitDrawEventPool
-import io.github.rwpp.api.event.events.CommandPathsReadyEvent
-import io.github.rwpp.api.event.events.UnitDrawEvent
-import io.github.rwpp.api.event.events.UnitOverlayBarEventPool
-import io.github.rwpp.api.event.events.UnitOverlayBarEvent
-import java.util.ArrayDeque
-import kim.der.asm.api.annotation.At
-import kim.der.asm.api.annotation.AsmInject
-import kim.der.asm.api.annotation.AsmMixin
-import kim.der.asm.api.annotation.CallbackInfo
-import kim.der.asm.api.annotation.InjectionPoint
-import kim.der.asm.api.annotation.Redirect
+import io.github.rwpp.api.event.events.*
+import java.util.*
+import com.corrodinggames.rts.game.units.Unit as GameUnit
 
 /** Per-unit native draw notification. Overlay scope is installed by [UnitOverlayClassPatch]. */
-@AsmMixin("com/corrodinggames/rts/game/units/Unit", priority = 2000)
-object UnitDrawEntryMixin {
-    @AsmInject(method = "runOnDestroyHooks(F)V", target = InjectionPoint.HEAD, require = 1)
+internal object UnitDrawEntryCallbacks {
     fun publishUnitDraw(target: Any, deltaTime: Float) {
         if (hasNativeEventListeners(UnitDrawEvent::class)) {
             val event = UnitDrawEventPool.acquire(target as GameUnit, GameEngine.getInstance().graphics, deltaTime)
@@ -43,17 +31,7 @@ object UnitDrawEntryMixin {
 }
 
 /** Intercepts native overlay rectangles; listeners can draw a replacement and cancel the original. */
-@AsmMixin("com/corrodinggames/rts/game/units/Unit", priority = 1500)
-object UnitOverlayBarMixin {
-    @JvmStatic
-    @Redirect(
-        method = "drawOverlay(FZ)V",
-        at = At(
-            value = InjectionPoint.INVOKE,
-            target = "com.corrodinggames.rts.gameFramework.render.GraphicsEngine.drawRect(Landroid/graphics/RectF;Landroid/graphics/Paint;)V",
-        ),
-        require = 1,
-    )
+internal object UnitOverlayBarCallbacks {
     fun drawNativeOverlayBar(
         graphics: Any,
         rect: RectF,
@@ -100,11 +78,9 @@ internal object UnitOverlayDrawContext {
     }
 }
 
-@AsmMixin("com/corrodinggames/rts/gameFramework/CommandControllerCommand")
-object CommandEventMixin {
-    @AsmInject(method = "allPathsReady()Z", target = InjectionPoint.TAIL, require = 1)
-    fun publishPathsReady(callback: CallbackInfo, target: Any) {
-        if (callback.getReturnValue<Boolean>() == true && hasNativeEventListeners(CommandPathsReadyEvent::class)) {
+internal object CommandEventCallbacks {
+    fun publishPathsReady(target: Any, pathsReady: Boolean) {
+        if (pathsReady && hasNativeEventListeners(CommandPathsReadyEvent::class)) {
             broadcastNativeEvent(CommandPathsReadyEvent(target as CommandControllerCommand))
         }
     }

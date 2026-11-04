@@ -1,39 +1,80 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.TextField
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType.Companion.KeyDown
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.input.key.type
-import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import io.github.rwpp.App
-import io.github.rwpp.api.game.Game
-import io.github.rwpp.api.game.sendChatMessageOrCommand
-import io.github.rwpp.api.i18n.readI18n
-import io.github.rwpp.ui.UI.chatMessages
-import io.github.rwpp.widget.*
-import org.koin.compose.koinInject
+import io.github.rwpp.widget.MenuLoadingView
+import io.github.rwpp.widget.isLoading
+import io.github.rwpp.widget.loadingMessage
+import io.github.rwpp.widget.loadingOverlayKeepsContent
+import kotlinx.coroutines.CompletableDeferred
+
+private object LoadingOverlayPresentation {
+    private var nextGeneration = 0L
+    private var activeGeneration = 0L
+    private val waiters = mutableMapOf<Long, CompletableDeferred<Unit>>()
+
+    @Synchronized
+    fun begin(): Long {
+        waiters.remove(activeGeneration)?.cancel()
+        activeGeneration = ++nextGeneration
+        waiters[activeGeneration] = CompletableDeferred()
+        return activeGeneration
+    }
+
+    suspend fun awaitDrawn(generation: Long) {
+        val waiter = synchronized(this) { waiters[generation] } ?: return
+        waiter.await()
+    }
+
+    @Synchronized
+    fun markDrawn(generation: Long) {
+        if (generation == activeGeneration) waiters[generation]?.complete(Unit)
+    }
+
+    @Synchronized
+    fun finish(generation: Long) {
+        val waiter = waiters.remove(generation)
+        if (activeGeneration == generation) activeGeneration = 0
+        waiter?.cancel()
+    }
+}
+
+private var loadingOverlayGeneration by mutableStateOf(0L)
+
+/** Begins a generation-tagged draw acknowledgement for the active loading overlay. */
+internal fun beginLoadingOverlayPresentation(): Long = LoadingOverlayPresentation.begin().also {
+    loadingOverlayGeneration = it
+}
+
+/** Suspends until the matching loading overlay has completed a Compose draw pass. */
+internal suspend fun awaitLoadingOverlayDrawn(generation: Long) =
+    LoadingOverlayPresentation.awaitDrawn(generation)
+
+internal fun finishLoadingOverlayPresentation(generation: Long) {
+    LoadingOverlayPresentation.finish(generation)
+    if (loadingOverlayGeneration == generation) loadingOverlayGeneration = 0L
+}
+
+private fun markLoadingOverlayDrawn(generation: Long) = LoadingOverlayPresentation.markDrawn(generation)
 
 /** State shared by desktop and Android UI roots. */
 var isSendingTeamChat by mutableStateOf(false)
@@ -61,117 +102,56 @@ fun MainComposeContent(showBackground: Boolean = true, safeInsets: Boolean = fal
             PlatformBackgroundLayer(UI.backgroundImagePath)
         }
         Box(modifier = Modifier.fillMaxSize().then(foregroundInsets), contentAlignment = Alignment.Center) {
-            if (isLoading) {
-                MenuLoadingView(loadingMessage)
-            } else {
-                App()
-            }
+            LoadingAwareContent(
+                isLoading = isLoading,
+                keepContentWhileLoading = loadingOverlayKeepsContent,
+                loadingContent = { MenuLoadingView(loadingMessage) },
+                content = { App() },
+            )
         }
     }
 
-    if (isShowSendMessageDialog) {
-        val game = koinInject<Game>()
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.4f))
-                .clickable(enabled = false) {},
-        ) {
-            Box(Modifier.fillMaxSize().then(foregroundInsets), contentAlignment = Alignment.Center) {
-                RWPPTheme {
-                    BorderCard(
-                        modifier = Modifier
-                            .size(550.dp, 540.dp)
-                            .onKeyEvent {
-                                if (it.key == Key.Escape && it.type == KeyDown) {
-                                    isShowSendMessageDialog = false
-                                    isSendingTeamChat = false
-                                    true
-                                } else false
-                            },
-                        backgroundColor = Color(53, 57, 53),
-                        shape = RectangleShape
-                    ) {
-                    var chatMessage by remember { mutableStateOf("") }
-                    var allChatMessages by remember(chatMessages) {
-                        mutableStateOf(TextFieldValue(chatMessages))
-                    }
 
-                    Box {
-                        fun onExit() {
-                            isShowSendMessageDialog = false
-                            isSendingTeamChat = false
-                        }
+}
 
-                        fun onSendMessage() {
-                            if (isSendingTeamChat) {
-                                game.gameRoom.sendChatMessage("-t $chatMessage")
-                            } else {
-                                game.gameRoom.sendChatMessageOrCommand(chatMessage)
-                            }
-                            chatMessage = ""
-                            onExit()
-                        }
+/** Initial loading keeps the app uncomposed; blocking in-app reloads retain it beneath an input shield. */
+@Composable
+internal fun LoadingAwareContent(
+    isLoading: Boolean,
+    keepContentWhileLoading: Boolean,
+    loadingContent: @Composable () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    if (isLoading && !keepContentWhileLoading) {
+        loadingContent()
+        return
+    }
 
-                        ExitButton { onExit() }
-
-                        Column(modifier = Modifier.fillMaxSize()) {
-                            Spacer(modifier = Modifier.height(30.dp))
-                            TextField(
-                                value = allChatMessages,
-                                onValueChange = { allChatMessages = it },
-                                readOnly = true,
-                                textStyle = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.fillMaxWidth().weight(1f),
-                                colors = RWTextFieldColors,
-                                maxLines = 100
-                            )
-                            RWSingleOutlinedTextField(
-                                label = if (isSendingTeamChat) readI18n("rwpp.ingame.sendTeamMessage") else readI18n("rwpp.ingame.sendMessage"),
-                                value = chatMessage,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(10.dp)
-                                    .onKeyEvent {
-                                        if ((it.key == Key.Enter || it.key == Key.NumPadEnter) && chatMessage.isNotEmpty()) {
-                                            onSendMessage()
-                                            true
-                                        } else if (it.key == Key.Escape && it.type == KeyDown) {
-                                            onExit()
-                                            true
-                                        } else false
-                                    },
-                                trailingIcon = {
-                                    Icon(
-                                        Icons.AutoMirrored.Filled.ArrowForward,
-                                        contentDescription = null,
-                                        modifier = Modifier.clickable { onSendMessage() }
-                                    )
-                                },
-                                onValueChange = { chatMessage = it },
-                            )
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                RWTextButton(readI18n("rwpp.ingame.sendMessage"), modifier = Modifier.padding(5.dp)) {
-                                    game.gameRoom.sendChatMessageOrCommand(chatMessage)
-                                    chatMessage = ""
-                                    onExit()
-                                }
-                                RWTextButton(readI18n("rwpp.ingame.sendTeamMessage"), modifier = Modifier.padding(5.dp)) {
-                                    game.gameRoom.sendChatMessage("-t $chatMessage")
-                                    chatMessage = ""
-                                    onExit()
-                                }
+    Box(
+        Modifier.fillMaxSize().onPreviewKeyEvent { isLoading && keepContentWhileLoading },
+    ) {
+        content()
+        if (isLoading && keepContentWhileLoading) {
+            val generation = loadingOverlayGeneration
+            Box(
+                modifier = Modifier.fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.88f))
+                    .pointerInput(generation) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
                             }
                         }
                     }
-                }
+                    .drawWithContent {
+                        drawContent()
+                        if (generation != 0L) markLoadingOverlayDrawn(generation)
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                loadingContent()
             }
         }
-    }
     }
 }
 

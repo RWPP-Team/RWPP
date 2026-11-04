@@ -1,8 +1,8 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 package io.github.rwpp.api.event.hooks
 
@@ -23,16 +23,22 @@ class UnitOverlayClassPatch : ClassFilePatch {
         check(type.methods.none { it.name == BODY || it.name == NATIVE }) { "Overlay scope already installed" }
         val body = type.methods.single { it.name == "drawOverlay" && it.desc == "(FZ)V" }
         val access = body.access
-        val native = MethodNode(ASM9, (access and (ACC_PUBLIC or ACC_PROTECTED).inv()) or ACC_PRIVATE or ACC_SYNTHETIC,
-            NATIVE, body.desc, body.signature, body.exceptions.toTypedArray())
+        val native = MethodNode(
+            ASM9, (access and (ACC_PUBLIC or ACC_PROTECTED).inv()) or ACC_PRIVATE or ACC_SYNTHETIC,
+            NATIVE, body.desc, body.signature, body.exceptions.toTypedArray()
+        )
         body.accept(native)
         // Preserve every other extension's injections. Only undo this API's own rectangle redirect.
         var redirects = 0
         for (instruction in native.instructions.toArray()) {
             if (instruction is MethodInsnNode && instruction.owner == BAR && instruction.name == "drawNativeOverlayBar") {
                 check(instruction.opcode == INVOKESTATIC) { "Overlay redirect must be static" }
-                native.instructions.set(instruction, MethodInsnNode(INVOKEINTERFACE, GRAPHICS, "drawRect",
-                    "(Landroid/graphics/RectF;Landroid/graphics/Paint;)V", true))
+                native.instructions.set(
+                    instruction, MethodInsnNode(
+                        INVOKEINTERFACE, GRAPHICS, "drawRect",
+                        "(Landroid/graphics/RectF;Landroid/graphics/Paint;)V", true
+                    )
+                )
                 redirects++
             }
         }
@@ -65,7 +71,15 @@ class UnitOverlayClassPatch : ClassFilePatch {
             add(MethodInsnNode(INVOKESTATIC, CONTEXT, "restoreDepth", "(I)V", false))
             add(InsnNode(RETURN))
             add(failed)
-            add(FrameNode(F_FULL, 4, arrayOf<Any>(type.name, FLOAT, INTEGER, INTEGER), 1, arrayOf("java/lang/Throwable")))
+            add(
+                FrameNode(
+                    F_FULL,
+                    4,
+                    arrayOf<Any>(type.name, FLOAT, INTEGER, INTEGER),
+                    1,
+                    arrayOf("java/lang/Throwable")
+                )
+            )
             add(VarInsnNode(ASTORE, 4)); add(VarInsnNode(ILOAD, 3))
             add(MethodInsnNode(INVOKESTATIC, CONTEXT, "restoreDepth", "(I)V", false))
             add(VarInsnNode(ALOAD, 4)); add(InsnNode(ATHROW))
@@ -84,7 +98,7 @@ class UnitOverlayClassPatch : ClassFilePatch {
         const val BODY = "rwml\$overlayWithEvents"
         const val NATIVE = "rwml\$overlayWithoutEvents"
         const val CONTEXT = "io/github/rwpp/api/event/hooks/UnitOverlayDrawContext"
-        const val BAR = "io/github/rwpp/api/event/hooks/UnitOverlayBarMixin"
+        const val BAR = "io/github/rwpp/api/mixin/event/UnitOverlayBarMixin"
         const val GRAPHICS = "com/corrodinggames/rts/gameFramework/render/GraphicsEngine"
     }
 }

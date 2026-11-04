@@ -1,8 +1,8 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.api.net
@@ -10,13 +10,8 @@ package io.github.rwpp.api.net
 import com.corrodinggames.rts.gameFramework.network.Connection
 import io.github.rwpp.api.event.EventOwner
 import io.github.rwpp.api.logging.logger
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
-import java.io.DataInputStream
-import java.io.DataOutputStream
-import java.io.EOFException
-import java.io.IOException
-import java.util.IdentityHashMap
+import java.io.*
+import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
@@ -94,6 +89,7 @@ class PayloadRegistry {
         receiver: (Connection?, T) -> Unit,
     ): PayloadListenerHandle {
         val id = PayloadId(key.namespace, key.version)
+
         @Suppress("UNCHECKED_CAST")
         val erasedReceiver: (Connection?, Any) -> Unit = { connection, value ->
             receiver(connection, value as T)
@@ -142,7 +138,7 @@ class PayloadRegistry {
             ) {
                 throw IllegalArgumentException(
                     "Payload '${key.namespace}' version ${key.version} is already registered with " +
-                        "different direction, size limit, or codec. Reuse the same PayloadKey and codec.",
+                            "different direction, size limit, or codec. Reuse the same PayloadKey and codec.",
                 )
             }
             return existing
@@ -174,7 +170,7 @@ class PayloadRegistry {
         if (!route.matches(key)) return false
         val remote = synchronized(capabilityLock) { remoteCapabilities[connection]?.get(id) } ?: return false
         return remote.canReceive && remote.direction == key.direction &&
-            remote.maxPayloadBytes == key.maxPayloadBytes
+                remote.maxPayloadBytes == key.maxPayloadBytes
     }
 
     /** Encodes a payload only after checking key registration, direction, and peer advertisement. */
@@ -271,6 +267,7 @@ class PayloadRegistry {
                     dispatchPayload(input, connection, incomingDirection)
                     false
                 }
+
                 else -> {
                     log.warn("Dropped unknown RWML payload envelope frame type $frameType")
                     false
@@ -464,7 +461,7 @@ class PayloadRegistry {
 
         fun matches(key: PayloadKey<*>): Boolean =
             namespace == key.namespace && version == key.version && direction == key.direction &&
-                maxPayloadBytes == key.maxPayloadBytes && codec === key.codec
+                    maxPayloadBytes == key.maxPayloadBytes && codec === key.codec
     }
 
     private companion object {

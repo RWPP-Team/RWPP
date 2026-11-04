@@ -1,8 +1,8 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.api.command
@@ -65,10 +65,12 @@ object GameCommandRuntime {
     )
 
     private val lock = Any()
+
     @Volatile
     private var eventOwner: EventOwner? = null
 
     private val localPolicyLock = Any()
+
     private data class LocalPolicyRegistration(val token: Any, val policy: LocalChatCommandPolicy)
 
     @Volatile
@@ -168,6 +170,7 @@ object GameCommandRuntime {
                 // Relay events are handled only by the host, and never for the host's own player.
                 if (!room.isHost || player === room.localPlayer) return
             }
+
             ChatOrigin.RECEIVE -> return
         }
         if (!isCurrentTeam(room, player)) return

@@ -18,7 +18,8 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.*
 
 class NativeTcpFastReceiveTest {
-    @Test fun emptyReceiveQueueAllowsBoundedFastConsumptionOnIo() = fixture { test ->
+    @Test
+    fun emptyReceiveQueueAllowsBoundedFastConsumptionOnIo() = fixture { test ->
         val fast = CompletableFuture<Pair<String, ByteArray>>()
         val ordinary = AtomicInteger()
         test.socket.startReceiving({ 1024 }, { _, _ -> ordinary.incrementAndGet() }, {}, { type, bytes ->
@@ -34,7 +35,8 @@ class NativeTcpFastReceiveTest {
         assertEquals(0, ordinary.get())
     }
 
-    @Test fun payloadAbove64KiBBypassesFastAndReachesTheWorkerIntact() = fixture { test ->
+    @Test
+    fun payloadAbove64KiBBypassesFastAndReachesTheWorkerIntact() = fixture { test ->
         val payload = ByteArray(64 * 1024 + 1) { (it % 127).toByte() }
         val delivered = CompletableFuture<Pair<String, ByteArray>>()
         val fastCalls = AtomicInteger()
@@ -48,7 +50,8 @@ class NativeTcpFastReceiveTest {
         assertEquals(0, fastCalls.get(), "An oversized fast payload reached the I/O callback")
     }
 
-    @Test fun payloadAt64KiBBoundaryRemainsEligibleForFastConsumption() = fixture { test ->
+    @Test
+    fun payloadAt64KiBBoundaryRemainsEligibleForFastConsumption() = fixture { test ->
         val payload = ByteArray(64 * 1024) { (it * 17).toByte() }
         val delivered = CompletableFuture<Pair<String, ByteArray>>()
         val ordinaryCalls = AtomicInteger()
@@ -63,7 +66,8 @@ class NativeTcpFastReceiveTest {
         assertEquals(0, ordinaryCalls.get())
     }
 
-    @Test fun queuedSystemFrameFencesFastFramesUntilTheWorkerDrainsThem() = fixture { test ->
+    @Test
+    fun queuedSystemFrameFencesFastFramesUntilTheWorkerDrainsThem() = fixture { test ->
         val releaseWorker = CountDownLatch(1)
         val workerBlocked = CountDownLatch(1)
         val frames = ConcurrentLinkedQueue<Pair<Int, String>>()
@@ -87,10 +91,13 @@ class NativeTcpFastReceiveTest {
             assertTrue(received.await(3, TimeUnit.SECONDS))
             assertEquals(listOf(160, 80), frames.map { it.first })
             assertTrue(frames.all { it.second.startsWith("rwpp-server-packets") })
-        } finally { releaseWorker.countDown() }
+        } finally {
+            releaseWorker.countDown()
+        }
     }
 
-    @Test fun inFlightSystemCallbackFencesFastFramesAndPreservesCompletionOrder() = fixture { test ->
+    @Test
+    fun inFlightSystemCallbackFencesFastFramesAndPreservesCompletionOrder() = fixture { test ->
         val callbackEntered = CountDownLatch(1)
         val releaseCallback = CountDownLatch(1)
         val complete = CountDownLatch(2)
@@ -118,19 +125,26 @@ class NativeTcpFastReceiveTest {
             releaseCallback.countDown()
             assertTrue(complete.await(3, TimeUnit.SECONDS))
             assertEquals(listOf("160-start", "160-end", "80"), events.toList())
-        } finally { releaseCallback.countDown() }
+        } finally {
+            releaseCallback.countDown()
+        }
     }
 
-    @Test fun threeArgumentReceiverStillRunsOnThePacketWorker() = fixture { test ->
+    @Test
+    fun threeArgumentReceiverStillRunsOnThePacketWorker() = fixture { test ->
         val delivered = CompletableFuture<Pair<String, ByteArray>>()
-        test.socket.startReceiving({ 1024 }, { _, bytes -> delivered.complete(Thread.currentThread().name to bytes) }, {})
+        test.socket.startReceiving(
+            { 1024 },
+            { _, bytes -> delivered.complete(Thread.currentThread().name to bytes) },
+            {})
         test.write(frame(80, byteArrayOf(4, 5)))
         val (thread, bytes) = delivered.get(3, TimeUnit.SECONDS)
         assertTrue(thread.startsWith("rwpp-server-packets"), thread)
         assertContentEquals(byteArrayOf(4, 5), bytes)
     }
 
-    @Test fun declinedFastFrameRunsTheOrdinaryCallbackOnTheWorker() = fixture { test ->
+    @Test
+    fun declinedFastFrameRunsTheOrdinaryCallbackOnTheWorker() = fixture { test ->
         val events = ConcurrentLinkedQueue<String>()
         val delivered = CompletableFuture<ByteArray>()
         test.socket.startReceiving({ 1024 }, { _, bytes ->
@@ -144,7 +158,8 @@ class NativeTcpFastReceiveTest {
         assertTrue(events.last().startsWith("rwpp-server-packets"))
     }
 
-    @Test fun fastCallbackExceptionClosesOnceAndReleasesInboundAndQueuedOutput() {
+    @Test
+    fun fastCallbackExceptionClosesOnceAndReleasesInboundAndQueuedOutput() {
         val runtime = optimizedRuntime()
         val channel = EmbeddedChannel()
         val allocator = TrackingAllocator()
@@ -186,7 +201,9 @@ class NativeTcpFastReceiveTest {
             raw = Socket("127.0.0.1", server.localPort).apply { tcpNoDelay = true }
             accepted = server.accept() as NativeTcpSocket
             block(Fixture(accepted, raw))
-        } finally { accepted?.close(); raw?.close(); server.close(); runtime.close() }
+        } finally {
+            accepted?.close(); raw?.close(); server.close(); runtime.close()
+        }
     }
 
     private class Fixture(val socket: NativeTcpSocket, private val raw: Socket) {
@@ -196,18 +213,26 @@ class NativeTcpFastReceiveTest {
         private val channel = NativeTcpSocket::class.java.getDeclaredField("channel").let {
             it.isAccessible = true; it.get(socket) as Channel
         }
-        fun write(bytes: ByteArray) { raw.getOutputStream().write(bytes); raw.getOutputStream().flush() }
+
+        fun write(bytes: ByteArray) {
+            raw.getOutputStream().write(bytes); raw.getOutputStream().flush()
+        }
+
         /** Resolve only after the decoder processed all bytes, even if TCP split the write. */
         fun afterInputBytes(expected: Int): CompletableFuture<Unit> {
             val result = CompletableFuture<Unit>()
-            channel.pipeline().addFirst(object : ChannelInboundHandlerAdapter() {
+            val observer = object : ChannelInboundHandlerAdapter() {
                 private var bytes = 0
                 override fun channelRead(context: ChannelHandlerContext, message: Any) {
                     if (message is ByteBuf) bytes += message.readableBytes()
                     context.fireChannelRead(message)
                     if (bytes >= expected) result.complete(Unit)
                 }
-            })
+            }
+            // Pipeline changes from the test thread are asynchronous. Wait for
+            // installation before the peer writes, otherwise readable I/O may
+            // be selected before the queued addFirst task and escape observation.
+            channel.eventLoop().submit { channel.pipeline().addFirst(observer) }.syncUninterruptibly()
             return result
         }
     }
@@ -230,8 +255,10 @@ class NativeTcpFastReceiveTest {
         val buffers = ConcurrentLinkedQueue<ByteBuf>()
         override fun newHeapBuffer(initialCapacity: Int, maxCapacity: Int): ByteBuf =
             Unpooled.buffer(initialCapacity, maxCapacity).also { buffers.add(it) }
+
         override fun newDirectBuffer(initialCapacity: Int, maxCapacity: Int): ByteBuf =
             Unpooled.directBuffer(initialCapacity, maxCapacity).also { buffers.add(it) }
+
         override fun isDirectBufferPooled() = false
     }
 }

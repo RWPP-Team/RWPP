@@ -12,7 +12,8 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.*
 
 class NativeTcpLargeWriteTest {
-    @Test fun largeSnapshotPreservesNativeHeaderAndPayloadWithoutConsolidatingComponents() = fixture { test ->
+    @Test
+    fun largeSnapshotPreservesNativeHeaderAndPayloadWithoutConsolidatingComponents() = fixture { test ->
         // More than sixteen components also catches accidental default-limit consolidation.
         val payload = ByteArray(17 * 1024 * 1024 + 37) { (it * 17 + 31).toByte() }
         val expected = payload.copyOf()
@@ -35,11 +36,14 @@ class NativeTcpLargeWriteTest {
             val actual = ByteArray(expected.size); frame.readBytes(actual)
             assertContentEquals(expected, actual)
             assertFalse(frame.isReadable)
-        } finally { frame.release() }
+        } finally {
+            frame.release()
+        }
         test.assertAllReleased()
     }
 
-    @Test fun componentAllocationFailureReleasesThePartialCompositeAndNotifiesOnce() = fixture(failAt = 3) { test ->
+    @Test
+    fun componentAllocationFailureReleasesThePartialCompositeAndNotifiesOnce() = fixture(failAt = 3) { test ->
         val failure = CompletableFuture<String>()
         val notifications = AtomicInteger()
         test.socket.startReceiving({ 1024 }, { _, _ -> fail("No inbound frame was sent") }, { reason ->
@@ -59,7 +63,8 @@ class NativeTcpLargeWriteTest {
         assertFalse(test.socket.send(511, byteArrayOf(1)))
     }
 
-    @Test fun immediateCloseReleasesAnOwnedDelayedLargeSnapshot() = fixture { test ->
+    @Test
+    fun immediateCloseReleasesAnOwnedDelayedLargeSnapshot() = fixture { test ->
         assertTrue(test.socket.send(1, byteArrayOf(1), 30_000))
         assertTrue(test.socket.send(510, ByteArray(1_500_123)))
         assertEquals(1, test.allocator.composites.size)
@@ -71,7 +76,8 @@ class NativeTcpLargeWriteTest {
         test.assertAllReleased()
     }
 
-    @Test fun gracefulCloseWritesTheLargeSnapshotBeforeReleasingItsComponents() = fixture { test ->
+    @Test
+    fun gracefulCloseWritesTheLargeSnapshotBeforeReleasingItsComponents() = fixture { test ->
         val payload = ByteArray(1_500_123) { (it % 127).toByte() }
         assertTrue(test.socket.send(510, payload))
         test.socket.closeAfterWrites()
@@ -87,7 +93,9 @@ class NativeTcpLargeWriteTest {
             assertFalse(frame.isReadable)
             // The outbound queue owns the successful write until its consumer releases it.
             assertTrue(test.allocator.components.all { it.refCnt() > 0 })
-        } finally { frame.release() }
+        } finally {
+            frame.release()
+        }
         while (true) (test.channel.readOutbound<ByteBuf>() ?: break).release()
         test.assertAllReleased()
         assertFalse(test.socket.send(511, byteArrayOf(1)))
@@ -106,8 +114,9 @@ class NativeTcpLargeWriteTest {
         val allocator = TrackingAllocator(failAt)
         channel.config().allocator = allocator
         val test = Fixture(channel, allocator, NativeTcpSocket(runtime, channel))
-        try { block(test) }
-        finally {
+        try {
+            block(test)
+        } finally {
             test.socket.close()
             channel.finishAndReleaseAll()
             runtime.close()
@@ -116,7 +125,10 @@ class NativeTcpLargeWriteTest {
     }
 
     private class Fixture(val channel: EmbeddedChannel, val allocator: TrackingAllocator, val socket: NativeTcpSocket) {
-        fun pump() { channel.runPendingTasks(); channel.runScheduledPendingTasks(); channel.runPendingTasks() }
+        fun pump() {
+            channel.runPendingTasks(); channel.runScheduledPendingTasks(); channel.runPendingTasks()
+        }
+
         fun assertAllReleased() {
             assertTrue(allocator.components.all { it.refCnt() == 0 }, "A component retained its ByteBuf reference")
             assertTrue(allocator.composites.all { it.refCnt() == 0 }, "A composite retained its ByteBuf reference")
@@ -129,16 +141,27 @@ class NativeTcpLargeWriteTest {
         private val attempts = AtomicInteger()
         private fun allocate(initialCapacity: Int, maxCapacity: Int, direct: Boolean): ByteBuf {
             if (attempts.incrementAndGet() == failAt) throw IllegalStateException("Injected component allocation failure")
-            return (if (direct) Unpooled.directBuffer(initialCapacity, maxCapacity) else Unpooled.buffer(initialCapacity, maxCapacity))
+            return (if (direct) Unpooled.directBuffer(
+                initialCapacity,
+                maxCapacity
+            ) else Unpooled.buffer(initialCapacity, maxCapacity))
                 .also { components.add(it) }
         }
-        override fun newHeapBuffer(initialCapacity: Int, maxCapacity: Int): ByteBuf = allocate(initialCapacity, maxCapacity, false)
-        override fun newDirectBuffer(initialCapacity: Int, maxCapacity: Int): ByteBuf = allocate(initialCapacity, maxCapacity, true)
+
+        override fun newHeapBuffer(initialCapacity: Int, maxCapacity: Int): ByteBuf =
+            allocate(initialCapacity, maxCapacity, false)
+
+        override fun newDirectBuffer(initialCapacity: Int, maxCapacity: Int): ByteBuf =
+            allocate(initialCapacity, maxCapacity, true)
+
         override fun compositeDirectBuffer(maxNumComponents: Int): CompositeByteBuf =
             super.compositeDirectBuffer(maxNumComponents).also { composites.add(it) }
+
         // Direct production allocators use this hint when choosing ioBuffer's backing type.
         override fun isDirectBufferPooled() = true
     }
 
-    private companion object { const val COMPONENT_BYTES = 1024 * 1024 }
+    private companion object {
+        const val COMPONENT_BYTES = 1024 * 1024
+    }
 }

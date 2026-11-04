@@ -1,13 +1,16 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.api.coroutines
 
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Runnable
+import kotlinx.coroutines.SupervisorJob
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.locks.LockSupport
@@ -34,7 +37,8 @@ object GameMainDispatcher : CoroutineDispatcher() {
     private var nativeThread: Thread? = null
     private var handoffThread: Thread? = null
     private var lastNativeFrameNanos = 0L
-    @Volatile private var wakeThread: Thread? = null
+    @Volatile
+    private var wakeThread: Thread? = null
     private val bridgeFrames = object : ThreadLocal<NativeBridgeThreadState>() {
         override fun initialValue() = NativeBridgeThreadState()
     }
@@ -97,12 +101,14 @@ object GameMainDispatcher : CoroutineDispatcher() {
                     handoffThread = null
                     wakeThread = currentThread
                 }
+
                 owner === currentThread -> Unit
                 !owner.isAlive -> {
                     nativeThread = currentThread
                     handoffThread = null
                     wakeThread = currentThread
                 }
+
                 else -> check(false) {
                     "GameMainDispatcher must only be drained by the native engine thread"
                 }
@@ -195,7 +201,8 @@ object GameMainDispatcher : CoroutineDispatcher() {
         private val lock = Any()
         private val queue = ConcurrentLinkedQueue<Runnable>()
         private var activeCall: NativeBridgeCall? = null
-        @Volatile private var ownerThread: Thread? = null
+        @Volatile
+        private var ownerThread: Thread? = null
 
         fun begin(owner: Thread): NativeBridgeCall = synchronized(lock) {
             check(activeCall == null) { "A native bridge frame cannot run two calls at once" }
@@ -309,9 +316,9 @@ object GameMainDispatcher : CoroutineDispatcher() {
     /** Refreshes loop ownership while holding the same lock used by both drain paths. */
     private fun refreshNativeLoopStateLocked(): Boolean {
         val recentNativeFrame = nativeThread != null &&
-            System.nanoTime() - lastNativeFrameNanos < NATIVE_FRAME_GRACE_PERIOD_NANOS
+                System.nanoTime() - lastNativeFrameNanos < NATIVE_FRAME_GRACE_PERIOD_NANOS
         val reportedLoopActive = engineInitialized &&
-            PlatformGameMainDispatcherPump.isNativeLoopActive() == true
+                PlatformGameMainDispatcherPump.isNativeLoopActive() == true
         nativeLoopActive = reportedLoopActive || recentNativeFrame
         if (!nativeLoopActive) {
             nativeThread = null
@@ -342,6 +349,7 @@ object GameMainDispatcher : CoroutineDispatcher() {
     fun addUpdateTask(task: Runnable) {
         updateTasks.add(task)
     }
+
     fun removeUpdateTask(task: Runnable) {
         updateTasks.remove(task)
     }

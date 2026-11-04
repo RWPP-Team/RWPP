@@ -12,7 +12,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.test.*
 
 class NativeTcpAllocationTest {
-    @Test fun readySecondAllocationCannotOvertakeTheUnreadyFirstFrame() = fixture { test ->
+    @Test
+    fun readySecondAllocationCannotOvertakeTheUnreadyFirstFrame() = fixture { test ->
         val first = test.sendFirst()
         test.allocator.awaitFirst()
         val secondPayload = byteArrayOf(2)
@@ -29,7 +30,8 @@ class NativeTcpAllocationTest {
         assertEquals(listOf(1, 2), frames.map { it.second.single().toInt() })
     }
 
-    @Test fun allocationCompletionDoesNotBypassTheFirstFramesNativeDelay() = fixture { test ->
+    @Test
+    fun allocationCompletionDoesNotBypassTheFirstFramesNativeDelay() = fixture { test ->
         // A distant deadline lets the test verify non-delivery without sleeping or depending
         // on how quickly the allocation thread was scheduled on this machine.
         val first = test.sendFirst(delayAfterMillis = 30_000)
@@ -47,7 +49,8 @@ class NativeTcpAllocationTest {
         assertTrue(test.allocator.buffers.all { it.refCnt() == 0 }, "The delayed second snapshot was not released")
     }
 
-    @Test fun closeCancelsReservedAllocationAndReleasesItsLatePublishedBuffer() = fixture { test ->
+    @Test
+    fun closeCancelsReservedAllocationAndReleasesItsLatePublishedBuffer() = fixture { test ->
         val first = test.sendFirst()
         test.allocator.awaitFirst()
         test.socket.close()
@@ -55,13 +58,17 @@ class NativeTcpAllocationTest {
         assertFalse(test.socket.send(2, byteArrayOf(2)))
 
         test.allocator.releaseFirst.countDown()
-        assertFalse(first.get(3, TimeUnit.SECONDS), "An allocation reserved before immediate close was accepted afterward")
+        assertFalse(
+            first.get(3, TimeUnit.SECONDS),
+            "An allocation reserved before immediate close was accepted afterward"
+        )
         test.pump()
         assertNull(test.channel.readOutbound<ByteBuf>())
         assertTrue(test.allocator.buffers.all { it.refCnt() == 0 }, "The cancelled late allocation leaked its ByteBuf")
     }
 
-    @Test fun closeAfterWritesWaitsForAnAlreadyReservedAllocation() = fixture { test ->
+    @Test
+    fun closeAfterWritesWaitsForAnAlreadyReservedAllocation() = fixture { test ->
         val first = test.sendFirst()
         test.allocator.awaitFirst()
         test.socket.closeAfterWrites()
@@ -94,8 +101,9 @@ class NativeTcpAllocationTest {
         val allocator = BlockingAllocator()
         channel.config().allocator = allocator
         val test = Fixture(runtime, channel, allocator)
-        try { block(test) }
-        finally {
+        try {
+            block(test)
+        } finally {
             allocator.releaseFirst.countDown()
             test.socket.close()
             test.sender?.join(3000)
@@ -106,18 +114,29 @@ class NativeTcpAllocationTest {
         }
     }
 
-    private class Fixture(runtime: ServerTransportBackend, val channel: EmbeddedChannel, val allocator: BlockingAllocator) {
+    private class Fixture(
+        runtime: ServerTransportBackend,
+        val channel: EmbeddedChannel,
+        val allocator: BlockingAllocator
+    ) {
         val socket = NativeTcpSocket(runtime, channel)
         var sender: Thread? = null
         fun sendFirst(delayAfterMillis: Int = -1): CompletableFuture<Boolean> {
             val result = CompletableFuture<Boolean>()
             sender = Thread({
-                try { result.complete(socket.send(1, byteArrayOf(1), delayAfterMillis)) }
-                catch (problem: Throwable) { result.completeExceptionally(problem) }
+                try {
+                    result.complete(socket.send(1, byteArrayOf(1), delayAfterMillis))
+                } catch (problem: Throwable) {
+                    result.completeExceptionally(problem)
+                }
             }, "native-tcp-blocked-allocation-test").apply { isDaemon = true; start() }
             return result
         }
-        fun pump() { channel.runPendingTasks(); channel.runScheduledPendingTasks(); channel.runPendingTasks() }
+
+        fun pump() {
+            channel.runPendingTasks(); channel.runScheduledPendingTasks(); channel.runPendingTasks()
+        }
+
         fun readFrames(): List<Pair<Int, ByteArray>> {
             val frames = mutableListOf<Pair<Int, ByteArray>>()
             while (true) {
@@ -129,7 +148,9 @@ class NativeTcpAllocationTest {
                         val bytes = ByteArray(size); buffer.readBytes(bytes)
                         frames += type to bytes
                     }
-                } finally { buffer.release() }
+                } finally {
+                    buffer.release()
+                }
             }
             return frames
         }
@@ -140,18 +161,29 @@ class NativeTcpAllocationTest {
         val releaseFirst = CountDownLatch(1)
         private val firstEntered = CountDownLatch(1)
         private val first = AtomicBoolean(true)
-        fun awaitFirst() { assertTrue(firstEntered.await(3, TimeUnit.SECONDS), "The first allocation did not start") }
+        fun awaitFirst() {
+            assertTrue(firstEntered.await(3, TimeUnit.SECONDS), "The first allocation did not start")
+        }
+
         private fun allocated(buffer: ByteBuf): ByteBuf {
             buffers.add(buffer)
             if (first.compareAndSet(true, false)) {
                 firstEntered.countDown()
-                try { check(releaseFirst.await(10, TimeUnit.SECONDS)) { "The blocked allocator was not released" } }
-                catch (problem: Throwable) { buffer.release(); throw problem }
+                try {
+                    check(releaseFirst.await(10, TimeUnit.SECONDS)) { "The blocked allocator was not released" }
+                } catch (problem: Throwable) {
+                    buffer.release(); throw problem
+                }
             }
             return buffer
         }
-        override fun newHeapBuffer(initialCapacity: Int, maxCapacity: Int): ByteBuf = allocated(Unpooled.buffer(initialCapacity, maxCapacity))
-        override fun newDirectBuffer(initialCapacity: Int, maxCapacity: Int): ByteBuf = allocated(Unpooled.directBuffer(initialCapacity, maxCapacity))
+
+        override fun newHeapBuffer(initialCapacity: Int, maxCapacity: Int): ByteBuf =
+            allocated(Unpooled.buffer(initialCapacity, maxCapacity))
+
+        override fun newDirectBuffer(initialCapacity: Int, maxCapacity: Int): ByteBuf =
+            allocated(Unpooled.directBuffer(initialCapacity, maxCapacity))
+
         override fun isDirectBufferPooled() = false
     }
 }

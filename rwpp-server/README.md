@@ -25,16 +25,21 @@ Netty 仅由 server 引入，负责批量收发、背压及共享线程池；KCP
 
 也可在运行目录调用发行包的 `bin/rwpp-server.bat`，Linux 使用 `bin/rwpp-server`。
 
-| 选项 | 用途 |
-|------|------|
-| `--help` | 查看启动参数 |
-| `--port 5123` | TCP / UDP 端口，默认 5123 |
-| `--no-console` | 后台运行 |
-| `--ticks 180` | 运行指定帧数后退出 |
-| `--transfer-mods` | 允许下载服务端启用的模组 |
-| `-- <参数>` | 向服务端扩展传参 |
+| 选项              | 用途                      |
+|-------------------|---------------------------|
+| `--help`          | 查看启动参数              |
+| `--port 5123`     | TCP / UDP 端口，默认 5123 |
+| `--no-console`    | 后台运行                  |
+| `--ticks 180`     | 运行指定帧数后退出        |
+| `--transfer-mods` | 允许下载服务端启用的模组  |
+| `-- <参数>`       | 向服务端扩展传参          |
 
-控制台支持 `help`、`status`、`map`、`start`、`say`、`stop`。
+控制台支持 `players`、`maps`、`map`、`maxplayers`、`start`、`addai`、`kick`、`ai`、`team`、`move`、`credits`、
+`startingunits`、`income`、`fog`、`revealed`、`revealedmap`、`nukes`、`sharedcontrol`、`replay`、`language`、
+`prompt`、`status`、`say`、`return` 和 `stop`。房间设置和玩家管理只在大厅执行；服务端管理命令仅对 SERVER 控制台可见，
+并由原版模拟线程执行。`return` 使用原版网络引擎请求返回大厅；`replay on/off` 控制原版回放录制，可在对局中开启或停止，
+`replay status` 查看当前录制状态。地图列表按页显示，`map` 可接收列表序号、原版路径或唯一地图名。
+`credits` 接受 `default` 或原版金额选项（例如 `10000`）；`startingunits` 接受原版 preset ID，包含当前加载的模组扩展选项。
 
 ## 扩展
 

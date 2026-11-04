@@ -5,16 +5,10 @@
  * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
  */
 
-import okhttp3.Call
-import okhttp3.Callback
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody
-import okhttp3.Response
-import org.jetbrains.annotations.TestOnly
 import org.junit.Test
-import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /*
@@ -42,6 +36,7 @@ class MainTest {
             }
         }
     }
+
     val okHttpClient = OkHttpClient().newBuilder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)

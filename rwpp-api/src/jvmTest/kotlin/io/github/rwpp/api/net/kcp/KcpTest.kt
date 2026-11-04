@@ -1,14 +1,18 @@
 package io.github.rwpp.api.net.kcp
 
 import java.util.PriorityQueue
+import kotlin.collections.ArrayDeque
+import kotlin.collections.List
+import kotlin.collections.copyOf
+import kotlin.collections.forEach
+import kotlin.collections.indices
+import kotlin.collections.isNotEmpty
+import kotlin.collections.listOf
+import kotlin.collections.mutableListOf
+import kotlin.collections.plus
+import kotlin.collections.single
 import kotlin.random.Random
-import kotlin.test.Test
-import kotlin.test.assertContentEquals
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
+import kotlin.test.*
 
 class KcpTest {
     @Test
@@ -17,10 +21,12 @@ class KcpTest {
         val sender = Kcp(0x52575050, output = datagrams::add)
         assertTrue(sender.send(byteArrayOf(7, 8, 9)))
         sender.update(0x01020304)
-        assertContentEquals(byteArrayOf(
-            0x50, 0x50, 0x57, 0x52, 81, 0, 0x80.toByte(), 0,
-            4, 3, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 7, 8, 9,
-        ), datagrams.single())
+        assertContentEquals(
+            byteArrayOf(
+                0x50, 0x50, 0x57, 0x52, 81, 0, 0x80.toByte(), 0,
+                4, 3, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 7, 8, 9,
+            ), datagrams.single()
+        )
         val acks = mutableListOf<ByteArray>()
         val receiver = Kcp(0x52575050, output = acks::add)
         val valid = datagrams.single()
@@ -54,7 +60,7 @@ class KcpTest {
         link.run(30_000) {
             link.drain()
             link.receivedByB.size == expectedA.size && link.receivedByA.size == expectedB.size &&
-                link.a.pendingSegments == 0 && link.b.pendingSegments == 0
+                    link.a.pendingSegments == 0 && link.b.pendingSegments == 0
         }
         assertMessages(expectedA, link.receivedByB)
         assertMessages(expectedB, link.receivedByA)
@@ -64,8 +70,10 @@ class KcpTest {
 
     @Test
     fun timestampsAndSequenceNumbersWrap() {
-        val link = Link(seed = 9, lossPercent = 5, duplicatePercent = 10, jitter = 10,
-            start = Int.MAX_VALUE - 70)
+        val link = Link(
+            seed = 9, lossPercent = 5, duplicatePercent = 10, jitter = 10,
+            start = Int.MAX_VALUE - 70
+        )
         // Starting close to wrap avoids billions of packets while exercising
         // the same wire arithmetic used by a long-lived connection.
         val initial = -4
@@ -132,8 +140,10 @@ class KcpTest {
         // The receive budget must reserve whole MTU slots independently of the
         // send window. A budget of payload + headers would advertise zero after
         // 52 full fragments, trapping the smaller final fragment indefinitely.
-        val link = Link(seed = 2, lossPercent = 0, duplicatePercent = 0, jitter = 0,
-            sendWindow = 1, byteBudget = 128 * 1200)
+        val link = Link(
+            seed = 2, lossPercent = 0, duplicatePercent = 0, jitter = 0,
+            sendWindow = 1, byteBudget = 128 * 1200
+        )
         val message = payload(123, Kcp.MAX_MESSAGE_SIZE)
         assertTrue(link.a.send(message))
         link.run(2_000) {
@@ -201,14 +211,17 @@ class KcpTest {
         byteBudget: Int = 64 * 1024 * 1024,
     ) {
         private data class Delivery(val due: Long, val order: Long, val toA: Boolean, val bytes: ByteArray)
+
         private val random = Random(seed)
         private var elapsed = 0L
         private val initial = start
         private var serial = 0L
         private val deliveries = PriorityQueue<Delivery>(compareBy<Delivery> { it.due }.thenBy { it.order })
-        val a = Kcp(0x52575050, sendWindow = sendWindow, receiveWindow = window,
+        val a = Kcp(
+            0x52575050, sendWindow = sendWindow, receiveWindow = window,
             maxQueuedBytes = byteBudget, output = { enqueue(false, it) })
-        val b = Kcp(0x52575050, sendWindow = sendWindow, receiveWindow = window,
+        val b = Kcp(
+            0x52575050, sendWindow = sendWindow, receiveWindow = window,
             maxQueuedBytes = byteBudget, output = { enqueue(true, it) })
         val receivedByA = mutableListOf<ByteArray>()
         val receivedByB = mutableListOf<ByteArray>()
@@ -256,5 +269,5 @@ class KcpTest {
 
     private fun read32(bytes: ByteArray, offset: Int): Int =
         (bytes[offset].toInt() and 255) or ((bytes[offset + 1].toInt() and 255) shl 8) or
-            ((bytes[offset + 2].toInt() and 255) shl 16) or ((bytes[offset + 3].toInt() and 255) shl 24)
+                ((bytes[offset + 2].toInt() and 255) shl 16) or ((bytes[offset + 3].toInt() and 255) shl 24)
 }

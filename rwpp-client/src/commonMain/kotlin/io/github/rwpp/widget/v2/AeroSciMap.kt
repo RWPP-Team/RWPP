@@ -1,8 +1,8 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.widget.v2
@@ -38,8 +38,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
@@ -47,6 +45,7 @@ import coil3.request.crossfade
 import coil3.size.Size
 import io.github.rwpp.api.game.map.GameMap
 import io.github.rwpp.api.game.map.NetworkMap
+import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.sound.Sounds
 import io.github.rwpp.ui.UI
 
@@ -54,6 +53,7 @@ import io.github.rwpp.ui.UI
 fun AeroMapPreview(
     map: GameMap?,
     showImage: Boolean,
+    generatedPreview: Any? = null,
 ) {
     Box(
         modifier = Modifier
@@ -70,7 +70,7 @@ fun AeroMapPreview(
     ) {
         if (map != null && map !is NetworkMap && showImage) {
             AeroZoomableImage(
-                model = map,
+                model = generatedPreview ?: map,
                 modifier = Modifier.fillMaxSize()
             )
 
@@ -83,13 +83,14 @@ fun AeroMapPreview(
                     painter = rememberVectorPainter(Icons.Default.Search),
                     size = 26.dp,
                     iconSize = 14.dp,
+                    contentDescription = readI18n("rwpp.map.inspect"),
                     clickSound = Sounds.openPopup,
                     onClick = { UI.inspectingMap = map }
                 )
             }
         } else {
             Text(
-                text = "NO PREVIEW AVAILABLE",
+                text = readI18n("rwpp.map.noPreviewAvailable"),
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
@@ -195,7 +196,7 @@ fun AeroZoomableImage(
 
             if (scale > 1.05f) {
                 Text(
-                    text = "[RESET]",
+                    text = "[${readI18n("rwpp.common.reset").uppercase()}]",
                     fontSize = 9.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
@@ -218,10 +219,7 @@ fun MapInspectorDialog(
 ) {
     if (!visible || map == null) return
 
-    Dialog(
-        onDismissRequest = onDismissRequest,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
+    AnimatedDialog(onDismissRequest = onDismissRequest) { dismiss ->
         Surface(
             modifier = Modifier
                 .fillMaxSize()
@@ -242,7 +240,7 @@ fun MapInspectorDialog(
                 ) {
                     AeroHeader(
                         title = "INSPECT MAP: ${map.displayName().uppercase()}",
-                        tag = "HIGH-RES TACTICAL VIEW",
+                        tag = "High-resolution tactical view".uppercase(),
                         modifier = Modifier.weight(1f).padding(end = 12.dp)
                     )
 
@@ -250,9 +248,10 @@ fun MapInspectorDialog(
                         painter = rememberVectorPainter(Icons.Default.Close),
                         size = 32.dp,
                         iconSize = 16.dp,
+                        contentDescription = readI18n("rwpp.common.close"),
                         isDanger = true,
                         clickSound = Sounds.closePopup,
-                        onClick = onDismissRequest
+                        onClick = dismiss
                     )
                 }
 

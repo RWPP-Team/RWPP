@@ -1,8 +1,8 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.game
@@ -60,6 +60,32 @@ var Team.spawnPoint: Int
         }
     }
 
+/** Native room commands use -3 to move a player into the spectator layout. */
+internal const val SPECTATOR_SPAWN_POINT = -3
+
+/**
+ * Resolve the ordinary spawn slot to restore when a player leaves spectator mode.
+ * The preferred slot is remembered by the room editor; if it has since been claimed,
+ * use the first available playable slot instead.
+ */
+internal fun resolveSpectatorSpawnPointSelection(
+    spectator: Boolean,
+    preferredSpawnPoint: Int?,
+    currentSpawnPoint: Int?,
+    maxPlayerCount: Int,
+    occupiedSpawnPoints: Set<Int>,
+): Int? {
+    if (spectator) return SPECTATOR_SPAWN_POINT
+
+    val slotCount = maxPlayerCount.coerceAtLeast(0)
+    if (slotCount == 0) return null
+    fun available(slot: Int?): Int? = slot?.takeIf { it in 0 until slotCount && it !in occupiedSpawnPoints }
+
+    return available(preferredSpawnPoint)
+        ?: available(currentSpawnPoint)
+        ?: (0 until slotCount).firstOrNull { it !in occupiedSpawnPoints }
+}
+
 var Team.team: Int
     get() = allyTeam
     set(value) {
@@ -88,6 +114,9 @@ var Team.color: Int
         if (room.isHost) colorOverride = value.takeUnless { it == -1 }
     }
 
+/** The player-config dropdown stores a numeric override, not Team.getColor()'s resolved ARGB. */
+internal fun playerColorOverrideSelection(colorOverride: Int?): Int = colorOverride ?: -1
+
 var Team.difficulty: Int?
     get() = if (isAI) aiDifficultyOverride else null
     set(value) {
@@ -104,7 +133,9 @@ fun Team.realDifficulty(): Int = if (isAI) effectiveAIDifficulty else 0
 
 var Team.ready: Boolean
     get() = io.github.rwpp.api.net.packets.ModTransferHost.isReady(this)
-    set(value) { io.github.rwpp.api.net.packets.ModTransferHost.setReady(this, value) }
+    set(value) {
+        io.github.rwpp.api.net.packets.ModTransferHost.setReady(this, value)
+    }
 
 fun Team.teamAlias(): String = when {
     allyTeam == -3 -> "S"
@@ -223,11 +254,9 @@ fun Team.applyConfigChange(
         startingUnitsOverride = null
     }
 
-    color?.let { value ->
-        val override = value.takeUnless { it == -99 }
-        if (colorOverride != override && room.isHost) colorOverride = override
-    } ?: run {
-        colorOverride = null
+    if (room.isHost) {
+        val override = color?.takeUnless { it == -99 || it == -1 }
+        if (colorOverride != override) colorOverride = override
     }
 
     if (teamChanged) {
@@ -242,4 +271,5 @@ fun Team.applyConfigChange(
 
     network.updateAIDifficulty()
     network.assignTeamDisplaySlots()
+    if (room.isHost) room.updateUI()
 }

@@ -1,48 +1,63 @@
+/*
+ * Copyright 2023-2026 RWPP contributors
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
+ */
+
 package io.github.rwpp.api.net.impl
 
-import com.corrodinggames.rts.gameFramework.network.Connection
-import com.corrodinggames.rts.gameFramework.network.NetworkEngine
-import com.corrodinggames.rts.gameFramework.network.OutputNetStream
-import com.corrodinggames.rts.gameFramework.network.Packet
-import com.corrodinggames.rts.gameFramework.network.WrappedPacket
-import kim.der.asm.api.annotation.*
+import com.corrodinggames.rts.gameFramework.network.*
 import io.github.rwpp.api.net.transport.TransportRuntime
+import java.lang.reflect.InvocationTargetException
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 
-@AsmMixin("com/corrodinggames/rts/gameFramework/network/NetworkEngine", priority = 900)
-object NativeAddressConnectMixin {
-    @JvmStatic
-    @WrapMethod(method = "connectToServer(Ljava/lang/String;Z)Ljava/net/Socket;", require = 1)
-    fun connect(address: String, forceTcp: Boolean, original: Operation<Socket>): Socket {
-        if (NativeNetworkSettings.mode == "vanilla" || !TransportRuntime.isInstalled) return original.call(address, forceTcp)
-        val prior = NativeNetworkSettings.tcpOnly.get()
-        NativeNetworkSettings.tcpOnly.set(forceTcp || address.trim().startsWith("[TCP]") || NativeNetworkSettings.mode == "tcp")
-        try {
-            // Keep native address/relay resolution, but choose our socket rather than native RUDP.
-            return original.call(address, true)
-        } finally { NativeNetworkSettings.tcpOnly.set(prior) }
+/** Unwraps reflection failures thrown by ASM's Operation.call bridge. */
+internal fun unwrapNativeInvocationFailure(failure: Throwable): Throwable {
+    var cause = failure
+    while (cause is InvocationTargetException) {
+        val target = cause.targetException ?: cause.cause ?: break
+        if (target === cause) break
+        cause = target
+    }
+    return cause
+}
+
+/** Keeps the original checked network exception visible to ConnectSocketToServerRunnable. */
+internal fun <T> callNativeConnect(original: () -> T): T {
+    try {
+        return original()
+    } catch (failure: Throwable) {
+        // Preserve IOException, CancellationException and programming failures as their real types.
+        throw unwrapNativeInvocationFailure(failure)
     }
 }
 
-@AsmMixin("com/corrodinggames/rts/gameFramework/network/NetworkEngine", priority = 1100)
-object NativeTcpConnectMixin {
-    @JvmStatic
-    @Redirect(
-        method = "connectToServer(Ljava/lang/String;Z)Ljava/net/Socket;",
-        at = At(value = InjectionPoint.INVOKE, target = "java.net.Socket.<init>()V"),
-        require = 1,
-    )
+internal object NativeTcpCallbacks {
+    fun connect(address: String, forceTcp: Boolean, original: (String, Boolean) -> Socket): Socket {
+        if (NativeNetworkSettings.mode == "vanilla" || !TransportRuntime.isInstalled) {
+            return callNativeConnect { original(address, forceTcp) }
+        }
+        val prior = NativeNetworkSettings.tcpOnly.get()
+        NativeNetworkSettings.tcpOnly.set(
+            forceTcp || address.trim().startsWith("[TCP]") || NativeNetworkSettings.mode == "tcp"
+        )
+        try {
+            // Keep native address/relay resolution, but choose our socket rather than native RUDP.
+            return callNativeConnect { original(address, true) }
+        } finally {
+            NativeNetworkSettings.tcpOnly.set(prior)
+        }
+    }
+
     fun createSocket(): Socket = when {
         NativeNetworkSettings.mode == "vanilla" || !TransportRuntime.isInstalled -> Socket()
         else -> TransportRuntime.backend.nativeClientSocket(NativeNetworkSettings.tcpOnly.get())
     }
-}
 
-@AsmMixin("com/corrodinggames/rts/gameFramework/network/NewConnectionRunnable")
-object NativeTcpListenMixin {
     private val fields by lazy {
         val type = Class.forName("com.corrodinggames.rts.gameFramework.network.NewConnectionRunnable")
         listOf("networkEngine", "listenPort", "udpMode", "serverSocket").associateWith {
@@ -50,41 +65,22 @@ object NativeTcpListenMixin {
         }
     }
 
-    @AsmInject(method = "openServerSocket(Z)V", target = InjectionPoint.HEAD, cancellable = true, require = 1)
-    fun openUdp(callback: CallbackInfo, target: Any, udp: Boolean) {
-        if (!udp || NativeNetworkSettings.mode != "auto" || !TransportRuntime.isInstalled || !TransportRuntime.backend.supportsNativeServer) return
+    fun openUdp(target: Any, udp: Boolean): Boolean {
+        if (!udp || NativeNetworkSettings.mode != "auto" || !TransportRuntime.isInstalled || !TransportRuntime.backend.supportsNativeServer) return false
         val port = (fields.getValue("networkEngine").get(target) as NetworkEngine).networkPort
         fields.getValue("listenPort").setInt(target, port)
         fields.getValue("udpMode").setBoolean(target, true)
         fields.getValue("serverSocket").set(target, TransportRuntime.backend.nativeKcpListener(port))
-        callback.cancel()
+        return true
     }
-    @JvmStatic
-    @Redirect(
-        method = "openServerSocket(Z)V",
-        at = At(value = InjectionPoint.INVOKE, target = "java.net.ServerSocket.<init>(I)V"),
-        require = 1,
-    )
+
     fun createServerSocket(port: Int): ServerSocket =
-        if (NativeNetworkSettings.mode == "vanilla" || !TransportRuntime.isInstalled || !TransportRuntime.backend.supportsNativeServer) ServerSocket(port) else TransportRuntime.backend.nativeTcpListener(port)
-}
+        if (NativeNetworkSettings.mode == "vanilla" || !TransportRuntime.isInstalled || !TransportRuntime.backend.supportsNativeServer) ServerSocket(
+            port
+        ) else TransportRuntime.backend.nativeTcpListener(port)
 
-@AsmMixin("com/corrodinggames/rts/gameFramework/network/Connection")
-object NativeTcpConnectionMixin {
-    @AsmInject(method = "startWorkers()V", target = InjectionPoint.HEAD, cancellable = true, require = 1)
-    fun start(callback: CallbackInfo, target: Any) {
-        if (NativeTcpConnections.attach(target as Connection)) callback.cancel()
-    }
-
-    @AsmInject(
-        method = "sendPacket(Lcom/corrodinggames/rts/gameFramework/network/Packet;)V",
-        target = InjectionPoint.HEAD, cancellable = true, require = 1,
-    )
-    fun send(callback: CallbackInfo, target: Any, packet: Any) {
-        if (NativeTcpConnections.send(target as Connection, packet as Packet)) callback.cancel()
-    }
-
-    @AsmInject(method = "stopSendWorkerAndRemove()V", target = InjectionPoint.TAIL, require = 1)
+    fun start(target: Any): Boolean = NativeTcpConnections.attach(target as Connection)
+    fun send(target: Any, packet: Any): Boolean = NativeTcpConnections.send(target as Connection, packet as Packet)
     fun stop(target: Any) {
         ((target as Connection).socket as? NativePacketSocket)?.takeIf { it.handlesNativePackets }?.closeAfterWrites()
     }
@@ -102,6 +98,7 @@ internal object NativeTcpConnections {
         val socket = connection.socket as? NativePacketSocket ?: return false
         if (!socket.handlesNativePackets) return false
         val engine = engineField.get(connection) as NetworkEngine
+
         @Suppress("UNCHECKED_CAST")
         val incoming = incomingField.get(engine) as ConcurrentLinkedQueue<Packet>
         val session = Session(connection, socket)
@@ -126,7 +123,9 @@ internal object NativeTcpConnections {
             },
             fastReceive = { type, bytes ->
                 if (type > 100) false
-                else { receivePacket(type, bytes); true }
+                else {
+                    receivePacket(type, bytes); true
+                }
             },
         )
         return true
@@ -142,7 +141,8 @@ internal object NativeTcpConnections {
     private class Session(val connection: Connection, val socket: NativePacketSocket) {
         private var lastPacket: Packet? = null
 
-        @Synchronized fun send(packet: Packet) {
+        @Synchronized
+        fun send(packet: Packet) {
             if (!connection.isOpen) return
             val wire = if (packet is WrappedPacket) {
                 val output = OutputNetStream()

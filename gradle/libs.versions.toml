@@ -19,8 +19,8 @@ androidx-appcompat = "1.7.1"
 androidx-core-ktx = "1.17.0"
 
 # Compose & UI
-compose = "1.12.2"
-compose-material3 = "1.11.0-alpha07"
+compose = "1.13.0-beta01"
+compose-material3 = "1.13.0-beta01"
 compose-material-icons = "1.7.3"
 reorderable = "3.1.0"
 coil = "3.6.3"
@@ -39,7 +39,7 @@ vorbisspi = "1.0.3.3"
 slf4j = "2.0.20"
 okhttp = "5.5.0"
 rwml-core = "1.0.2"
-game-lib = "v2-1.15"
+game-lib = "v3-1.15"
 codeorigin = "0.2.1"
 lwjgl = "2.9.3"
 jline = "4.4.8"
@@ -74,6 +74,7 @@ androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx
 compose-material-icons-core = { module = "org.jetbrains.compose.material:material-icons-core", version.ref = "compose-material-icons" }
 reorderable = { module = "sh.calvin.reorderable:reorderable", version.ref = "reorderable" }
 coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }
+coil-gif = { module = "io.coil-kt.coil3:coil-gif", version.ref = "coil" }
 coil-network-okhttp = { module = "io.coil-kt.coil3:coil-network-okhttp", version.ref = "coil" }
 
 # Markdown

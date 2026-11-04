@@ -3,13 +3,9 @@ package io.github.rwpp.server.validation
 import io.github.rwpp.api.net.kcp.Kcp
 import io.netty.buffer.ByteBuf
 import io.netty.buffer.Unpooled
-import java.util.PriorityQueue
+import java.util.*
 import kotlin.random.Random
-import kotlin.test.Test
-import kotlin.test.assertContentEquals
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import kotlin.test.*
 import kcp.Kcp as LegacyKcp
 
 /** Uses the former third-party implementation as an independent wire peer. */
@@ -24,7 +20,7 @@ class KcpCompatibilityTest {
             link.run(30_000) {
                 link.drain()
                 link.receivedByLegacy.size == fromPure.size && link.receivedByPure.size == fromLegacy.size &&
-                    link.pure.pendingSegments == 0 && link.legacy.waitSnd() == 0
+                        link.pure.pendingSegments == 0 && link.legacy.waitSnd() == 0
             }
             assertMessages(fromPure, link.receivedByLegacy)
             assertMessages(fromLegacy, link.receivedByPure)
@@ -70,13 +66,15 @@ class KcpCompatibilityTest {
         legacyMtu: Int = 1200,
     ) : AutoCloseable {
         private data class Delivery(val due: Int, val order: Long, val toPure: Boolean, val bytes: ByteArray)
+
         private val random = Random(60827)
         private var elapsed = 0
         private var serial = 0L
         private val epoch = System.currentTimeMillis()
         val now: Long get() = epoch + elapsed
         private val deliveries = PriorityQueue<Delivery>(compareBy<Delivery> { it.due }.thenBy { it.order })
-        val pure = Kcp(CONVERSATION, sendWindow = window, receiveWindow = window,
+        val pure = Kcp(
+            CONVERSATION, sendWindow = window, receiveWindow = window,
             output = { enqueue(false, it) })
         val legacy = LegacyKcp(CONVERSATION) { buffer, _ ->
             try {

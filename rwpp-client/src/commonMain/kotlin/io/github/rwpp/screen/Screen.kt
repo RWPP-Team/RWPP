@@ -1,18 +1,15 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.screen
 
-import androidx.compose.animation.*
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
@@ -72,6 +69,7 @@ inline fun <reified S : Screen> rememberScreen(
                 @Suppress("UNCHECKED_CAST")
                 (local as (Array<out Any?>) -> S).invoke(params)
             }
+
             else -> {
                 scope.get<S>(qualifier) {
                     if (params.isNotEmpty()) parametersOf(*params) else parametersOf()
@@ -173,8 +171,17 @@ class ScreenNavigator(
      * Clears the entire backstack and replaces it with [screen].
      */
     fun replaceAll(screen: Screen) {
-        backStack.clear()
-        backStack.add(screen)
+        androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+            backStack.clear()
+            backStack.add(screen)
+        }
+    }
+
+    /** A game-only Android window still needs a root when gameplay returns to the menu. */
+    fun removeFrom(index: Int, fallback: Screen) {
+        if (index !in backStack.indices) return
+        if (index == 0) replaceAll(fallback)
+        else backStack.removeRange(index, backStack.size)
     }
 
     /**
@@ -202,28 +209,11 @@ class ScreenNavigator(
 
             val glitchProgress = glitchAnimatable.value
 
-            var timeState by remember { mutableFloatStateOf(0f) }
-            LaunchedEffect(Unit) {
-                while (true) {
-                    withFrameNanos { frameTime ->
-                        timeState = (frameTime / 1_000_000_000f) % 1000f
-                    }
-                }
-            }
-
-            val transition = updateTransition(
-                targetState = currentScreen,
-                label = "AeroScreenGlitchTransition"
-            )
-
-            transition.AnimatedContent(
-                modifier = Modifier.fillMaxSize(),
-                transitionSpec = {
-                    val enter = fadeIn(tween(280, easing = FastOutSlowInEasing)) + scaleIn(initialScale = 0.95f, animationSpec = tween(280))
-                    val exit = fadeOut(tween(280, easing = FastOutSlowInEasing)) + scaleOut(targetScale = 1.05f, animationSpec = tween(280))
-                    enter togetherWith exit
-                }
-            ) { targetScreen ->
+            // Keep route changes synchronous. Retaining singleton room screens for an exit
+            // animation leaves their dialogs and listeners attached while the game tears down.
+            key(currentScreen) {
+                val targetScreen = currentScreen
+                val glitchTime = glitchProgress * 0.28f
                 Box(modifier = Modifier.fillMaxSize()) {
                     val screenKey = targetScreen::class.qualifiedName.orEmpty()
                     val override = localOverrides[screenKey] as? Screen
@@ -232,7 +222,7 @@ class ScreenNavigator(
                             .fillMaxSize()
                             .skiaGlitchEffect(
                                 progress = glitchProgress,
-                                time = timeState
+                                time = glitchTime
                             )
                     ) {
                         (override ?: targetScreen).Content()
@@ -240,7 +230,7 @@ class ScreenNavigator(
 
                     AeroCyberOverlay(
                         progress = glitchProgress,
-                        time = timeState,
+                        time = glitchTime,
                         modifier = Modifier.fillMaxSize()
                     )
                 }

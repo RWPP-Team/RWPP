@@ -1,17 +1,18 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.server
 
-import com.corrodinggames.rts.game.Team
 import com.corrodinggames.rts.game.RWGameEngine
+import com.corrodinggames.rts.game.Team
 import com.corrodinggames.rts.gameFramework.GameEngineMapType
 import com.corrodinggames.rts.gameFramework.network.GameSetupMapType
 import com.corrodinggames.rts.gameFramework.network.NetworkCallbacks
+import com.corrodinggames.rts.gameFramework.network.OutputNetStream
 import io.github.rwpp.api.appKoin
 import io.github.rwpp.api.config.ServerConfig
 import io.github.rwpp.api.config.ServerType
@@ -20,6 +21,10 @@ import io.github.rwpp.api.game.GameRoom
 import io.github.rwpp.api.net.Net
 import io.github.rwpp.api.server.ServerData
 import io.github.rwpp.api.server.ServerInfoResponder
+import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
+import java.util.*
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -71,18 +76,34 @@ class NativeHeadlessServer(
 
     private var engineValue: RWGameEngine? = null
     private var closed = false
+    private var ownerThread: Thread? = null
+
+    @Volatile
+    private var startingUnitPresetIdsValue: List<Int> = emptyList()
+    private val replayController = NativeReplayController(
+        matchActive = { engineValue?.networkEngine?.gameStarted == true },
+        isRecording = { engineValue?.replayEngine?.isRecordingReplay == true },
+        startRecording = ::startNativeReplayRecording,
+        stopRecording = { engine.replayEngine.stop() },
+    )
 
     /** The initialized native game engine. Available after [start] returns. */
     val engine: RWGameEngine
         get() = checkNotNull(engineValue) { "The headless server has not started" }
 
+    /** Immutable native preset IDs captured on the engine thread for console completion. */
+    internal val startingUnitPresetIds: List<Int>
+        get() = startingUnitPresetIdsValue
+
     @Synchronized
     fun start() {
         check(engineValue == null) { "The headless server has already started" }
         check(!closed) { "The headless server is closed" }
+        check(ownerThread == null) { "The headless server already has an owning thread" }
 
         val created = HeadlessEngine.create()
         engineValue = created
+        ownerThread = Thread.currentThread()
 
         val network = created.networkEngine
         network.networkCallbacks = callbacks
@@ -93,6 +114,7 @@ class NativeHeadlessServer(
         network.currentGameMapPath = null
         network.mapName = null
         applyMap(options.map, notifyClients = false)
+        startingUnitPresetIdsValue = network.startingUnitOptions.mapNotNull { it as? Int }.toList()
         options.maxPlayers?.let { Team.setMaxTeamId(it, false) }
 
         check(network.startServer(true)) { "The native server could not listen on port ${options.port}" }
@@ -114,6 +136,7 @@ class NativeHeadlessServer(
     /** Advances one original engine frame and then runs callbacks queued by that frame. */
     @Synchronized
     fun tick(deltaTime: Float = 1f, deltaMillis: Int = 16) {
+        assertOwnerThread()
         check(!closed) { "The headless server is closed" }
         val activeEngine = engine
         activeEngine.updateFrameInternal(deltaTime, deltaMillis)
@@ -126,10 +149,12 @@ class NativeHeadlessServer(
     /** Requests an original native multiplayer start after the selected map is prepared. */
     @Synchronized
     fun startMatch() {
+        assertOwnerThread()
         check(!closed) { "The headless server is closed" }
         val network = engine.networkEngine
         check(network.isServer) { "The native server is not hosting" }
         check(!network.gameStarted) { "A game is already in progress" }
+        check(!network.isGameStarting) { "A game is already starting" }
         startCallbackQueued.set(false)
         appKoin.get<GameRoom>().startGame()
     }
@@ -137,9 +162,11 @@ class NativeHeadlessServer(
     /** Selects a native map using the same path categories as the original multiplayer room. */
     @Synchronized
     fun changeMap(path: String) {
+        assertOwnerThread()
         check(!closed) { "The headless server is closed" }
         val network = engine.networkEngine
         check(!network.gameStarted) { "The map cannot be changed while a game is in progress" }
+        check(!network.isGameStarting) { "The map cannot be changed while a game is starting" }
         applyMap(path, notifyClients = true)
     }
 
@@ -150,6 +177,20 @@ class NativeHeadlessServer(
         pendingNativeCallbacks.clear()
         engineValue?.networkEngine?.disconnect("shutdownServer")
         responderOwner.close()
+    }
+
+    /** Must be called by the thread that owns native engine updates. */
+    internal fun assertOwnerThread() {
+        check(ownerThread === Thread.currentThread()) {
+            "Native server commands must execute on the owning game thread."
+        }
+    }
+
+    /** Changes the native replay recorder state on the server's simulation thread. */
+    internal fun setReplayEnabled(action: String): String {
+        assertOwnerThread()
+        check(engine.networkEngine.isServer) { "The native server is not hosting." }
+        return replayController.execute(action)
     }
 
     private fun applyMap(path: String, notifyClients: Boolean) {
@@ -186,10 +227,52 @@ class NativeHeadlessServer(
             network.startGameEventCompleted = true
             activeEngine.gamePaused = false
             activeEngine.touchInputDisabled = false
+            replayController.onMatchStarted()
         } else {
             network.onStartGameFailed()
         }
         startCallbackQueued.set(false)
+    }
+
+    private fun startNativeReplayRecording() {
+        assertOwnerThread()
+        val activeEngine = engine
+        check(activeEngine.networkEngine.isServer) { "The native server is not hosting." }
+        check(activeEngine.networkEngine.gameStarted) { "A native replay can only start during a match." }
+        val tick = activeEngine.simulationTick.toLong()
+        check(tick in 0L..Int.MAX_VALUE.toLong()) { "The current simulation tick cannot be stored in a native replay." }
+        val mapName = (activeEngine.networkEngine.currentGameMapPath ?: "match")
+            .substringAfterLast('/')
+            .substringBeforeLast('.')
+            .replace(UNSAFE_REPLAY_NAME, "_")
+            .take(48)
+            .ifBlank { "match" }
+        val replayName =
+            "rwpp_${REPLAY_TIME.format(Instant.now())}_${mapName}_${UUID.randomUUID().toString().take(8)}.replay"
+        activeEngine.replayEngine.startSaving(replayName)
+        check(activeEngine.replayEngine.isRecordingReplay) { "The native ReplayEngine refused to start recording." }
+
+        try {
+            // Native GameSaver snapshots do not carry simulationTick. Prefix a native resync record so
+            // enabling recording after match start keeps replay command frames aligned with the world.
+            val save = OutputNetStream()
+            activeEngine.gameSaver.saveGame(save)
+            val bytes = save.toByteArray()
+            require(bytes.size in 1..MAX_REPLAY_BASELINE_BYTES) {
+                "Native replay baseline save is outside the supported size limit."
+            }
+            activeEngine.replayEngine.recordResyncData(
+                bytes,
+                0,
+                tick.toInt(),
+                activeEngine.gameTimeMillis,
+                activeEngine.networkEngine.getCurrentStepRate(),
+                activeEngine.networkEngine.resyncStepRate,
+            )
+        } catch (failure: Throwable) {
+            runCatching { activeEngine.replayEngine.stop() }
+            throw failure
+        }
     }
 
     private fun parseMap(path: String): MapSelection {
@@ -231,5 +314,9 @@ class NativeHeadlessServer(
         const val SKIRMISH_MAPS = "maps/skirmish/"
         const val CUSTOM_MAPS = "mods/maps/"
         const val SAVED_GAMES = "saves/"
+        const val MAX_REPLAY_BASELINE_BYTES = 64 * 1024 * 1024
+        val REPLAY_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
+            .withZone(ZoneOffset.UTC)
+        val UNSAFE_REPLAY_NAME = Regex("[^A-Za-z0-9_-]")
     }
 }

@@ -1,13 +1,11 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.api.command
-
-import kotlin.text.iterator
 
 @DslMarker
 annotation class CommandDsl
@@ -135,7 +133,7 @@ class Commands private constructor(registerHelp: Boolean) {
         val names = listOf(name) + command.aliases
         require(
             names.distinct().size == names.size &&
-                names.all { it.matches(Regex("[a-zA-Z][a-zA-Z0-9_-]*")) && it !in entries },
+                    names.all { it.matches(Regex("[a-zA-Z][a-zA-Z0-9_-]*")) && it !in entries },
         ) {
             CommandText.text("veil.commands.e4872081")
         }
@@ -148,7 +146,7 @@ class Commands private constructor(registerHelp: Boolean) {
 
     private fun allowed(command: CommandBuilder, sender: CommandSender) =
         (command.permission?.let(sender::hasPermission) != false) &&
-            command.visibility.all(sender::hasVisibility)
+                command.visibility.all(sender::hasVisibility)
 
     fun execute(line: String, sender: CommandSender): Boolean = try {
         dispatch(tokenize(line), sender)
@@ -160,7 +158,12 @@ class Commands private constructor(registerHelp: Boolean) {
     private fun dispatch(tokens: List<String>, sender: CommandSender): Boolean {
         if (tokens.isEmpty()) return true
         val command =
-            entries[tokens.first()] ?: throw CommandException(CommandText.text("veil.commands.176356ca", tokens.first()))
+            entries[tokens.first()] ?: throw CommandException(
+                CommandText.text(
+                    "veil.commands.176356ca",
+                    tokens.first()
+                )
+            )
         if (!allowed(command, sender)) throw CommandException(CommandText.text("veil.commands.59b77dbd"))
         val args = tokens.drop(1)
         if (command.children.entries.isNotEmpty()) {

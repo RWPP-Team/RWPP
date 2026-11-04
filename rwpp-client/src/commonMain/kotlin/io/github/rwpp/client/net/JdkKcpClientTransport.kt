@@ -1,21 +1,15 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * Use of this source code is governed by the GNU AGPLv3 license.
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.client.net
 
 import io.github.rwpp.api.net.kcp.Kcp
-import io.github.rwpp.api.net.transport.ClientLink
-import io.github.rwpp.api.net.transport.ClientSink
-import io.github.rwpp.api.net.transport.ClientTransport
-import io.github.rwpp.api.net.transport.TransportConfig
-import io.github.rwpp.api.net.transport.TransportMessages
-import java.net.DatagramPacket
-import java.net.DatagramSocket
-import java.net.InetSocketAddress
-import java.net.SocketException
-import java.net.SocketTimeoutException
+import io.github.rwpp.api.net.transport.*
+import java.net.*
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 
@@ -71,9 +65,10 @@ class JdkKcpClientTransport internal constructor(
             close()
             throw failure
         }
-        val maxQueuedBytes = (config.mtu.toLong() * maxOf(config.writeQueueMessages, config.readQueueDatagrams, config.receiveWindow))
-            .coerceIn(config.mtu.toLong(), 64L * 1024 * 1024)
-            .toInt()
+        val maxQueuedBytes =
+            (config.mtu.toLong() * maxOf(config.writeQueueMessages, config.readQueueDatagrams, config.receiveWindow))
+                .coerceIn(config.mtu.toLong(), 64L * 1024 * 1024)
+                .toInt()
         val kcp = Kcp(
             conv = config.conv,
             mtu = config.mtu,

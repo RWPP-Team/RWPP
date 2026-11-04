@@ -1,65 +1,54 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.hud
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+
+import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import io.github.rwpp.api.config.ConfigIO
+import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.config.HudComponentData
+import io.github.rwpp.config.Settings
+import io.github.rwpp.widget.v2.*
+import org.koin.compose.koinInject
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 class HudComponentState(
     val data: HudComponentData
@@ -70,16 +59,60 @@ class HudComponentState(
 
     var width by mutableFloatStateOf(0f)
     var height by mutableFloatStateOf(0f)
+    private var viewportWidth = 0f
+    private var viewportHeight = 0f
+
+    fun updateViewport(width: Float, height: Float, legacyWidth: Float = width, legacyHeight: Float = height) {
+        if (data.relativeX == null) data.relativeX = hudRelativePosition(data.xDp, legacyWidth, this.width * scale)
+        if (data.relativeY == null) data.relativeY = hudRelativePosition(data.yDp, legacyHeight, this.height * scale)
+        viewportWidth = width
+        viewportHeight = height
+        x = hudAbsolutePosition(data.relativeX ?: 0f, width, this.width * scale)
+        y = hudAbsolutePosition(data.relativeY ?: 0f, height, this.height * scale)
+    }
 
     fun syncToData() {
         data.xDp = x
         data.yDp = y
         data.scale = scale
+        if (viewportWidth > 0f && viewportHeight > 0f) {
+            data.relativeX = hudRelativePosition(x, viewportWidth, width * scale)
+            data.relativeY = hudRelativePosition(y, viewportHeight, height * scale)
+        }
+    }
+
+    fun moveBy(deltaX: Float, deltaY: Float, viewportWidth: Float, viewportHeight: Float) {
+        x = (x + deltaX).coerceIn(0f, (viewportWidth - width * scale).coerceAtLeast(0f))
+        y = (y + deltaY).coerceIn(0f, (viewportHeight - height * scale).coerceAtLeast(0f))
+    }
+
+    fun moveZoneBounds(viewportWidth: Float): Rect {
+        val left = if (x >= HUD_CONSOLE_MOVE_ZONE_WIDTH_DP) {
+            x - HUD_CONSOLE_MOVE_ZONE_WIDTH_DP
+        } else {
+            (x + width * scale).coerceAtMost((viewportWidth - HUD_CONSOLE_MOVE_ZONE_WIDTH_DP).coerceAtLeast(0f))
+        }
+        return Rect(
+            left,
+            y + HUD_CONSOLE_MOVE_ZONE_TOP_DP,
+            left + HUD_CONSOLE_MOVE_ZONE_WIDTH_DP,
+            y + HUD_CONSOLE_MOVE_ZONE_TOP_DP + HUD_CONSOLE_MOVE_ZONE_HEIGHT_DP
+        )
     }
 }
 
+private const val HUD_CONSOLE_MOVE_ZONE_WIDTH_DP = 12f
+private const val HUD_CONSOLE_MOVE_ZONE_HEIGHT_DP = 48f
+private const val HUD_CONSOLE_MOVE_ZONE_TOP_DP = 12f
+
 class HudComponentTemplate(
     val name: String,
+    val initialWidthDp: Float = 320f,
+    val initialHeightDp: Float = 180f,
+    val fillWidth: Boolean = false,
+    val fillHeight: Boolean = false,
+    val compactHeight: Boolean = false,
+    val compactWidth: Boolean = false,
     val content: @Composable () -> Unit
 )
 
@@ -87,6 +120,288 @@ private data class SnapTarget(
     val candidatePos: Float,
     val guidePos: Float
 )
+
+private enum class HudSettingsScope {
+    WORLD_EFFECTS,
+    COMMAND_CONSOLE,
+    CHAT_MESSAGES,
+    COMPONENT
+}
+
+private fun hudSettingsScopeFor(componentId: String) = when (componentId) {
+    "hud_console_vertical" -> HudSettingsScope.COMMAND_CONSOLE
+    "chat" -> HudSettingsScope.CHAT_MESSAGES
+    else -> HudSettingsScope.COMPONENT
+}
+
+@Composable
+private fun hudComponentDisplayName(id: String, fallback: String): String = when (id) {
+    "telemetry" -> readI18n("rwpp.hud.component.telemetry")
+    "chat" -> readI18n("rwpp.hud.component.chat")
+    "events" -> readI18n("rwpp.hud.component.events")
+    "touch_selection_controls" -> readI18n("rwpp.hud.component.touchControls")
+    "hud_console_vertical" -> readI18n("rwpp.hud.component.commandConsole")
+    else -> fallback
+}
+
+@Composable
+private fun HudSettingToggle(
+    key: String,
+    value: Boolean,
+    onValueChange: (Boolean) -> Unit
+) {
+    AeroSettingToggle(
+        label = readI18n(key),
+        defaultValue = value,
+        onCheckedChange = onValueChange,
+    )
+}
+
+@Composable
+private fun HudEditorSettingsDialog(
+    scope: HudSettingsScope,
+    onDismiss: () -> Unit
+) {
+    val settings = koinInject<Settings>()
+    val configIO = koinInject<ConfigIO>()
+    val title = when (scope) {
+        HudSettingsScope.WORLD_EFFECTS -> "BATTLEFIELD EFFECTS"
+        HudSettingsScope.COMMAND_CONSOLE -> "COMMAND CONSOLE SETTINGS"
+        HudSettingsScope.CHAT_MESSAGES -> "CHAT MESSAGE SETTINGS"
+        HudSettingsScope.COMPONENT -> "IN-GAME HUD SETTINGS"
+    }
+
+    AnimatedDialog(onDismissRequest = onDismiss) { _ ->
+        AeroPanel(
+            modifier = Modifier
+                .widthIn(max = 720.dp)
+                .fillMaxWidth()
+                .fillMaxHeight(0.9f)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                AeroHeader(title)
+
+                Column(
+                    modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    AeroSettingGroup(
+                        title = "GENERAL",
+                        tag = "General",
+                    ) {
+                        HudSettingToggle("rwpp.hud.editor.settings.animations", settings.hudAnimations) {
+                            settings.hudAnimations = it
+                        }
+                    }
+
+                    when (scope) {
+                        HudSettingsScope.WORLD_EFFECTS -> {
+                            AeroSettingGroup(
+                                title = "UNIT OVERLAYS",
+                                tag = "Unit overlays",
+                            ) {
+                                HudSettingToggle(
+                                    "rwpp.hud.editor.settings.rangeTeamColors",
+                                    settings.aeroRangeUseTeamColors
+                                ) {
+                                    settings.aeroRangeUseTeamColors = it
+                                }
+                                HudSettingToggle(
+                                    "rwpp.hud.editor.settings.buildingRanges",
+                                    settings.showBuildingAttackRange
+                                ) {
+                                    settings.showBuildingAttackRange = it
+                                }
+                                val rangeTypes = Settings.unitAttackRangeTypes
+                                val rangeLabels = listOf(
+                                    readI18n("rwpp.hud.editor.settings.rangeOff"),
+                                    readI18n("rwpp.hud.editor.settings.rangeGround"),
+                                    readI18n("rwpp.hud.editor.settings.rangeAir"),
+                                    readI18n("rwpp.hud.editor.settings.rangeAll"),
+                                )
+                                var rangeTypeIndex by remember(settings) {
+                                    mutableIntStateOf(rangeTypes.indexOf(settings.showAttackRangeUnit).coerceAtLeast(0))
+                                }
+                                AeroSettingDropDown(
+                                    label = readI18n("rwpp.hud.editor.settings.unitRanges"),
+                                    items = rangeLabels,
+                                    selectedIndex = rangeTypeIndex,
+                                    onItemSelected = { index, _ ->
+                                        rangeTypeIndex = index
+                                        settings.showAttackRangeUnit = rangeTypes[index]
+                                    },
+                                )
+                                HudSettingToggle(
+                                    "rwpp.hud.editor.settings.rangeAnimations",
+                                    settings.aeroRangeEffects
+                                ) {
+                                    settings.aeroRangeEffects = it
+                                }
+                                HudSettingToggle("rwpp.hud.editor.settings.enemyRanges", settings.aeroEnemyRangesOnly) {
+                                    settings.aeroEnemyRangesOnly = it
+                                }
+                            }
+
+                            AeroSettingGroup(
+                                title = "AERO EFFECTS",
+                                tag = "Aero effects",
+                            ) {
+                                HudSettingToggle("rwpp.hud.editor.settings.selection", settings.aeroSelection) {
+                                    settings.aeroSelection = it
+                                }
+                                HudSettingToggle("rwpp.hud.editor.settings.unitGlow", settings.aeroUnitGlowHighlight) {
+                                    settings.aeroUnitGlowHighlight = it
+                                }
+                                HudSettingToggle("rwpp.hud.editor.settings.damageTrail", settings.aeroDamageAnimation) {
+                                    settings.aeroDamageAnimation = it
+                                }
+                                HudSettingToggle("rwpp.hud.editor.settings.damageNumbers", settings.aeroDamageNumbers) {
+                                    settings.aeroDamageNumbers = it
+                                }
+                                HudSettingToggle(
+                                    "rwpp.hud.editor.settings.orderClickEffects",
+                                    settings.aeroOrderClickEffects
+                                ) {
+                                    settings.aeroOrderClickEffects = it
+                                }
+                                HudSettingToggle("rwpp.hud.editor.settings.orderEffects", settings.aeroOrderEffects) {
+                                    settings.aeroOrderEffects = it
+                                }
+                                HudSettingToggle("rwpp.hud.editor.settings.hoverEffects", settings.aeroHoverEffects) {
+                                    settings.aeroHoverEffects = it
+                                }
+                                HudSettingToggle("rwpp.hud.editor.settings.guardEffects", settings.aeroGuardEffects) {
+                                    settings.aeroGuardEffects = it
+                                }
+                                HudSettingToggle(
+                                    "rwpp.hud.editor.settings.waypointEffects",
+                                    settings.aeroWaypointEffects
+                                ) {
+                                    settings.aeroWaypointEffects = it
+                                }
+                                HudSettingToggle(
+                                    "rwpp.hud.editor.settings.rallyEffects",
+                                    settings.aeroRallyPointEffects
+                                ) {
+                                    settings.aeroRallyPointEffects = it
+                                }
+                                HudSettingToggle(
+                                    "rwpp.hud.editor.settings.productionLabels",
+                                    settings.aeroProductionLabels
+                                ) {
+                                    settings.aeroProductionLabels = it
+                                }
+                                HudSettingToggle(
+                                    "rwpp.hud.editor.settings.alliedProduction",
+                                    settings.aeroAlliedProductionLabels
+                                ) {
+                                    settings.aeroAlliedProductionLabels = it
+                                }
+                                HudSettingToggle("rwpp.hud.editor.settings.buildEffects", settings.aeroBuildEffects) {
+                                    settings.aeroBuildEffects = it
+                                }
+                                HudSettingToggle("rwpp.hud.editor.settings.groupOrders", settings.aeroGroupOrders) {
+                                    settings.aeroGroupOrders = it
+                                }
+                            }
+                        }
+
+                        HudSettingsScope.COMMAND_CONSOLE -> {
+                            AeroSettingGroup(
+                                title = "CONTROLS",
+                                tag = "Controls",
+                            ) {
+                                HudSettingToggle(
+                                    "rwpp.settings.minimapUsePlayerColors",
+                                    settings.minimapUsePlayerColors
+                                ) {
+                                    settings.minimapUsePlayerColors = it
+                                }
+                                var maxGroups by remember(settings) {
+                                    mutableIntStateOf(settings.maxDisplayUnitGroupCount.coerceIn(0, 10))
+                                }
+                                AeroSettingSlider(
+                                    label = readI18n("rwpp.hud.editor.settings.visibleGroups"),
+                                    value = maxGroups / 10f,
+                                    onValueChange = {
+                                        maxGroups = (it * 10).roundToInt().coerceIn(0, 10)
+                                        settings.maxDisplayUnitGroupCount = maxGroups
+                                    },
+                                    valueRange = 0f..1f,
+                                    valueFormat = { "${(it * 10f).roundToInt().coerceIn(0, 10)}" },
+                                )
+                                HudSettingToggle("rwpp.hud.editor.settings.attackActions", settings.showExtraButton) {
+                                    settings.showExtraButton = it
+                                }
+                            }
+                        }
+
+                        HudSettingsScope.CHAT_MESSAGES -> {
+                            AeroSettingGroup(
+                                title = "CHAT",
+                                tag = "Chat",
+                            ) {
+                                HudSettingToggle("rwpp.hud.editor.settings.chatTeam", settings.hudChatShowTeam) {
+                                    settings.hudChatShowTeam = it
+                                }
+                                HudSettingToggle(
+                                    "rwpp.hud.editor.settings.chatTimestamp",
+                                    settings.hudChatShowTimestamp
+                                ) {
+                                    settings.hudChatShowTimestamp = it
+                                }
+                            }
+                        }
+
+                        HudSettingsScope.COMPONENT -> Unit
+                    }
+                }
+
+                AeroButton(readI18n("rwpp.common.exit"), onClick = onDismiss, modifier = Modifier.fillMaxWidth())
+            }
+        }
+    }
+}
+
+@Composable
+private fun HudEditorToolbar(
+    widthDp: Float,
+    onAddComponent: () -> Unit,
+    onSaveAndExit: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val addLabel = readI18n("rwpp.hud.editor.addComponent")
+    val saveLabel = readI18n("rwpp.hud.editor.saveAndExit")
+    val addSubtext = readI18n("rwpp.hud.editor.addSubtext")
+    val saveSubtext = readI18n("rwpp.hud.editor.saveSubtext")
+
+    if (widthDp >= 600f) {
+        Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            AeroButton(addLabel, onAddComponent, modifier = Modifier.weight(1f), subText = addSubtext)
+            AeroButton(saveLabel, onSaveAndExit, modifier = Modifier.weight(1f), subText = saveSubtext)
+        }
+    } else {
+        Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (widthDp < 420f) {
+                AeroButton(addLabel, onAddComponent, modifier = Modifier.fillMaxWidth(), subText = addSubtext)
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    AeroButton(addLabel, onAddComponent, modifier = Modifier.weight(1f), subText = addSubtext)
+                    AeroButton(saveLabel, onSaveAndExit, modifier = Modifier.weight(1f), subText = saveSubtext)
+                }
+            }
+            if (widthDp < 420f) {
+                AeroButton(saveLabel, onSaveAndExit, modifier = Modifier.fillMaxWidth(), subText = saveSubtext)
+            }
+        }
+    }
+}
 
 @Composable
 fun HudEditor(
@@ -96,117 +411,229 @@ fun HudEditor(
     onAddComponent: (HudComponentData) -> Unit,
     onDeleteComponent: (HudComponentState) -> Unit,
     availableTemplates: Map<String, HudComponentTemplate> = mapOf(),
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onSaveConfig: () -> Unit = {},
 ) {
     var verticalGuidelineX by remember { mutableStateOf<Float?>(null) }
     var horizontalGuidelineY by remember { mutableStateOf<Float?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
+    var settingsScope by remember { mutableStateOf<HudSettingsScope?>(null) }
+    val density = LocalDensity.current
+    val latestSaveConfig = rememberUpdatedState(onSaveConfig)
+    LaunchedEffect(isEditMode) {
+        if (!isEditMode) {
+            showAddDialog = false
+            settingsScope = null
+        }
+    }
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val maxWidthDp = maxWidth.value
         val maxHeightDp = maxHeight.value
         val snapThresholdDp = 6f
+        val dragSlopPx = with(density) { 4.dp.toPx() }
 
-        if (isEditMode) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.6f))
-            )
-        }
-
-        components.forEach { state ->
-            val template = availableTemplates[state.data.id] ?: return@forEach
-            HudComponentWrapper(
-                template = template,
-                state = state,
-                allComponents = components,
-                isEditMode = isEditMode,
-                maxWidthDp = maxWidthDp,
-                maxHeightDp = maxHeightDp,
-                snapThresholdDp = snapThresholdDp,
-                onSnapGuidesChange = { vX, hY ->
-                    verticalGuidelineX = vX
-                    horizontalGuidelineY = hY
-                },
-                onDelete = { onDeleteComponent(state) },
-                content = { template.content() }
-            )
-        }
-
-        if (isEditMode) {
-            verticalGuidelineX?.let { xDp ->
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (isEditMode) {
                 Box(
                     modifier = Modifier
-                        .fillMaxHeight()
-                        .width(1.dp)
-                        .offset(x = xDp.dp)
-                        .background(Color.Cyan.copy(alpha = 0.8f))
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.6f))
+                        .clickable { }
                 )
             }
 
-            horizontalGuidelineY?.let { yDp ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(1.dp)
-                        .offset(y = yDp.dp)
-                        .background(Color.Cyan.copy(alpha = 0.8f))
-                )
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
-            ) {
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Button(
-                        onClick = { showAddDialog = true },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary
-                        )
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = "Add", modifier = Modifier.size(16.dp))
-                        Text(" Add Component", modifier = Modifier.padding(start = 4.dp))
-                    }
-
-                    Button(
-                        onClick = { onEditModeChange(false) },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
-                    ) {
-                        Icon(Icons.Default.Close, contentDescription = "Exit", modifier = Modifier.size(16.dp))
-                        Text(" Exit Edit Mode", modifier = Modifier.padding(start = 4.dp))
-                    }
+            components.forEach { state ->
+                val template = availableTemplates[state.data.id] ?: return@forEach
+                key(state.data.instanceId) {
+                    HudComponentWrapper(
+                        template = template,
+                        state = state,
+                        allComponents = components,
+                        isEditMode = isEditMode,
+                        maxWidthDp = maxWidthDp,
+                        maxHeightDp = maxHeightDp,
+                        snapThresholdDp = snapThresholdDp,
+                        onOpenSettings = { settingsScope = hudSettingsScopeFor(state.data.id) },
+                        onSnapGuidesChange = { vX, hY ->
+                            verticalGuidelineX = vX
+                            horizontalGuidelineY = hY
+                        },
+                        onDelete = { onDeleteComponent(state) },
+                        content = { template.content() }
+                    )
                 }
             }
 
-            if (showAddDialog) {
-                AddComponentDialog(
-                    availableTemplates = availableTemplates,
-                    onDismiss = { showAddDialog = false },
-                    onSelect = { templateId ->
-                        showAddDialog = false
-                        onAddComponent(
-                            HudComponentData(
-                                id = templateId,
-                                xDp = (maxWidthDp / 2) - 40f,
-                                yDp = (maxHeightDp / 2) - 40f,
-                                scale = 1f
-                            )
-                        )
-                    }
-                )
+            if (!isEditMode) {
+                components.filter { it.data.id == "hud_console_vertical" }.forEach { state ->
+                    val moveZoneCoordinates = remember(state) { arrayOfNulls<LayoutCoordinates>(1) }
+                    Box(
+                        modifier = Modifier
+                            .offset {
+                                val moveZone = state.moveZoneBounds(maxWidthDp)
+                                IntOffset(
+                                    with(density) { moveZone.left.dp.roundToPx() },
+                                    with(density) { moveZone.top.dp.roundToPx() }
+                                )
+                            }
+                            .size(HUD_CONSOLE_MOVE_ZONE_WIDTH_DP.dp, HUD_CONSOLE_MOVE_ZONE_HEIGHT_DP.dp)
+                            .onGloballyPositioned { moveZoneCoordinates[0] = it }
+                            .pointerInput(state, maxWidthDp, maxHeightDp) {
+                                var activePointerId: androidx.compose.ui.input.pointer.PointerId? = null
+                                var lastPosition = Offset.Zero
+                                var pendingDelta = Offset.Zero
+                                var dragStarted = false
+                                fun finishDrag() {
+                                    if (dragStarted) {
+                                        state.syncToData()
+                                        latestSaveConfig.value()
+                                    }
+                                    activePointerId = null
+                                    pendingDelta = Offset.Zero
+                                    dragStarted = false
+                                }
+                                try {
+                                    awaitPointerEventScope {
+                                        while (true) {
+                                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                                            val change = event.changes.firstOrNull {
+                                                activePointerId == null || it.id == activePointerId
+                                            } ?: continue
+                                            val coordinates = moveZoneCoordinates[0]
+                                            if (coordinates == null) continue
+                                            val rootPosition = coordinates.localToRoot(change.position)
+                                            when (event.type) {
+                                                PointerEventType.Press -> {
+                                                    if (activePointerId == null && change.type == PointerType.Mouse &&
+                                                        state.width > 0f && state.height > 0f
+                                                    ) {
+                                                        activePointerId = change.id
+                                                        lastPosition = rootPosition
+                                                        pendingDelta = Offset.Zero
+                                                        dragStarted = false
+                                                        change.consume()
+                                                    }
+                                                }
+
+                                                PointerEventType.Move -> {
+                                                    if (activePointerId == change.id && change.type == PointerType.Mouse) {
+                                                        val delta = rootPosition - lastPosition
+                                                        lastPosition = rootPosition
+                                                        if (!dragStarted) {
+                                                            pendingDelta += delta
+                                                            if (pendingDelta.getDistance() >= dragSlopPx) {
+                                                                dragStarted = true
+                                                                state.moveBy(
+                                                                    with(density) { pendingDelta.x.toDp().value },
+                                                                    with(density) { pendingDelta.y.toDp().value },
+                                                                    maxWidthDp,
+                                                                    maxHeightDp
+                                                                )
+                                                            }
+                                                        } else {
+                                                            state.moveBy(
+                                                                with(density) { delta.x.toDp().value },
+                                                                with(density) { delta.y.toDp().value },
+                                                                maxWidthDp,
+                                                                maxHeightDp
+                                                            )
+                                                        }
+                                                        change.consume()
+                                                    }
+                                                }
+
+                                                PointerEventType.Release -> {
+                                                    if (activePointerId == change.id && change.type == PointerType.Mouse) {
+                                                        change.consume()
+                                                        finishDrag()
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                } finally {
+                                    finishDrag()
+                                }
+                            },
+                    )
+                }
             }
+
+            if (isEditMode) {
+                verticalGuidelineX?.let { xDp ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(1.dp)
+                            .offset(x = xDp.dp)
+                            .background(Color.Cyan.copy(alpha = 0.8f))
+                    )
+                }
+
+                horizontalGuidelineY?.let { yDp ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .offset(y = yDp.dp)
+                            .background(Color.Cyan.copy(alpha = 0.8f))
+                    )
+                }
+
+                val toolbarWidthDp = minOf(maxWidthDp, 640f)
+                HudEditorToolbar(
+                    widthDp = toolbarWidthDp,
+                    onAddComponent = { showAddDialog = true },
+                    onSaveAndExit = {
+                        components.forEach(HudComponentState::syncToData)
+                        onEditModeChange(false)
+                    },
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .widthIn(max = 640.dp)
+                        .fillMaxWidth()
+                        .padding(start = 12.dp, end = 12.dp, top = 16.dp),
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                ) {
+                    if (components.isEmpty()) Text(
+                        readI18n("rwpp.hud.editor.emptyHelp"),
+                        modifier = Modifier.align(Alignment.Center), color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                if (showAddDialog) {
+                    AddComponentDialog(
+                        availableTemplates = availableTemplates,
+                        onDismiss = { showAddDialog = false },
+                        onSelect = { templateId ->
+                            val template = availableTemplates.getValue(templateId)
+                            val scale =
+                                minOf(1f, maxWidthDp / template.initialWidthDp, maxHeightDp / template.initialHeightDp)
+                            onAddComponent(
+                                HudComponentData(
+                                    id = templateId,
+                                    xDp = (maxWidthDp - template.initialWidthDp * scale) / 2,
+                                    yDp = (maxHeightDp - template.initialHeightDp * scale) / 2,
+                                    scale = scale,
+                                    relativeX = 0.5f, relativeY = 0.5f
+                                )
+                            )
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    if (isEditMode) {
+        settingsScope?.let { scope ->
+            HudEditorSettingsDialog(scope, onDismiss = { settingsScope = null })
         }
     }
 }
@@ -217,6 +644,7 @@ private fun HudComponentWrapper(
     state: HudComponentState,
     allComponents: List<HudComponentState>,
     isEditMode: Boolean,
+    onOpenSettings: () -> Unit,
     maxWidthDp: Float,
     maxHeightDp: Float,
     snapThresholdDp: Float,
@@ -225,6 +653,14 @@ private fun HudComponentWrapper(
     content: @Composable () -> Unit
 ) {
     val density = LocalDensity.current
+    val legacyViewport = LocalLegacyHudViewport.current
+    val contentWidth = if (template.fillWidth) maxWidthDp / state.scale else template.initialWidthDp
+    val contentHeight = if (template.fillHeight) maxHeightDp / state.scale else template.initialHeightDp
+    LaunchedEffect(state.width, state.height, maxWidthDp, maxHeightDp, state.scale) {
+        if (state.width > 0 && state.height > 0) {
+            state.updateViewport(maxWidthDp, maxHeightDp, legacyViewport.width, legacyViewport.height)
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -232,6 +668,13 @@ private fun HudComponentWrapper(
     ) {
         Box(
             modifier = Modifier
+                .wrapContentSize(Alignment.TopStart, unbounded = true)
+                .then(
+                    if (template.compactHeight) (if (template.compactWidth) Modifier.widthIn(max = contentWidth.dp) else Modifier.requiredWidth(
+                        contentWidth.dp
+                    )).heightIn(max = contentHeight.dp)
+                    else Modifier.requiredSize(contentWidth.dp, contentHeight.dp)
+                )
                 .onSizeChanged { size: IntSize ->
                     with(density) {
                         state.width = size.width.toDp().value
@@ -257,7 +700,7 @@ private fun HudComponentWrapper(
             Box(
                 modifier = Modifier
                     .size(scaledWidth.dp, scaledHeight.dp)
-                    .border(1.dp, Color.Yellow.copy(alpha = 0.8f))
+                    .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.8f))
                     .pointerInput(state) {
                         detectDragGestures(
                             onDragStart = {
@@ -379,12 +822,31 @@ private fun HudComponentWrapper(
                     y = (titleClampedY - state.y).dp
                 )
             ) {
-                Text(
-                    text = template.name,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(start = 6.dp, end = 3.dp, top = 2.dp, bottom = 2.dp)
+                ) {
+                    Text(
+                        text = hudComponentDisplayName(state.data.id, template.name),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Box(
+                        modifier = Modifier
+                            .padding(start = 4.dp)
+                            .size(20.dp)
+                            .clip(CircleShape)
+                            .clickable(onClick = onOpenSettings),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.Settings,
+                            contentDescription = readI18n("rwpp.hud.editor.componentOptions"),
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
             }
 
             val deleteTargetX = state.x + scaledWidth - 12f
@@ -406,7 +868,7 @@ private fun HudComponentWrapper(
             ) {
                 Icon(
                     Icons.Default.Delete,
-                    contentDescription = "Delete",
+                    contentDescription = readI18n("rwpp.hud.editor.delete"),
                     modifier = Modifier.size(14.dp),
                     tint = MaterialTheme.colorScheme.onError
                 )
@@ -436,7 +898,8 @@ private fun HudComponentWrapper(
                             val dragDp = with(density) { dragAmount.x.toDp().value }
                             if (state.width > 0f) {
                                 val maxScaleX = if (maxWidthDp > state.x) (maxWidthDp - state.x) / state.width else 3.0f
-                                val maxScaleY = if (maxHeightDp > state.y) (maxHeightDp - state.y) / state.height else 3.0f
+                                val maxScaleY =
+                                    if (maxHeightDp > state.y) (maxHeightDp - state.y) / state.height else 3.0f
                                 val maxScale = minOf(3.0f, maxScaleX, maxScaleY)
 
                                 val scaleDelta = dragDp / state.width
@@ -449,7 +912,7 @@ private fun HudComponentWrapper(
             ) {
                 Icon(
                     Icons.Default.Edit,
-                    contentDescription = "Resize",
+                    contentDescription = readI18n("rwpp.hud.editor.resize"),
                     modifier = Modifier.size(14.dp),
                     tint = Color.Black
                 )
@@ -464,26 +927,34 @@ private fun AddComponentDialog(
     onDismiss: () -> Unit,
     onSelect: (id: String) -> Unit
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Add HUD Component") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    AnimatedDialog(onDismissRequest = onDismiss) { dismiss ->
+        AeroPanel(
+            Modifier
+                .widthIn(max = 380.dp)
+                .fillMaxWidth(0.92f)
+                .heightIn(max = 520.dp)
+        ) {
+            Column(
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                AeroHeader(
+                    "ADD HUD COMPONENT",
+                    tag = "HUD modules",
+                )
+                AeroDivider()
                 availableTemplates.forEach { (id, template) ->
-                    OutlinedButton(
-                        onClick = { onSelect(id) },
+                    AeroButton(
+                        text = hudComponentDisplayName(id, template.name),
+                        onClick = {
+                            onSelect(id)
+                            dismiss()
+                        },
                         modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(template.name)
-                    }
+                    )
                 }
-            }
-        },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                AeroButton(readI18n("rwpp.hud.editor.cancel"), onClick = dismiss, modifier = Modifier.fillMaxWidth())
             }
         }
-    )
+    }
 }

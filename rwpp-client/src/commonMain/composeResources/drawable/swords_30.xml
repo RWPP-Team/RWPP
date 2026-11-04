@@ -1,11 +1,12 @@
 <!--
   ~ Copyright 2023-2026 RWPP contributors
-  ~ 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
-  ~ Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
-  ~ https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+  ~ 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+  ~ Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+  ~ https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
   -->
 
-<vector android:height="30dp" android:viewportHeight="960"
-    android:viewportWidth="960" android:width="30dp" xmlns:android="http://schemas.android.com/apk/res/android">
-    <path android:fillColor="#e8eaed" android:pathData="M762,864 L645,748l-88,88 -28,-28q-23,-23 -23,-57t23,-57l169,-169q23,-23 57,-23t57,23l28,28 -88,88 116,117q12,12 12,28t-12,28l-50,50q-12,12 -28,12t-28,-12ZM880,236L426,690l5,4q23,23 23,57t-23,57l-28,28 -88,-88L198,864q-12,12 -28,12t-28,-12l-50,-50q-12,-12 -12,-28t12,-28l116,-117 -88,-88 28,-28q23,-23 57,-23t57,23l4,5 454,-454h160v160ZM334,377l24,-23 23,-24 -23,24 -24,23ZM278,434L80,236v-160h160l198,198 -57,56 -174,-174h-47v47l174,174 -56,57ZM370,633 L800,203v-47h-47L323,586l47,47ZM370,633 L346,610 323,586 346,610 370,633Z"/>
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:height="30dp"
+        android:viewportHeight="960" android:viewportWidth="960" android:width="30dp">
+    <path android:fillColor="#e8eaed"
+          android:pathData="M762,864 L645,748l-88,88 -28,-28q-23,-23 -23,-57t23,-57l169,-169q23,-23 57,-23t57,23l28,28 -88,88 116,117q12,12 12,28t-12,28l-50,50q-12,12 -28,12t-28,-12ZM880,236L426,690l5,4q23,23 23,57t-23,57l-28,28 -88,-88L198,864q-12,12 -28,12t-28,-12l-50,-50q-12,-12 -12,-28t12,-28l116,-117 -88,-88 28,-28q23,-23 57,-23t57,23l4,5 454,-454h160v160ZM334,377l24,-23 23,-24 -23,24 -24,23ZM278,434L80,236v-160h160l198,198 -57,56 -174,-174h-47v47l174,174 -56,57ZM370,633 L800,203v-47h-47L323,586l47,47ZM370,633 L346,610 323,586 346,610 370,633Z"/>
 </vector>

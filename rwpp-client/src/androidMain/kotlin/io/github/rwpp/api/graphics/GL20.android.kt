@@ -1,19 +1,13 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 package io.github.rwpp.api.graphics
 
 import android.opengl.GLES20
-import java.nio.Buffer
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import java.nio.DoubleBuffer
-import java.nio.FloatBuffer
-import java.nio.IntBuffer
-import java.nio.ShortBuffer
+import java.nio.*
 
 
 @Suppress("unused")
@@ -27,7 +21,7 @@ actual object GL20 {
     actual fun glActiveTexture(texture: Int) {
         GLES20.glActiveTexture(texture)
     }
-    
+
     actual fun glAttachShader(program: Int, shader: Int) {
         GLES20.glAttachShader(program, shader)
     }
@@ -315,6 +309,7 @@ actual object GL20 {
         )
         return String(buffer, 0, ints[0])
     }
+
     actual fun glGetActiveUniform(program: Int, index: Int, size: IntBuffer?, type: IntBuffer?): String? {
 
         //length
@@ -354,7 +349,7 @@ actual object GL20 {
 
 
     actual fun glGetProgramInfoLog(program: Int): String? {
-       return GLES20.glGetProgramInfoLog(program)
+        return GLES20.glGetProgramInfoLog(program)
     }
 
     actual fun glGetShaderInfoLog(shader: Int): String? {
@@ -472,7 +467,7 @@ actual object GL20 {
     }
 
     actual fun glStencilFuncSeparate(face: Int, func: Int, ref: Int, mask: Int) {
-        GLES20.glStencilFuncSeparate(face,func, ref, mask)
+        GLES20.glStencilFuncSeparate(face, func, ref, mask)
     }
 
     actual fun glStencilMask(mask: Int) {
@@ -727,9 +722,11 @@ actual object GL20 {
     actual fun glViewport(x: Int, y: Int, width: Int, height: Int) {
         GLES20.glViewport(x, y, width, height)
     }
+
     actual fun glDrawElements(mode: Int, count: Int, type: Int, indices: Int) {
         GLES20.glDrawElements(mode, count, type, indices)
     }
+
     actual fun glVertexAttribPointer(
         indx: Int,
         size: Int,

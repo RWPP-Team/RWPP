@@ -1,8 +1,8 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.ui
@@ -28,16 +28,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import coil3.compose.AsyncImage
+import io.github.rwpp.api.i18n.readI18n
+import io.github.rwpp.api.net.Net
 import io.github.rwpp.generated.Res
 import io.github.rwpp.generated.download
-import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.mapDir
 import io.github.rwpp.modDir
-import io.github.rwpp.api.net.Net
 import io.github.rwpp.net.NetResourceInfo
 import io.github.rwpp.net.ResourceType
+import io.github.rwpp.net.bbsProtocols
+import io.github.rwpp.net.searchBBS
 import io.github.rwpp.screen.LocalScreenNavigator
 import io.github.rwpp.screen.Screen
 import io.github.rwpp.sound.Sounds
@@ -47,8 +48,6 @@ import org.jetbrains.compose.resources.painterResource
 import org.koin.compose.koinInject
 import org.koin.core.annotation.Single
 import java.io.File
-import io.github.rwpp.net.bbsProtocols
-import io.github.rwpp.net.searchBBS
 
 @Single
 class ResourceBrowserScreen : Screen {
@@ -81,26 +80,38 @@ class ResourceBrowserScreen : Screen {
         }
 
         if (downloadingMod) {
-            Dialog(onDismissRequest = {
-                if (progress >= 1f) {
-                    downloadingMod = false
-                    progress = 0f
-                }
-            }) {
-                AeroPanel(modifier = Modifier.size(320.dp, 180.dp).padding(12.dp)) {
+            AnimatedAlertDialog(
+                visible = downloadingMod,
+                onDismissRequest = {
+                    if (progress !in 0f..<1f) {
+                        downloadingMod = false
+                        progress = 0f
+                    }
+                },
+                enableDismiss = progress !in 0f..<1f
+            ) { dismiss ->
+                AeroPanel(
+                    modifier = Modifier
+                        .widthIn(max = 320.dp)
+                        .fillMaxWidth(0.92f)
+                        .heightIn(max = 180.dp)
+                        .padding(12.dp)
+                ) {
                     Column(
                         modifier = Modifier.fillMaxSize().padding(12.dp),
                         verticalArrangement = Arrangement.SpaceBetween,
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         AeroHeader(
-                            title = "DATA_TRANSFER",
+                            title = "DATA TRANSFER",
                             tag = if (progress >= 1f) "COMPLETE" else if (progress < 0f) "ERROR" else "DOWNLOADING",
                             color = if (progress >= 1f) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
                         )
 
                         Text(
-                            text = if (progress >= 1f) "RESOURCE_ACQUIRED" else if (progress < 0f) "TRANSFER_FAILED" else "DOWNLOADING... ${(progress * 100).toInt()}%",
+                            text = if (progress >= 1f) readI18n("rwpp.browser.resourceAcquired")
+                            else if (progress < 0f) readI18n("rwpp.browser.transferFailed")
+                            else readI18n("rwpp.browser.downloadProgress", (progress * 100).toInt()),
                             fontSize = 12.sp,
                             fontFamily = FontFamily.Monospace,
                             color = MaterialTheme.colorScheme.onSurface
@@ -115,11 +126,8 @@ class ResourceBrowserScreen : Screen {
 
                         if (progress !in 0f..<1f) {
                             AeroButton(
-                                text = "CLOSE",
-                                onClick = {
-                                    downloadingMod = false
-                                    progress = 0f
-                                }
+                                text = readI18n("rwpp.common.close").uppercase(),
+                                onClick = dismiss
                             )
                         }
                     }
@@ -178,7 +186,7 @@ class ResourceBrowserScreen : Screen {
                     )
 
                     AeroDropdownMenu(
-                        label = "API",
+                        label = readI18n("rwpp.browser.api"),
                         items = net.bbsProtocols.map { it.name },
                         selectedIndex = selectedProtocolIndex,
                         onItemSelected = { index ->
@@ -288,7 +296,7 @@ class ResourceBrowserScreen : Screen {
 
                                         if (info.downloadNum != null) {
                                             Text(
-                                                text = "DL: ${info.downloadNum}",
+                                                text = readI18n("rwpp.browser.downloadCount", info.downloadNum),
                                                 fontSize = 10.sp,
                                                 fontFamily = FontFamily.Monospace,
                                                 color = MaterialTheme.colorScheme.tertiary
@@ -305,6 +313,7 @@ class ResourceBrowserScreen : Screen {
                                                 painter = rememberVectorPainter(Icons.Default.Home),
                                                 size = 32.dp,
                                                 iconSize = 16.dp,
+                                                contentDescription = readI18n("rwpp.browser.openResourcePage"),
                                                 onClick = { net.openUriInBrowser(info.bbsUrl!!) }
                                             )
                                         }
@@ -314,6 +323,7 @@ class ResourceBrowserScreen : Screen {
                                                 painter = painterResource(Res.drawable.download),
                                                 size = 32.dp,
                                                 iconSize = 16.dp,
+                                                contentDescription = readI18n("rwpp.browser.downloadResource"),
                                                 onClick = {
                                                     downloadingMod = true
                                                     net.downloadFile(

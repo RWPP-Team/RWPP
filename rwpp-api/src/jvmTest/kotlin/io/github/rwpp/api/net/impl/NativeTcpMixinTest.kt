@@ -1,5 +1,9 @@
 package io.github.rwpp.api.net.impl
 
+import io.github.rwpp.api.mixin.network.NativeAddressConnectMixin
+import io.github.rwpp.api.mixin.network.NativeTcpConnectMixin
+import io.github.rwpp.api.mixin.network.NativeTcpConnectionMixin
+import io.github.rwpp.api.mixin.network.NativeTcpListenMixin
 import kim.der.asm.AsmRegistry
 import kim.der.asm.transformer.AsmProcessor
 import org.objectweb.asm.ClassReader
@@ -9,7 +13,8 @@ import kotlin.test.Test
 import kotlin.test.assertTrue
 
 class NativeTcpMixinTest {
-    @Test fun bothNativeEndpointsAndConnectionWorkersAreTransformed() {
+    @Test
+    fun bothNativeEndpointsAndConnectionWorkersAreTransformed() {
         val targets = listOf(
             "NetworkEngine" to NativeTcpConnectMixin::class.java,
             "NewConnectionRunnable" to NativeTcpListenMixin::class.java,
@@ -27,7 +32,9 @@ class NativeTcpMixinTest {
                 ClassReader(transformed).accept(node, 0)
                 assertTrue(node.methods.flatMap { it.instructions.toArray().toList() }
                     .filterIsInstance<MethodInsnNode>().any { it.owner == mixin.name.replace('.', '/') }, name)
-            } finally { AsmRegistry.clear() }
+            } finally {
+                AsmRegistry.clear()
+            }
         }
     }
 }

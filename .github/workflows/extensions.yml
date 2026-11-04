@@ -1,0 +1,97 @@
+name: Build extension distributions
+
+on:
+  push:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out RWPP
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
+      - name: Check out RWML and its pinned game mappings
+        uses: actions/checkout@v4
+        with:
+          repository: RWPP-Team/RWML
+          ref: ${{ vars.RWML_BUILD_REF || 'master' }}
+          submodules: recursive
+          path: .ci/rwml
+      - uses: actions/setup-java@v4
+        with:
+          distribution: jetbrains
+          java-version: '25'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK 36
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Prepare RWML core and mapped game library
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f .ci/rwml/core/src/main/java/io/github/rwml/api/ClassFilePatch.java ]] ||
+             ! grep -q 'aiUpdatePaused' .ci/rwml/work/mappings/com/corrodinggames/rts/game/ai/AI.mapping; then
+            echo '::error::RWML or its Anvil mappings are older than the RWPP API. Push the matching RWML and Anvil commits and set RWML_BUILD_REF if needed.'
+            exit 1
+          fi
+          chmod +x gradlew .ci/rwml/gradlew
+          rwml_version=$(sed -n 's/^rwml-core = "\([^"]*\)".*/\1/p' gradle/libs.versions.toml)
+          test -n "$rwml_version"
+          .ci/rwml/gradlew -p .ci/rwml :core:publishToMavenLocal publishGameLibForIde -Pversion="$rwml_version"
+      - name: Build and verify JVM and Android packs
+        run: >-
+          ./gradlew
+          -PrwmlLocalRepo="$GITHUB_WORKSPACE/.ci/rwml/build/local-maven"
+          verifyJvmExtensionPack verifyAndroidExtensionPack
+      - name: Collect packs and individual extension archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          python3 - <<'PY'
+          import glob, pathlib, shutil
+          patterns = [
+              'build/distributions/rwpp-*-jvm-extensions.zip',
+              'build/distributions/rwpp-*-android-extensions.zip',
+              'rwpp-api/build/extensions/rwpp-api-*-jvm.jar',
+              'rwpp-api/build/extensions/rwpp-api-*-android.jar',
+              'rwpp-client/build/extensions/rwpp-client-*-jvm.jar',
+              'rwpp-client/build/extensions/rwpp-client-*-android.jar',
+          ]
+          for pattern in patterns:
+              matches = glob.glob(pattern)
+              if len(matches) != 1:
+                  raise SystemExit(f'Expected exactly one artifact for {pattern}: {matches}')
+              shutil.copy2(matches[0], pathlib.Path('release-assets') / pathlib.Path(matches[0]).name)
+          PY
+          sha256sum release-assets/* > release-assets/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rwpp-extensions-${{ github.sha }}
+          path: release-assets/*
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'release' && github.event.action == 'published'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: rwpp-extensions-${{ github.sha }}
+          path: release-assets
+      - name: Upload verified assets to this release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" release-assets/* --clobber

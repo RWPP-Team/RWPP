@@ -7,16 +7,10 @@
 
 package io.github.rwpp.ui
 
-import io.github.rwml.api.game.GameBoot
-import io.github.rwml.api.game.GameContext
-import io.github.rwpp.ui.UiSurface
-import java.nio.file.Path
+import io.github.rwml.api.ui.UiSurface
 import java.util.concurrent.Executor
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertSame
-import kotlin.test.assertTrue
 
 class DesktopUiLifecycleTest {
     @Test
@@ -49,43 +43,6 @@ class DesktopUiLifecycleTest {
 
         assertEquals(1, surface.closeCount)
         assertEquals(1, confirmations)
-    }
-
-    @Test
-    fun engineStageReplacesVanillaAndGameBootIsOneShot() {
-        val boot = GameBoot(TestGameContext)
-        var vanillaStarts = 0
-        var rwppStarts = 0
-        boot.add(GameBoot.ENGINE) { vanillaStarts++ }
-        installRwppEngineStage(boot) { rwppStarts++ }
-
-        val firstReport = boot.start()
-        val secondReport = boot.start()
-
-        assertTrue(firstReport.isClean)
-        assertSame(firstReport, secondReport)
-        assertEquals(0, vanillaStarts)
-        assertEquals(1, rwppStarts)
-    }
-
-    @Test
-    fun engineStageFailureIsReportedAndDoesNotCountAsSuccess() {
-        val boot = GameBoot(TestGameContext)
-        boot.add(GameBoot.ENGINE) { error("vanilla engine stage must be replaced") }
-        installRwppEngineStage(boot) { error("embedded engine failed") }
-
-        val report = boot.start()
-
-        assertFalse(report.isClean)
-        assertFalse(report.contains(GameBoot.ENGINE))
-        assertTrue(report.failed().containsKey(GameBoot.ENGINE))
-    }
-
-    private object TestGameContext : GameContext {
-        override fun platform(): Any = this
-        override fun arguments(): List<String> = emptyList()
-        override fun directory(): Path = Path.of(".")
-        override fun log(message: String) = Unit
     }
 
     private class TestSurface : UiSurface {

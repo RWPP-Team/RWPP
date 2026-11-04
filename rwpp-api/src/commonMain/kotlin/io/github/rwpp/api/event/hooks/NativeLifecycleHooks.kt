@@ -1,32 +1,21 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.api.event.hooks
 
-import com.corrodinggames.rts.gameFramework.network.NetworkEngine
-import io.github.rwpp.api.event.GameEventPublisher
 import com.corrodinggames.rts.gameFramework.GameEngine
 import com.corrodinggames.rts.gameFramework.GameEngineMapType
 import com.corrodinggames.rts.gameFramework.ReplayEngine
 import com.corrodinggames.rts.gameFramework.network.GameSetup
+import com.corrodinggames.rts.gameFramework.network.NetworkEngine
 import com.corrodinggames.rts.gameFramework.network.Packet
+import io.github.rwpp.api.event.GameEventPublisher
+import io.github.rwpp.api.event.events.*
 import io.github.rwpp.api.game.impl.NativeGameLifecycle
-import io.github.rwpp.api.event.events.MapLoadEvent
-import io.github.rwpp.api.event.events.MapLoadPhase
-import io.github.rwpp.api.event.events.ReplayLoadEvent
-import io.github.rwpp.api.event.events.ReplayLoadPhase
-import io.github.rwpp.api.event.events.RoomReturnedEvent
-import io.github.rwpp.api.event.events.RoomSetupAppliedEvent
-import kim.der.asm.api.annotation.CallbackInfo
-import kim.der.asm.api.annotation.AsmInject
-import kim.der.asm.api.annotation.AsmMixin
-import kim.der.asm.api.annotation.InjectionPoint
-import kim.der.asm.api.annotation.Operation
-import kim.der.asm.api.annotation.WrapMethod
 import java.io.File
 import java.lang.reflect.InvocationTargetException
 import java.net.Socket
@@ -44,63 +33,48 @@ private data class ReplayLoadContext(
     val name: String,
 )
 
-@AsmMixin("com/corrodinggames/rts/gameFramework/network/NetworkEngine")
-object NativeNetworkLifecycleMixin {
-    @AsmInject(method = "startServer(Z)Z", target = InjectionPoint.TAIL, require = 1)
+internal object NativeNetworkLifecycleCallbacks {
+    fun isClientMapLoadPending(): Boolean {
+        val network = GameEngine.getInstance().networkEngine
+        return io.github.rwpp.api.game.NetworkGameLoadingState.isLoadingMap &&
+                network.networked && !network.isServer
+    }
+
     fun publishMultiplayerHostStarted(
-        callback: CallbackInfo,
         target: Any,
-        @Suppress("UNUSED_PARAMETER") createAdminPlayer: Boolean,
+        started: Boolean,
     ) {
         val network = target as NetworkEngine
-        if (callback.getReturnValue<Boolean>() == true && network.networked && network.isServer && !network.singlePlayerServer) {
+        if (started && network.networked && network.isServer && !network.singlePlayerServer) {
             NativeGameLifecycle.onMultiplayerHostStarted(network)
         }
     }
 
-    @AsmInject(method = "startSingleplayerServer()Z", target = InjectionPoint.TAIL, require = 1)
-    fun publishSinglePlayerHostStarted(callback: CallbackInfo, target: Any) {
+    fun publishSinglePlayerHostStarted(started: Boolean, target: Any) {
         val network = target as NetworkEngine
-        if (callback.getReturnValue<Boolean>() == true && network.networked && network.isServer && network.singlePlayerServer) {
+        if (started && network.networked && network.isServer && network.singlePlayerServer) {
             NativeGameLifecycle.onSinglePlayerHostStarted(network)
         }
     }
 
-    @AsmInject(method = "startSandboxMode()Z", target = InjectionPoint.TAIL, require = 1)
-    fun syncSandboxMode(callback: CallbackInfo, target: Any) {
-        if (callback.getReturnValue<Boolean>() == true) {
+    fun syncSandboxMode(started: Boolean, target: Any) {
+        if (started) {
             NativeGameLifecycle.onSandboxModeStarted(target as NetworkEngine)
         }
     }
 
-    @AsmInject(
-        method = "connectToServerAsync(Ljava/lang/String;ZLjava/lang/Runnable;)Lcom/corrodinggames/rts/gameFramework/network/ConnectSocketToServerRunnable;",
-        target = InjectionPoint.HEAD,
-        require = 1,
-    )
-    fun publishJoinAttempt(
-        @Suppress("UNUSED_PARAMETER") target: Any,
-        address: String,
-        @Suppress("UNUSED_PARAMETER") forceTcp: Boolean,
-        @Suppress("UNUSED_PARAMETER") callback: Runnable,
-    ) {
+    fun publishJoinAttempt(address: String) {
         NativeGameLifecycle.onJoinAttempt(address)
     }
 
-    @AsmInject(
-        method = "startClientConnection(Ljava/net/Socket;)Z",
-        target = InjectionPoint.TAIL,
-        require = 1,
-    )
-    fun syncClientConnected(callback: CallbackInfo, target: Any, socket: Socket) {
+    fun syncClientConnected(started: Boolean, target: Any, socket: Socket) {
         val network = target as NetworkEngine
-        if (callback.getReturnValue<Boolean>() == true && network.networked && !network.isServer) {
+        if (started && network.networked && !network.isServer) {
             val address = socket.inetAddress?.hostAddress?.let { "$it:${socket.port}" }
-            NativeGameLifecycle.onClientConnected(network, address)
+            NativeGameLifecycle.onClientConnected(network, address, socket)
         }
     }
 
-    @AsmInject(method = "disconnect(Ljava/lang/String;)V", target = InjectionPoint.TAIL, require = 1)
     fun syncNetworkDisconnected(
         target: Any,
         reason: String,
@@ -109,7 +83,10 @@ object NativeNetworkLifecycleMixin {
         NativeGameLifecycle.onNetworkDisconnected(network, reason)
     }
 
-    @AsmInject(method = "returnToBattleroom()V", target = InjectionPoint.TAIL, require = 1)
+    fun resetRoomMap(target: Any, keepTeams: Boolean) {
+        NativeGameLifecycle.onNetworkStateReset(target as NetworkEngine, keepTeams)
+    }
+
     fun syncReturnToBattleroom(target: Any) {
         val network = target as NetworkEngine
         NativeGameLifecycle.onReturnToBattleroom(network)
@@ -118,11 +95,10 @@ object NativeNetworkLifecycleMixin {
         }
     }
 
-    @AsmInject(
-        method = "applyChangedSetup(Lcom/corrodinggames/rts/gameFramework/network/GameSetup;)V",
-        target = InjectionPoint.TAIL,
-        require = 1,
-    )
+    fun clearFailedNetworkStart(@Suppress("UNUSED_PARAMETER") target: Any) {
+        NativeGameLifecycle.onNativeNetworkStartFailed()
+    }
+
     fun publishMapSelectionChanged(
         target: Any,
         setup: Any,
@@ -141,26 +117,35 @@ object NativeNetworkLifecycleMixin {
         }
     }
 
-    @AsmInject(method = "processSystemPacket(Lcom/corrodinggames/rts/gameFramework/network/Packet;)V", target = InjectionPoint.TAIL, require = 1)
+    fun onNetworkPacketStarting(target: Any, packet: Packet) {
+        if (packet.type == 178) NativeGameLifecycle.onNativeRedirect(packet.connection)
+        if (packet.type == 120) NativeGameLifecycle.onClientNetworkGameStarting(target as NetworkEngine)
+    }
+
     fun confirmClientRoom(target: Any, packet: Packet) {
         val network = target as NetworkEngine
-        if (packet.type == 115 && !network.isServer && network.networked && network.localTeam != null) {
+        if (packet.type == 106) NativeGameLifecycle.onServerInfoReceived(network)
+        val clientRoster = packet.type == 115 && !network.isServer
+        val relayHost = packet.type == 170 && network.isServer && network.usingRelayServer
+        if ((clientRoster || relayHost) && network.networked && network.localTeam != null) {
             NativeGameLifecycle.onClientRoomJoined(network, packet.connection)
         }
     }
 }
 
-@AsmMixin("com/corrodinggames/rts/game/RWGameEngine")
-object NativeEngineLifecycleMixin {
+internal object NativeEngineLifecycleCallbacks {
+    fun acknowledgeClientReady(target: Any) {
+        NativeGameLifecycle.acknowledgeClientReadyAfterMapLoad(target as GameEngine)
+    }
+
     private fun load(engine: GameEngine, loadAi: Boolean, keepTeams: Boolean, mapType: GameEngineMapType) =
         MapLoadContext(engine, engine.currentMapPath, mapType, loadAi, keepTeams)
 
-    @WrapMethod(method = "loadMap(ZZLcom/corrodinggames/rts/gameFramework/GameEngineMapType;)V", require = 1)
     fun wrapMapLoad(
         loadAi: Boolean,
         keepTeams: Boolean,
         mapType: GameEngineMapType,
-        operation: Operation<Unit>,
+        operation: () -> Unit,
     ) {
         val engine = GameEngine.getInstance()
         val context = load(engine, loadAi, keepTeams, mapType)
@@ -168,7 +153,7 @@ object NativeEngineLifecycleMixin {
             broadcastNativeEvent(context.toEvent(MapLoadPhase.BEFORE))
         }
         try {
-            operation.call(loadAi, keepTeams, mapType)
+            operation()
         } catch (failure: Throwable) {
             val nativeFailure = unwrapInvocationTarget(failure)
             NativeGameLifecycle.onMapLoadFailed()
@@ -207,11 +192,6 @@ object NativeEngineLifecycleMixin {
         return cause
     }
 
-    @AsmInject(
-        method = "setActivityAndGameView(Landroid/app/Activity;Lcom/corrodinggames/rts/appFramework/GameViewInterface;Z)V",
-        target = InjectionPoint.TAIL,
-        require = 1,
-    )
     fun syncNativeMenuState(
         @Suppress("UNUSED_PARAMETER") target: Any,
         @Suppress("UNUSED_PARAMETER") activity: Any?,
@@ -226,13 +206,11 @@ object NativeEngineLifecycleMixin {
     }
 }
 
-@AsmMixin("com/corrodinggames/rts/gameFramework/ReplayEngine")
-object NativeReplayLifecycleMixin {
-    @WrapMethod(method = "loadReplayFile(Ljava/lang/String;Ljava/io/File;)Z", require = 1)
+internal object NativeReplayLifecycleCallbacks {
     fun wrapReplayLoad(
         replayName: String,
         @Suppress("UNUSED_PARAMETER") file: File,
-        operation: Operation<Boolean>,
+        operation: (String, File) -> Boolean,
     ): Boolean {
         val replay = GameEngine.getInstance().replayEngine
         NativeGameLifecycle.onReplayLoading()
@@ -241,7 +219,7 @@ object NativeReplayLifecycleMixin {
             broadcastNativeEvent(context.toEvent(ReplayLoadPhase.BEFORE))
         }
         val nativeResult = try {
-            operation.call(replayName, file)
+            operation(replayName, file)
         } catch (failure: Throwable) {
             val nativeFailure = unwrapInvocationTarget(failure)
             notifyReplayFailure(context, nativeFailure)

@@ -1,8 +1,8 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.api.net
@@ -87,13 +87,13 @@ class PacketRegistry {
             )
             if (existing != null &&
                 (existing.namespace != key.namespace ||
-                    existing.direction != key.direction ||
-                    existing.maxPayloadBytes != key.maxPayloadBytes ||
-                    existing.codecIdentity !== key.codec)
+                        existing.direction != key.direction ||
+                        existing.maxPayloadBytes != key.maxPayloadBytes ||
+                        existing.codecIdentity !== key.codec)
             ) {
                 throw IllegalArgumentException(
                     "Packet ID ${key.id} is already registered by namespace '${existing.namespace}'. " +
-                        "Reuse its PacketKey and PacketCodec for additional receivers.",
+                            "Reuse its PacketKey and PacketCodec for additional receivers.",
                 )
             }
             selected.receivers.add(erasedReceiver)
@@ -130,14 +130,14 @@ class PacketRegistry {
         if (bytes.size > route.maxPayloadBytes) {
             log.warn(
                 "Dropped extension packet $id from '${route.namespace}': payload is ${bytes.size} bytes, " +
-                    "limit is ${route.maxPayloadBytes}.",
+                        "limit is ${route.maxPayloadBytes}.",
             )
             return PacketDispatchResult.CONSUME
         }
         if (!route.direction.allows(incomingDirection)) {
             log.warn(
                 "Dropped extension packet $id from '${route.namespace}': direction $incomingDirection " +
-                    "is not allowed by ${route.direction}.",
+                        "is not allowed by ${route.direction}.",
             )
             return PacketDispatchResult.CONSUME
         }

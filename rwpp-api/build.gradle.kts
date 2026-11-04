@@ -1,8 +1,8 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 plugins {
@@ -24,7 +24,8 @@ description = "RWPP API: events, configuration, networking, and the game object 
 base { archivesName.set("rwpp-api") }
 
 group = "io.github.rwpp-team"
-version = libs.versions.rwml.core.get()
+// 版本跟随 RWPP 项目本身，扩展作者据此判断宿主能力。
+version = rootProject.version
 
 kotlin {
     jvm {
@@ -71,6 +72,8 @@ kotlin {
     }
 }
 
+apply(from = rootProject.file("gradle/extension-archives.gradle.kts"))
+
 // 描述符里的版本在资源处理阶段展开，因此类路径上直接使用 classes 目录时也能读到真实版本。
 val verifyApiDependencies = tasks.register("verifyApiDependencies") {
     val runtime = configurations.named("jvmRuntimeClasspath")
@@ -104,6 +107,24 @@ tasks.withType<Jar>().configureEach {
     from(rootProject.file("LICENSE.md")) { into("META-INF") }
     isPreserveFileTimestamps = false
     isReproducibleFileOrder = true
+}
+
+// The game library provides executable Android compatibility classes. Keep it ahead of the
+// bundled Android API jar, which should supply only missing Android types such as Build.VERSION.
+tasks.named<Test>("jvmTest") {
+    val runtimeClasspath = classpath
+    val androidApiStubs = files(rootProject.file("lib/android.jar"))
+    classpath = runtimeClasspath.filter { it.name.startsWith("game-lib-") } + runtimeClasspath + androidApiStubs
+
+    doFirst {
+        val entries = classpath.asPath.split(File.pathSeparatorChar).map { File(it).canonicalFile }
+        val gameLibraryIndex = entries.indexOfFirst { it.name.startsWith("game-lib-") }
+        val androidStubIndex = entries.indexOf(rootProject.file("lib/android.jar").canonicalFile)
+        check(gameLibraryIndex >= 0) { "JVM test classpath is missing the game compatibility library" }
+        check(androidStubIndex == entries.lastIndex && gameLibraryIndex < androidStubIndex) {
+            "The game compatibility library must precede the Android API stubs on the JVM test classpath"
+        }
+    }
 }
 
 // Game mappings and sources are published together before Gradle sync/build.

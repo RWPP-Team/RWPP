@@ -1,37 +1,29 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.api.net.impl
 
 import com.corrodinggames.rts.gameFramework.GameEngine
-import com.corrodinggames.rts.gameFramework.network.Packet as GamePacket
 import com.corrodinggames.rts.gameFramework.network.Connection
 import com.corrodinggames.rts.gameFramework.network.NetworkEngine
 import io.github.rwpp.api.Initialization
-import io.github.rwpp.api.net.Net
-import io.github.rwpp.api.net.Packet
-import io.github.rwpp.api.net.PacketDirection
-import io.github.rwpp.api.net.PacketDispatchResult
-import io.github.rwpp.api.net.PacketRegistry
-import io.github.rwpp.api.net.PayloadKey
-import io.github.rwpp.api.net.PayloadRegistry
-import io.github.rwpp.api.net.RoomDescription
 import io.github.rwpp.api.logging.logger
-import io.github.rwpp.api.net.InternalPacketType
+import io.github.rwpp.api.net.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import org.koin.core.annotation.Single
-import java.io.DataInputStream
 import java.io.ByteArrayInputStream
+import java.io.DataInputStream
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import com.corrodinggames.rts.gameFramework.network.Packet as GamePacket
 
 private val log = logger()
 
@@ -56,7 +48,7 @@ class NetImpl : Net {
     override val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     override val roomListProvider: MutableMap<String, suspend () -> List<RoomDescription>> = mutableMapOf()
     override val roomListHostProtocol:
-        MutableMap<String, (maxPlayer: Int, enableMods: Boolean, isPublic: Boolean) -> String> = mutableMapOf()
+            MutableMap<String, (maxPlayer: Int, enableMods: Boolean, isPublic: Boolean) -> String> = mutableMapOf()
 
     override fun init() {
         io.github.rwpp.api.net.packets.ModTransferHost.install(
@@ -121,7 +113,12 @@ class NetImpl : Net {
         var sent = 0
         for (candidate in network.connections) {
             val connection = candidate as? Connection ?: continue
-            if (!isCurrentConnection(network, connection) || !payloadRegistry.supports(connection, key, isServer = true)) continue
+            if (!isCurrentConnection(network, connection) || !payloadRegistry.supports(
+                    connection,
+                    key,
+                    isServer = true
+                )
+            ) continue
             val envelope = payloadRegistry.encodeOutgoing(
                 key = key,
                 value = value,
@@ -178,7 +175,11 @@ class NetImpl : Net {
     override fun supportsPayload(connection: Connection?, key: PayloadKey<*>): Boolean {
         val network = GameEngine.getInstance().networkEngine
         if (network.isServer) {
-            if (!isJoinedServer(network) || connection == null || !isCurrentConnection(network, connection)) return false
+            if (!isJoinedServer(network) || connection == null || !isCurrentConnection(
+                    network,
+                    connection
+                )
+            ) return false
         } else {
             val currentConnection = if (isJoinedClient(network)) network.getClientConnection() else null
             if (currentConnection == null || (connection != null && connection !== currentConnection)) return false
@@ -201,7 +202,10 @@ class NetImpl : Net {
                 isJoinedServer(network) && connection != null && isCurrentConnection(network, connection)
             } else {
                 val currentConnection = if (isJoinedClient(network)) network.getClientConnection() else null
-                currentConnection != null && connection === currentConnection && isCurrentConnection(network, currentConnection)
+                currentConnection != null && connection === currentConnection && isCurrentConnection(
+                    network,
+                    currentConnection
+                )
             }
             if (!peerIsCurrent) {
                 log.warn("Dropped RWML payload envelope outside the active joined room")

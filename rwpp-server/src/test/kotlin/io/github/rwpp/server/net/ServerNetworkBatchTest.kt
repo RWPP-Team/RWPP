@@ -17,14 +17,19 @@ import java.util.concurrent.TimeUnit
 import kotlin.test.*
 
 class ServerNetworkBatchTest {
-    @Test fun optimizedTcpPreservesBatchAndFinalCloseOrder() = tcpBatch(true)
-    @Test fun unbatchedTcpPreservesBatchAndFinalCloseOrder() = tcpBatch(false)
+    @Test
+    fun optimizedTcpPreservesBatchAndFinalCloseOrder() = tcpBatch(true)
+    @Test
+    fun unbatchedTcpPreservesBatchAndFinalCloseOrder() = tcpBatch(false)
 
     private fun tcpBatch(optimized: Boolean) {
         val previous = System.getProperty("rwpp.server.network.optimized")
         System.setProperty("rwpp.server.network.optimized", optimized.toString())
         val runtime = ServerTransportBackend()
-        if (previous == null) System.clearProperty("rwpp.server.network.optimized") else System.setProperty("rwpp.server.network.optimized", previous)
+        if (previous == null) System.clearProperty("rwpp.server.network.optimized") else System.setProperty(
+            "rwpp.server.network.optimized",
+            previous
+        )
         val listener = NativeTcpServerSocket(runtime, 0)
         val client = NativeTcpSocket(runtime)
         var accepted: NativeTcpSocket? = null
@@ -40,7 +45,14 @@ class ServerNetworkBatchTest {
                 synchronized(delivered) { delivered += ByteBuffer.wrap(bytes).int }
                 latch.countDown()
             }, { failure.complete(it) })
-            repeat(256) { sequence -> assertTrue(client.send(123, ByteBuffer.allocate(8).putInt(sequence).putInt(sequence xor 0x1357).array())) }
+            repeat(256) { sequence ->
+                assertTrue(
+                    client.send(
+                        123,
+                        ByteBuffer.allocate(8).putInt(sequence).putInt(sequence xor 0x1357).array()
+                    )
+                )
+            }
             client.closeAfterWrites()
             assertTrue(latch.await(10, TimeUnit.SECONDS), "Final accepted frames were lost during close")
             failure.get(10, TimeUnit.SECONDS)
@@ -50,7 +62,8 @@ class ServerNetworkBatchTest {
         }
     }
 
-    @Test fun tcpDelayRemainsFifoAndCloseWaitsForDelayedFrame() {
+    @Test
+    fun tcpDelayRemainsFifoAndCloseWaitsForDelayedFrame() {
         val runtime = ServerTransportBackend()
         val listener = NativeTcpServerSocket(runtime, 0)
         val client = NativeTcpSocket(runtime)
@@ -62,17 +75,23 @@ class ServerNetworkBatchTest {
             val arrived = mutableListOf<Pair<Int, Long>>()
             val latch = CountDownLatch(2)
             val start = System.nanoTime()
-            accepted.startReceiving({ 16 }, { type, _ -> synchronized(arrived) { arrived += type to System.nanoTime() }; latch.countDown() }, {})
+            accepted.startReceiving(
+                { 16 },
+                { type, _ -> synchronized(arrived) { arrived += type to System.nanoTime() }; latch.countDown() },
+                {})
             assertTrue(client.send(1, byteArrayOf(), 120))
             assertTrue(client.send(2, byteArrayOf()))
             client.closeAfterWrites()
             assertTrue(latch.await(5, TimeUnit.SECONDS))
             assertEquals(listOf(1, 2), arrived.map { it.first })
             assertTrue(TimeUnit.NANOSECONDS.toMillis(arrived.last().second - start) >= 90)
-        } finally { accepted?.close(); client.close(); listener.close(); runtime.close() }
+        } finally {
+            accepted?.close(); client.close(); listener.close(); runtime.close()
+        }
     }
 
-    @Test fun tcpSendSnapshotsPayloadBeforeCallerReusesItsArray() {
+    @Test
+    fun tcpSendSnapshotsPayloadBeforeCallerReusesItsArray() {
         val runtime = ServerTransportBackend()
         val listener = NativeTcpServerSocket(runtime, 0)
         var accepted: NativeTcpSocket? = null
@@ -93,10 +112,13 @@ class ServerNetworkBatchTest {
                 assertContentEquals(expected, received)
                 assertEquals(-1, input.read())
             }
-        } finally { accepted?.close(); listener.close(); runtime.close() }
+        } finally {
+            accepted?.close(); listener.close(); runtime.close()
+        }
     }
 
-    @Test fun tcpCloseReleasesPendingDelayedBuffersInBothModes() {
+    @Test
+    fun tcpCloseReleasesPendingDelayedBuffersInBothModes() {
         for (optimized in listOf(true, false)) {
             val runtime = runtime(optimized)
             val channel = EmbeddedChannel()
@@ -112,11 +134,14 @@ class ServerNetworkBatchTest {
                 channel.finishAndReleaseAll()
                 assertTrue(allocator.buffers.all { it.refCnt() == 0 })
                 assertFalse(socket.send(3, byteArrayOf(1)))
-            } finally { socket.close(); channel.finishAndReleaseAll(); runtime.close() }
+            } finally {
+                socket.close(); channel.finishAndReleaseAll(); runtime.close()
+            }
         }
     }
 
-    @Test fun coalescedFramesKeepSnapshotsAndDelayTheFollowingFrame() {
+    @Test
+    fun coalescedFramesKeepSnapshotsAndDelayTheFollowingFrame() {
         val runtime = runtime(true)
         val channel = EmbeddedChannel()
         val socket = NativeTcpSocket(runtime, channel)
@@ -133,10 +158,18 @@ class ServerNetworkBatchTest {
             channel.runScheduledPendingTasks()
             val combined = assertNotNull(channel.readOutbound<ByteBuf>())
             try {
-                assertEquals(1, combined.readInt()); assertEquals(1, combined.readInt()); assertEquals(10, combined.readByte().toInt())
-                assertEquals(1, combined.readInt()); assertEquals(2, combined.readInt()); assertEquals(20, combined.readByte().toInt())
+                assertEquals(1, combined.readInt()); assertEquals(1, combined.readInt()); assertEquals(
+                    10,
+                    combined.readByte().toInt()
+                )
+                assertEquals(1, combined.readInt()); assertEquals(2, combined.readInt()); assertEquals(
+                    20,
+                    combined.readByte().toInt()
+                )
                 assertFalse(combined.isReadable)
-            } finally { combined.release() }
+            } finally {
+                combined.release()
+            }
             assertNull(channel.readOutbound<ByteBuf>())
             assertTrue(channel.isActive)
             Thread.sleep(150)
@@ -144,13 +177,21 @@ class ServerNetworkBatchTest {
             channel.runPendingTasks()
             val delayed = assertNotNull(channel.readOutbound<ByteBuf>())
             try {
-                assertEquals(1, delayed.readInt()); assertEquals(3, delayed.readInt()); assertEquals(30, delayed.readByte().toInt())
-            } finally { delayed.release() }
+                assertEquals(1, delayed.readInt()); assertEquals(3, delayed.readInt()); assertEquals(
+                    30,
+                    delayed.readByte().toInt()
+                )
+            } finally {
+                delayed.release()
+            }
             assertFalse(channel.isActive)
-        } finally { socket.close(); channel.finishAndReleaseAll(); runtime.close() }
+        } finally {
+            socket.close(); channel.finishAndReleaseAll(); runtime.close()
+        }
     }
 
-    @Test fun tcpQueueOverflowReleasesAllOwnedSnapshotsInBothModes() {
+    @Test
+    fun tcpQueueOverflowReleasesAllOwnedSnapshotsInBothModes() {
         for (optimized in listOf(true, false)) {
             val runtime = runtime(optimized)
             val channel = EmbeddedChannel()
@@ -162,12 +203,18 @@ class ServerNetworkBatchTest {
                 assertFalse(socket.send(513, ByteArray(32)))
                 channel.finishAndReleaseAll()
                 assertEquals(if (optimized) 1 else 512, allocator.buffers.size)
-                assertTrue(allocator.buffers.all { it.refCnt() == 0 }, "Rejected queue leaked a snapshot for optimized=$optimized")
-            } finally { socket.close(); channel.finishAndReleaseAll(); runtime.close() }
+                assertTrue(
+                    allocator.buffers.all { it.refCnt() == 0 },
+                    "Rejected queue leaked a snapshot for optimized=$optimized"
+                )
+            } finally {
+                socket.close(); channel.finishAndReleaseAll(); runtime.close()
+            }
         }
     }
 
-    @Test fun slowTcpCallbacksResumeBufferedFramesAfterReadPause() {
+    @Test
+    fun slowTcpCallbacksResumeBufferedFramesAfterReadPause() {
         val runtime = ServerTransportBackend()
         val listener = NativeTcpServerSocket(runtime, 0)
         var accepted: NativeTcpSocket? = null
@@ -189,14 +236,20 @@ class ServerNetworkBatchTest {
                 client.getOutputStream().write(combined.array())
                 client.getOutputStream().flush()
                 client.shutdownOutput()
-                assertTrue(completed.await(10, TimeUnit.SECONDS), "Buffered TCP frames stopped at ${delivered.size}/$frames")
+                assertTrue(
+                    completed.await(10, TimeUnit.SECONDS),
+                    "Buffered TCP frames stopped at ${delivered.size}/$frames"
+                )
                 disconnected.get(5, TimeUnit.SECONDS)
                 assertEquals((0 until frames).toList(), synchronized(delivered) { delivered.toList() })
             }
-        } finally { accepted?.close(); listener.close(); runtime.close() }
+        } finally {
+            accepted?.close(); listener.close(); runtime.close()
+        }
     }
 
-    @Test fun tcpQueueBoundsReservedCapacityIncludingUnusedBatchSpace() {
+    @Test
+    fun tcpQueueBoundsReservedCapacityIncludingUnusedBatchSpace() {
         val runtime = runtime(true)
         val channel = EmbeddedChannel()
         val allocator = TrackingAllocator()
@@ -211,10 +264,13 @@ class ServerNetworkBatchTest {
             channel.finishAndReleaseAll()
             assertEquals(256, allocator.buffers.size)
             assertTrue(allocator.buffers.all { it.refCnt() == 0 })
-        } finally { socket.close(); channel.finishAndReleaseAll(); runtime.close() }
+        } finally {
+            socket.close(); channel.finishAndReleaseAll(); runtime.close()
+        }
     }
 
-    @Test fun kcpRejectsAckBeforeSessionAndTransfersFragmentedBatches() {
+    @Test
+    fun kcpRejectsAckBeforeSessionAndTransfersFragmentedBatches() {
         val runtime = ServerTransportBackend()
         val config = TransportConfig(port = 0, conv = 0x12345678, maxPayloadBytes = 60 * 1024)
         val server = NettyKcpServerTransport(runtime, config)
@@ -222,7 +278,10 @@ class ServerNetworkBatchTest {
         try {
             server.start(object : TransportListener {
                 override fun connected(peer: TransportPeer) = Unit
-                override fun received(peer: TransportPeer, payload: ByteArray) { assertTrue(peer.trySend(payload)) }
+                override fun received(peer: TransportPeer, payload: ByteArray) {
+                    assertTrue(peer.trySend(payload))
+                }
+
                 override fun disconnected(peer: TransportPeer) = Unit
             })
             val port = server.localAddress!!.port
@@ -243,21 +302,27 @@ class ServerNetworkBatchTest {
                     synchronized(received) { received += ByteBuffer.wrap(payload).int }
                     complete.countDown()
                 }
-                override fun failure(reason: String) { synchronized(failures) { failures += reason } }
+
+                override fun failure(reason: String) {
+                    synchronized(failures) { failures += reason }
+                }
             })
             repeat(32) { sequence -> assertTrue(connection.send(ByteBuffer.allocate(16_384).putInt(sequence).array())) }
             assertTrue(complete.await(10, TimeUnit.SECONDS), "KCP batches stalled: ${received.size}/32, $failures")
             assertEquals((0..31).toList(), synchronized(received) { received.toList() })
             assertEquals(1, server.peerCount)
             assertTrue(failures.isEmpty())
-        } finally { client?.close(); server.close(); runtime.close() }
+        } finally {
+            client?.close(); server.close(); runtime.close()
+        }
     }
 
     private fun runtime(optimized: Boolean): ServerTransportBackend {
         val previous = System.getProperty("rwpp.server.network.optimized")
         System.setProperty("rwpp.server.network.optimized", optimized.toString())
-        return try { ServerTransportBackend() }
-        finally {
+        return try {
+            ServerTransportBackend()
+        } finally {
             if (previous == null) System.clearProperty("rwpp.server.network.optimized")
             else System.setProperty("rwpp.server.network.optimized", previous)
         }
@@ -267,8 +332,10 @@ class ServerNetworkBatchTest {
         val buffers = mutableListOf<ByteBuf>()
         override fun newHeapBuffer(initialCapacity: Int, maxCapacity: Int): ByteBuf =
             Unpooled.buffer(initialCapacity, maxCapacity).also { buffers.add(it) }
+
         override fun newDirectBuffer(initialCapacity: Int, maxCapacity: Int): ByteBuf =
             Unpooled.directBuffer(initialCapacity, maxCapacity).also { buffers.add(it) }
+
         override fun isDirectBufferPooled() = false
     }
 }

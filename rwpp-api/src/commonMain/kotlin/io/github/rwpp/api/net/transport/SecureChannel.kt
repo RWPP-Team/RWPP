@@ -1,8 +1,8 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.api.net.transport
@@ -80,7 +80,12 @@ object Handshake {
             }
             require(body.readInt(6) == credential.playerId) { "The welcome frame names another player" }
             val serverNonce = body.copyOfRange(10, 10 + KEY_BYTES)
-            require(constantTimeEquals(hmacSha256(credential.key, login + body), welcome.copyOfRange(HEADER_BYTES, HANDSHAKE_BYTES))) {
+            require(
+                constantTimeEquals(
+                    hmacSha256(credential.key, login + body),
+                    welcome.copyOfRange(HEADER_BYTES, HANDSHAKE_BYTES)
+                )
+            ) {
                 "The welcome frame failed authentication"
             }
             return derive(protocol, credential.key, nonce, serverNonce, server = false)
@@ -104,7 +109,12 @@ object Handshake {
         }
         val credential = lookup(body.readInt(6)) ?: throw IllegalArgumentException("The player is not in this room")
         val clientNonce = body.copyOfRange(10, 10 + KEY_BYTES)
-        require(constantTimeEquals(hmacSha256(credential.key, body), login.copyOfRange(HEADER_BYTES, HANDSHAKE_BYTES))) {
+        require(
+            constantTimeEquals(
+                hmacSha256(credential.key, body),
+                login.copyOfRange(HEADER_BYTES, HANDSHAKE_BYTES)
+            )
+        ) {
             "The login frame failed authentication"
         }
         val serverNonce = secureRandomBytes(KEY_BYTES)
@@ -225,9 +235,9 @@ class SecureChannel internal constructor(
 
 internal fun ByteArray.readInt(offset: Int): Int =
     ((this[offset].toInt() and 0xFF) shl 24) or
-        ((this[offset + 1].toInt() and 0xFF) shl 16) or
-        ((this[offset + 2].toInt() and 0xFF) shl 8) or
-        (this[offset + 3].toInt() and 0xFF)
+            ((this[offset + 1].toInt() and 0xFF) shl 16) or
+            ((this[offset + 2].toInt() and 0xFF) shl 8) or
+            (this[offset + 3].toInt() and 0xFF)
 
 internal fun ByteArray.writeInt(offset: Int, value: Int) {
     this[offset] = (value ushr 24).toByte()

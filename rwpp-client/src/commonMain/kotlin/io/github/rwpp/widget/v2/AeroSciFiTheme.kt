@@ -1,13 +1,12 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.widget.v2
 
-import io.github.rwpp.api.coroutines.GameScope
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -56,7 +55,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.*
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
-import korlibs.audio.sound.Sound
+import io.github.rwpp.api.game.audio.GameSound
 import io.github.rwpp.sound.Sounds
 import kotlin.random.Random
 
@@ -86,14 +85,30 @@ expect fun Modifier.skiaGlitchEffect(
     time: Float
 ): Modifier
 
+private val LocalAeroScaleApplied = staticCompositionLocalOf { false }
+
+/** Snapshot-backed setting so the root container reacts immediately to the Settings slider. */
+object AeroUiScalePreference {
+    var multiplier by mutableFloatStateOf(1f)
+}
 
 @Composable
 fun AeroScaledContainer(
     modifier: Modifier = Modifier,
     targetWidth: Dp = 1280.dp,
     targetHeight: Dp = 720.dp,
+    userScale: Float = 1f,
     content: @Composable () -> Unit
 ) {
+    if (LocalAeroScaleApplied.current) {
+        Box(
+            modifier = modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+            content = { content() }
+        )
+        return
+    }
+
     BoxWithConstraints(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
@@ -101,16 +116,25 @@ fun AeroScaledContainer(
         val currentDensity = LocalDensity.current
         val scaleX = maxWidth / targetWidth
         val scaleY = maxHeight / targetHeight
-        val scale = minOf(scaleX, scaleY).coerceAtLeast(0.2f)
+        val fitScale = minOf(scaleX, scaleY)
+        // Small windows retain normal text size and reflow/scroll. Roomy windows scale the
+        // logical density down so the full screen shows more UI instead of enlarging every dp.
+        val fitScaleDown = if (fitScale <= 1f) 1f else (1f / fitScale).coerceAtLeast(0.78f)
+        val scale = (fitScaleDown * userScale.coerceIn(0.6f, 1.5f)).coerceIn(0.45f, 1.5f)
+        val contentWidth = maxWidth / scale
+        val contentHeight = maxHeight / scale
 
         val scaledDensity = Density(
             density = currentDensity.density * scale,
             fontScale = currentDensity.fontScale
         )
 
-        CompositionLocalProvider(LocalDensity provides scaledDensity) {
+        CompositionLocalProvider(
+            LocalDensity provides scaledDensity,
+            LocalAeroScaleApplied provides true
+        ) {
             Box(
-                modifier = Modifier.size(targetWidth, targetHeight),
+                modifier = Modifier.size(contentWidth, contentHeight),
                 contentAlignment = Alignment.Center
             ) {
                 content()
@@ -151,12 +175,20 @@ fun AeroHeader(
     tag: String? = null,
     color: Color = MaterialTheme.colorScheme.primary
 ) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        val density = LocalDensity.current
+        val measurer = rememberTextMeasurer()
+        val titleStyle = TextStyle(
+            fontSize = 13.sp, fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Monospace, letterSpacing = 2.sp
+        )
+        val tagStyle = TextStyle(fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+        val titleWidth = measurer.measure(title, style = titleStyle, maxLines = 1, softWrap = false).size.width
+        val tagWidth =
+            tag?.let { measurer.measure(it, style = tagStyle, maxLines = 1, softWrap = false).size.width } ?: 0
+        val showTag = tag != null && (!constraints.hasBoundedWidth ||
+                titleWidth + tagWidth + with(density) { 24.dp.roundToPx() } <= constraints.maxWidth)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier
                     .size(4.dp, 16.dp)
@@ -165,21 +197,20 @@ fun AeroHeader(
             Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = title,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace,
-                letterSpacing = 2.sp,
-                color = color
+                style = titleStyle,
+                color = color,
+                maxLines = 1,
+                softWrap = false,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
             )
-        }
-
-        if (tag != null) {
-            Text(
-                text = tag,
-                fontSize = 10.sp,
-                fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-            )
+            if (showTag) {
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    text = tag!!, style = tagStyle, maxLines = 1, softWrap = false,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
+            }
         }
     }
 }
@@ -280,7 +311,7 @@ fun AeroMenuButton(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = {
-                    Sounds.openPopup?.play(GameScope.coroutineContext)
+                    Sounds.playSound(Sounds.openPopup)
                     onClick()
                 }
             )
@@ -350,15 +381,16 @@ fun AeroButton(
     modifier: Modifier = Modifier,
     isDanger: Boolean = false,
     accentColor: Color = if (isDanger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-    clickSound: Sound? = Sounds.select,
-    subText: String? = null
+    clickSound: GameSound? = Sounds.select,
+    subText: String? = null,
+    enabled: Boolean = true,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
     val isPressed by interactionSource.collectIsPressedAsState()
 
     LaunchedEffect(isHovered) {
-        if (isHovered) Sounds.playSound(Sounds.hover)
+        if (enabled && isHovered) Sounds.playSound(Sounds.hover)
     }
 
     val scale by animateFloatAsState(
@@ -396,6 +428,7 @@ fun AeroButton(
     Box(
         modifier = modifier
             .graphicsLayer {
+                alpha = if (enabled) 1f else 0.4f
                 scaleX = scale
                 scaleY = scale
             }
@@ -405,10 +438,11 @@ fun AeroButton(
             .background(animBgColor)
             .border(1.dp, animBorderColor, shape)
             .clickable(
+                enabled = enabled,
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = {
-                    clickSound?.play(GameScope.coroutineContext)
+                    Sounds.playSound(clickSound)
                     onClick()
                 }
             )
@@ -516,7 +550,7 @@ fun AeroToggleTile(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = {
-                    Sounds.playSound(if(checked) Sounds.cancel else Sounds.select)
+                    Sounds.playSound(if (checked) Sounds.cancel else Sounds.select)
                     onCheckedChange(!checked)
                 }
             )
@@ -868,7 +902,7 @@ fun AeroDropdownMenu(
 
     Box(modifier = modifier) {
         AeroButton(
-            text = "${if (label != null ) "$label: " else ""}${items.getOrNull(selectedIndex) ?: ""}",
+            text = "${if (label != null) "$label: " else ""}${items.getOrNull(selectedIndex) ?: ""}",
             subText = if (expanded) "▲" else "▼",
             accentColor = accentColor,
             clickSound = Sounds.swipe,
@@ -986,7 +1020,7 @@ private fun AeroDropdownMenuItem(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = {
-                    Sounds.select?.play(GameScope.coroutineContext)
+                    Sounds.playSound(Sounds.select)
                     onClick()
                 }
             )
@@ -1106,8 +1140,9 @@ fun AeroIconButton(
     iconSize: Dp = 22.dp,
     isDanger: Boolean = false,
     accentColor: Color = if (isDanger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-    clickSound: Sound? = Sounds.select,
+    clickSound: GameSound? = Sounds.select,
     forceHover: Boolean = false,
+    animated: Boolean = true,
     shape: Shape = AeroSciFiTheme.ChamferAeroShape(8f)
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -1124,7 +1159,7 @@ fun AeroIconButton(
             isHovered || forceHover -> 1.06f
             else -> 1.0f
         },
-        animationSpec = spring(dampingRatio = 0.6f, stiffness = 800f),
+        animationSpec = if (animated) spring(dampingRatio = 0.6f, stiffness = 800f) else snap(),
         label = "iconBtnScale"
     )
 
@@ -1134,7 +1169,7 @@ fun AeroIconButton(
             isHovered || forceHover -> accentColor.copy(alpha = 0.18f)
             else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
         },
-        animationSpec = tween(120),
+        animationSpec = tween(if (animated) 120 else 0),
         label = "iconBtnBg"
     )
 
@@ -1144,7 +1179,7 @@ fun AeroIconButton(
             isHovered || forceHover -> accentColor
             else -> MaterialTheme.colorScheme.outlineVariant
         },
-        animationSpec = tween(120),
+        animationSpec = tween(if (animated) 120 else 0),
         label = "iconBtnBorder"
     )
 
@@ -1154,7 +1189,7 @@ fun AeroIconButton(
             isHovered || forceHover -> accentColor
             else -> MaterialTheme.colorScheme.onSurfaceVariant
         },
-        animationSpec = tween(120),
+        animationSpec = tween(if (animated) 120 else 0),
         label = "iconBtnTint"
     )
 
@@ -1168,11 +1203,12 @@ fun AeroIconButton(
             .clip(shape)
             .background(animBgColor)
             .border(1.dp, animBorderColor, shape)
+            .hoverable(interactionSource)
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = {
-                    clickSound?.play(GameScope.coroutineContext)
+                    Sounds.playSound(clickSound)
                     onClick()
                 }
             ),

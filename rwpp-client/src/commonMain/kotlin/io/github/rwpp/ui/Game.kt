@@ -1,8 +1,8 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.ui
@@ -13,57 +13,62 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.*
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.rwpp.appKoin
-import io.github.rwpp.config.HudComponentDataList
+import com.corrodinggames.rts.gameFramework.GameEngine
+import io.github.rwpp.AppContext
 import io.github.rwpp.api.coroutines.GameMainDispatcher
+import io.github.rwpp.api.coroutines.GameScope
 import io.github.rwpp.api.event.GlobalEventChannel
+import io.github.rwpp.api.game.Game
+import io.github.rwpp.api.i18n.readI18n
+import io.github.rwpp.api.logging.logger
+import io.github.rwpp.appKoin
+import io.github.rwpp.config.HudComponentData
+import io.github.rwpp.config.HudComponentDataList
+import io.github.rwpp.config.Settings
 import io.github.rwpp.event.OnDispose
 import io.github.rwpp.event.events.KeyboardEvent
-import io.github.rwpp.api.game.Game
-import com.corrodinggames.rts.game.units.Unit as GameUnit
-import com.corrodinggames.rts.game.units.actions.SpecialAction
-import com.corrodinggames.rts.game.units.actions.SpecialActionCategory
-import com.corrodinggames.rts.gameFramework.GameEngine
-import com.corrodinggames.rts.game.units.UnitTypeInterface
+import io.github.rwpp.game.hotkeys.NativeGameHotkeys
+import io.github.rwpp.game.hotkeys.SelectionCameraFollowController
+import io.github.rwpp.game.hud.AeroDamageSignals
+import io.github.rwpp.game.hud.normalizeHudComponents
+import io.github.rwpp.game.room.nativePauseMenuOptions
+import io.github.rwpp.graphics.releaseAeroRangeResources
 import io.github.rwpp.hud.HudComponentState
 import io.github.rwpp.hud.HudComponentTemplate
 import io.github.rwpp.hud.HudEditor
-import io.github.rwpp.api.i18n.readI18n
+import io.github.rwpp.hud.HudViewport
+import io.github.rwpp.logic.hud.GameUiPauseState
+import io.github.rwpp.logic.hud.NativeHudVisibility
 import io.github.rwpp.screen.LocalScreenNavigator
 import io.github.rwpp.screen.Screen
 import io.github.rwpp.sound.Sounds
 import io.github.rwpp.widget.v2.*
+import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.koin.core.annotation.Single
-import io.github.rwpp.api.logging.logger
+import com.corrodinggames.rts.game.units.Unit as GameUnit
 
 @Single
 class GameScreen : Screen {
@@ -72,26 +77,116 @@ class GameScreen : Screen {
         dataListInstance
             .hudComponentDataList
             .toMutableStateList()
-            .also { dataListInstance.hudComponentDataList = it }
+            .also {
+                if (appKoin.get<AppContext>()
+                        .isAndroid() && it.none { data -> data.id == "touch_selection_controls" }
+                ) {
+                    it.add(
+                        HudComponentData(
+                            "touch_selection_controls", 0f, 0f,
+                            relativeX = 0.02f,
+                            relativeY = 0.88f,
+                        )
+                    )
+                }
+                if (it.none { data -> data.id == "building_planner" }) {
+                    it.add(HudComponentData("building_planner", 0f, 0f, relativeX = 0.02f, relativeY = 0.14f))
+                }
+                normalizeHudComponents(it)
+                dataListInstance.hudComponentDataList = it
+            }
     }
     var selectedUnits by mutableStateOf<List<GameUnit>>(emptyList())
     var isEditMode by mutableStateOf(false)
     var showPauseMenu by mutableStateOf(false)
+    private var saveDialog by mutableStateOf<Boolean?>(null)
+    private var hudSettingsRevision by mutableIntStateOf(0)
+    private val hideOriginalHud: Boolean
+        get() {
+            hudSettingsRevision
+            return appKoin.get<Settings>().hideOriginalHud
+        }
 
     val availableTemplates: MutableMap<String, HudComponentTemplate> = mutableStateMapOf(
-        "hud_console" to HudComponentTemplate("Hud Console (Horizontal)") {
-            SciFiRtsHudConsole(
-                selectedUnits,
-                { _, _ -> }
-            )
-        },
-        "hud_console_vertical" to HudComponentTemplate("Hud Console (Vertical)") {
-            SciFiRtsHudConsoleVertical(
-                selectedUnits,
-                { _, _ -> }
+        "building_planner" to HudComponentTemplate(
+            readI18n("rwpp.planning.title"), 260f, 220f, compactHeight = true,
+        ) { BuildingPlanningControls() },
+        "quick_selection" to HudComponentTemplate(
+            readI18n("rwpp.hud.quickSelect.title"),
+            300f,
+            68f
+        ) { AeroQuickSelectionPanel() },
+        "unit_groups" to HudComponentTemplate(readI18n("rwpp.hud.groups.title"), 360f, 56f) { AeroGroupsPanel() },
+        "observer_statistics" to HudComponentTemplate(
+            readI18n("rwpp.observer.statistics"), 268f, 480f, compactHeight = true
+        ) { AeroObserverStatistics(visible = !showPauseMenu && (hideOriginalHud || isEditMode)) },
+        "telemetry" to HudComponentTemplate(
+            readI18n("rwpp.hud.template.telemetry"),
+            235f,
+            38f,
+            compactHeight = true,
+            compactWidth = true
+        ) { AeroGameTelemetry() },
+        "chat" to HudComponentTemplate(
+            readI18n("rwpp.hud.template.chat"),
+            330f,
+            120f,
+            compactHeight = true,
+            compactWidth = true
+        ) { AeroGameMessages(false) },
+        "events" to HudComponentTemplate(
+            readI18n("rwpp.hud.template.events"),
+            330f,
+            120f,
+            compactHeight = true,
+            compactWidth = true
+        ) { AeroGameMessages(true) },
+        "hud_console_vertical" to HudComponentTemplate(
+            readI18n("rwpp.hud.template.commandConsole"),
+            240f,
+            720f,
+            fillHeight = true
+        ) {
+            AeroCommandConsole()
+        }
+    ).apply {
+        if (appKoin.get<AppContext>().isAndroid()) {
+            put(
+                "touch_selection_controls",
+                HudComponentTemplate(
+                    readI18n("rwpp.hud.component.touchControls"),
+                    220f,
+                    220f,
+                    compactHeight = true,
+                    compactWidth = true,
+                ) { AeroTouchSelectionControls() }
             )
         }
-    )
+    }
+
+    fun setOriginalHudHidden(hidden: Boolean) {
+        appKoin.get<io.github.rwpp.config.Settings>().hideOriginalHud = hidden
+        hudSettingsRevision++
+        NativeHudVisibility.update()
+        if (hidden) {
+            fun add(id: String, x: Float, y: Float) {
+                if (dataList.none { it.id == id }) dataList.add(
+                    io.github.rwpp.config.HudComponentData(
+                        id, 0f, 0f,
+                        relativeX = x, relativeY = y
+                    )
+                )
+            }
+            if (dataList.none { it.id == "hud_console_vertical" }) add("hud_console_vertical", 1f, 0f)
+            add("quick_selection", 0.02f, 0.98f)
+            add("unit_groups", 0.48f, 0.98f)
+            add("telemetry", 0.06f, 0.01f)
+            add("chat", 0.02f, 0.28f)
+            add("events", 0.5f, 0.10f)
+            add("observer_statistics", 0.70f, 0.16f)
+        }
+        appKoin.get<io.github.rwpp.api.config.ConfigIO>().saveAllConfig()
+    }
 
     private fun isSelectionUnchanged(current: List<GameUnit>, engineList: List<GameUnit>): Boolean {
         if (current.size != engineList.size) return false
@@ -103,24 +198,62 @@ class GameScreen : Screen {
 
     @Composable
     override fun Content() {
+        HudViewport { GameContent() }
+    }
+
+    @Composable
+    private fun GameContent() {
         val game = koinInject<Game>()
+        val uiScope = rememberCoroutineScope()
         val navigator = LocalScreenNavigator.current
+        var interfaceHidden by remember { mutableStateOf(false) }
+        val hotkeySettings = remember { appKoin.get<io.github.rwpp.config.Settings>() }
+        var showPerformance by remember { mutableStateOf(hotkeySettings.showPerformanceUsage) }
+        val hotkeysBlocked =
+            rememberUpdatedState(showPauseMenu || isEditMode || saveDialog != null || UI.showPlayerList)
+        SideEffect { GameUiPauseState.blocked = showPauseMenu || isEditMode || saveDialog != null }
+        DisposableEffect(hotkeySettings) {
+            // Poll native input on the dispatcher owner without allocating a coroutine from the
+            // display-frame callback. The settings/state snapshots remain live across recomposes.
+            val updateHotkeys = Runnable {
+                NativeGameHotkeys.update(hotkeySettings, hotkeysBlocked.value || isShowSendMessageDialog)
+            }
+            GameMainDispatcher.addUpdateTask(updateHotkeys)
+            onDispose {
+                GameMainDispatcher.removeUpdateTask(updateHotkeys)
+                GameScope.launch { io.github.rwpp.game.hotkeys.NativeTacticalActions.reset() }
+            }
+        }
         OnGameUpdate {
+            showPerformance = hotkeySettings.showPerformanceUsage
+            interfaceHidden = GameEngine.getInstance().cameraScrollActive
+            NativeHudVisibility.update()
             @Suppress("UNCHECKED_CAST")
-            val engineUnits = GameEngine.getInstance().interfaceEngine.selectedUnits.toList() as List<GameUnit>
+            val engineUnits = GameEngine.getInstance().interfaceEngine.selectedUnits as List<GameUnit>
             if (!isSelectionUnchanged(selectedUnits, engineUnits)) {
                 selectedUnits = engineUnits.toList()
+                CommandHover.current.value = null
             }
         }
 
         DisposableEffect(Unit) {
             onDispose {
+                SelectionCameraFollowController.stop()
                 isEditMode = false
                 showPauseMenu = false
+                NativeHudVisibility.hidden = false
+                NativeHudVisibility.aeroSelection = false
+                NativeHudVisibility.aeroOrders = false
+                NativeHudVisibility.aeroRallyPoints = false
+                AeroDamageSignals.enabled = false
+                AeroDamageSignals.clear()
+                releaseAeroRangeResources()
+                CommandPointer.inPanel = false
             }
         }
 
         LaunchedEffect(showPauseMenu) {
+            if (showPauseMenu) HudQueuePopupTouch.dismiss()
             logger().info("showPauseMenu: $showPauseMenu multiplayer: ${game.state.multiplayer}")
             if (!game.state.multiplayer) {
                 game.gameRoom.pauseOrResumeGame(showPauseMenu)
@@ -129,23 +262,61 @@ class GameScreen : Screen {
 
         GlobalEventChannel.filter(KeyboardEvent::class).OnDispose {
             subscribeAlways { e ->
-                if (e.keyEvent.key == Key.Escape && e.keyEvent.type == KeyEventType.KeyDown) {
-                    showPauseMenu = !showPauseMenu
+                uiScope.launch {
+                    if (e.keyEvent.key == Key.Escape && e.keyEvent.type == KeyEventType.KeyDown) {
+                        if (UI.showPlayerList) return@launch // The modal owns this Escape.
+                        if (interfaceHidden) {
+                            io.github.rwpp.api.coroutines.GameScope.launch {
+                                GameEngine.getInstance().cameraScrollActive = false
+                            }
+                        } else if (isEditMode) {
+                            isEditMode = false
+                            appKoin.get<io.github.rwpp.api.config.ConfigIO>().saveAllConfig()
+                        } else if (saveDialog != null) saveDialog = null
+                        else showPauseMenu = !showPauseMenu
+                    }
                 }
             }
         }
 
-        val components = remember(dataList.size) {
-            dataList.map { HudComponentState(it) }
+        val components = dataList.map { data ->
+            key(data.instanceId) { remember { HudComponentState(data) } }
         }
-        HudEditor(
-            components,
-            isEditMode,
-            { isEditMode = it },
-            { dataList.add(it) },
-            { dataList.remove(it.data) },
-            availableTemplates
-        )
+        if (!interfaceHidden) {
+            AeroWorldEffects()
+            HudEditor(
+                components,
+                isEditMode,
+                { isEditMode = it; if (!it) appKoin.get<io.github.rwpp.api.config.ConfigIO>().saveAllConfig() },
+                { dataList.add(it) },
+                { dataList.remove(it.data) },
+                availableTemplates,
+                onSaveConfig = { appKoin.get<io.github.rwpp.api.config.ConfigIO>().saveAllConfig() },
+            )
+
+            CommandTooltipLayer()
+
+        }
+
+        if (hideOriginalHud && !showPauseMenu && !isEditMode && !interfaceHidden) Box(Modifier.fillMaxSize()) {
+            AeroIconButton(
+                rememberVectorPainter(Icons.Default.Menu), { showPauseMenu = true },
+                modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
+                contentDescription = readI18n("rwpp.common.menu"), size = 32.dp, iconSize = 18.dp,
+                animated = appKoin.get<io.github.rwpp.config.Settings>().hudAnimations
+            )
+        }
+
+        Box(Modifier.fillMaxSize()) {
+            Box(Modifier.align(Alignment.TopStart).padding(start = 8.dp, top = 52.dp)) {
+                AeroReplayControls(visible = !showPauseMenu && !isEditMode && !interfaceHidden)
+            }
+        }
+
+        DeveloperPerformanceOverlay(showPerformance && !showPauseMenu && !interfaceHidden)
+
+        // showImportantScreenMessage and friends are painted by the Aero HUD while the native one is hidden.
+        AeroScreenMessage(visible = hideOriginalHud && !showPauseMenu && !isEditMode && !interfaceHidden)
 
         AnimatedVisibility(
             visible = showPauseMenu,
@@ -153,6 +324,7 @@ class GameScreen : Screen {
             exit = fadeOut(animationSpec = tween(150)),
         ) {
             PauseMenuOverlay(
+                onSave = { saveDialog = false },
                 onResume = {
                     showPauseMenu = false
                 },
@@ -169,17 +341,21 @@ class GameScreen : Screen {
                 }
             )
         }
+        saveDialog?.let { load ->
+            GameSaveDialog(load, onDismiss = { saveDialog = null }, onLoaded = {
+                saveDialog = null
+                showPauseMenu = false
+            })
+        }
     }
 
     @Composable
     fun OnGameUpdate(onUpdate: () -> Unit) {
+        val currentUpdate by rememberUpdatedState(onUpdate)
         DisposableEffect(Unit) {
-            val task = Runnable { onUpdate() }
-            logger().info("added task: $task")
-            GameMainDispatcher.addUpdateTask(task)
-            onDispose {
-                GameMainDispatcher.removeUpdateTask(task)
-            }
+            val task = Runnable { currentUpdate() }
+            val registration = registerHudFrame(task)
+            onDispose { registration.close() }
         }
     }
 
@@ -188,14 +364,49 @@ class GameScreen : Screen {
         modifier: Modifier = Modifier,
         onResume: () -> Unit = {},
         onSave: () -> Unit = {},
-        onLoad: () -> Unit = {},
         onSettings: () -> Unit = {},
         onEditMode: () -> Unit = {},
         onExit: () -> Unit = {}
     ) {
-        var isMuteAudio by remember { mutableStateOf(false) }
-        var isShowFps by remember { mutableStateOf(true) }
-        var masterVolume by remember { mutableFloatStateOf(0.8f) }
+        val config = koinInject<io.github.rwpp.api.config.ConfigIO>()
+        var isMuteAudio by remember { mutableStateOf(!config.getGameConfig<Boolean>("enableSounds")) }
+        var isShowFps by remember { mutableStateOf(config.getGameConfig<Boolean>("showFps")) }
+        var masterVolume by remember { mutableFloatStateOf(config.getGameConfig<Float>("masterVolume")) }
+        var interfaceVolume by remember { mutableFloatStateOf(config.getGameConfig<Float>("interfaceVolume")) }
+
+        var options by remember { mutableStateOf(nativePauseMenuOptions(GameEngine.getInstance())) }
+        OnGameUpdate { options = nativePauseMenuOptions(GameEngine.getInstance()) }
+        var confirmation by remember { mutableStateOf<String?>(null) }
+        var exportMapVisible by remember { mutableStateOf(false) }
+        if (exportMapVisible) NetworkMapExportDialog(koinInject<Game>()) { exportMapVisible = false }
+        AnimatedAlertDialog(confirmation != null, { confirmation = null }) { dismiss ->
+            AeroPanel(Modifier.widthIn(max = 460.dp).fillMaxWidth(0.9f)) {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        readI18n(if (confirmation == "room") "rwpp.ingame.returnRoomNotice" else "rwpp.ingame.surrenderNotice"),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AeroButton(readI18n("rwpp.common.confirm"), onClick = {
+                            val action = confirmation
+                            dismiss(); onResume()
+                            io.github.rwpp.api.coroutines.GameScope.launch {
+                                val engine = GameEngine.getInstance()
+                                val current = nativePauseMenuOptions(engine)
+                                if (action == "room" && current.returnRoom) engine.networkEngine.scheduleReturnToBattleroomSoon()
+                                else if (action == "surrender" && current.surrender) engine.networkEngine.sendChatMessage(
+                                    "-surrender"
+                                )
+                            }
+                        }, modifier = Modifier.weight(1f))
+                        AeroButton(
+                            readI18n("rwpp.common.cancel"), onClick = dismiss,
+                            modifier = Modifier.weight(1f), clickSound = Sounds.cancel
+                        )
+                    }
+                }
+            }
+        }
 
         val transition = rememberInfiniteTransition(label = "pulse")
         val alphaPulse by transition.animateFloat(
@@ -235,7 +446,8 @@ class GameScreen : Screen {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(24.dp),
+                        .padding(24.dp)
+                        .verticalScroll(rememberScrollState()),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Row(
@@ -252,7 +464,7 @@ class GameScreen : Screen {
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "SYSTEM PAUSED",
+                                text = readI18n("rwpp.ingame.systemPaused").uppercase(),
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Black,
                                 letterSpacing = 2.sp,
@@ -266,7 +478,7 @@ class GameScreen : Screen {
                     Spacer(modifier = Modifier.height(6.dp))
 
                     Text(
-                        text = "SECTOR 07 — MISSION TIME 00:42:19",
+                        text = readI18n("rwpp.ingame.missionTime", GameEngine.getInstance().gameTimeMillis / 1000),
                         fontSize = 10.sp,
                         fontFamily = FontFamily.Monospace,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -280,25 +492,45 @@ class GameScreen : Screen {
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         AeroToggleTile(
-                            label = "静音音效(无效)",
+                            label = readI18n("rwpp.ingame.muteSound"),
                             checked = isMuteAudio,
-                            onCheckedChange = { isMuteAudio = it },
+                            onCheckedChange = {
+                                isMuteAudio = it; config.setGameConfig(
+                                "enableSounds",
+                                !it
+                            ); config.saveAllConfig()
+                            },
                             modifier = Modifier.weight(1f)
                         )
                         AeroToggleTile(
-                            label = "显示 FPS(无效)",
+                            label = readI18n("rwpp.ingame.showFps"),
                             checked = isShowFps,
-                            onCheckedChange = { isShowFps = it },
+                            onCheckedChange = {
+                                isShowFps = it; config.setGameConfig(
+                                "showFps",
+                                it
+                            ); config.saveAllConfig()
+                            },
                             modifier = Modifier.weight(1f)
                         )
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
 
+                    var hideHud by remember { mutableStateOf(appKoin.get<io.github.rwpp.config.Settings>().hideOriginalHud) }
+                    AeroSettingToggle(readI18n("rwpp.ingame.hideNativeHud"), hideHud, onCheckedChange = {
+                        hideHud = it
+                        setOriginalHudHidden(it)
+                    })
                     AeroSettingSlider(
                         value = masterVolume,
-                        onValueChange = { masterVolume = it },
-                        label = "主音量调节(无效)"
+                        onValueChange = { masterVolume = it; config.setGameConfig("masterVolume", it) },
+                        label = readI18n("rwpp.ingame.masterVolume")
+                    )
+                    AeroSettingSlider(
+                        value = interfaceVolume,
+                        onValueChange = { interfaceVolume = it; config.setGameConfig("interfaceVolume", it) },
+                        label = readI18n("rwpp.ingame.interfaceVolume")
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -308,34 +540,58 @@ class GameScreen : Screen {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         AeroButton(
                             text = readI18n("rwpp.ingame.continueGame"),
-                            subText = "RESUME",
+                            subText = readI18n("rwpp.ingame.resume").uppercase(),
                             onClick = onResume,
                             clickSound = Sounds.closePopup,
                             accentColor = MaterialTheme.colorScheme.primary
                         )
 
+                        if (options.chat) AeroButton(readI18n("menus.ingame.chat"), onClick = {
+                            onResume(); isSendingTeamChat = false; showSendMessageDialog()
+                        }, clickSound = Sounds.openPopup)
+                        if (options.players) AeroButton(readI18n("menus.ingame.players"), onClick = {
+                            onResume()
+                            UI.showPlayerList = true
+                        }, clickSound = Sounds.openPopup)
+                        if (options.chat || GameEngine.getInstance().networkEngine.sandboxMode ||
+                            GameEngine.getInstance().debugEditorMode
+                        ) AeroButton(readI18n("rwpp.mapExport.action"), onClick = {
+                            exportMapVisible = true
+                        }, clickSound = Sounds.openPopup)
+                        if (options.returnRoom) AeroButton(
+                            readI18n("menus.ingame.multiplayerClose.returnToBattleroom"),
+                            onClick = { confirmation = "room" }, clickSound = Sounds.openPopup
+                        )
+                        if (options.surrender) AeroButton(
+                            readI18n("menus.ingame.surrender"),
+                            onClick = { confirmation = "surrender" }, isDanger = true, clickSound = Sounds.openPopup
+                        )
+                        if (options.briefing) AeroButton(readI18n("menus.ingame.briefing"), onClick = {
+                            onResume()
+                            io.github.rwpp.api.coroutines.GameScope.launch {
+                                GameEngine.getInstance().triggerEngine?.briefingText?.let { UI.showWarning(it.resolve()) }
+                            }
+                        }, clickSound = Sounds.openPopup)
+                        if (options.hideInterface) AeroButton(readI18n("menus.ingame.hideInterface"), onClick = {
+                            GameEngine.getInstance().cameraScrollActive = true; onResume()
+                        })
+
                         AeroButton(
-                            text = "保存游戏(无效)",
-                            subText = "SAVE",
+                            text = readI18n("rwpp.ingame.saveGame"),
+                            subText = readI18n("rwpp.common.save").uppercase(),
                             onClick = onSave
                         )
 
                         AeroButton(
-                            text = "读取存档(无效)",
-                            subText = "LOAD",
-                            onClick = onLoad
-                        )
-
-                        AeroButton(
-                            text = "设置",
-                            subText = "SETTINGS",
+                            text = readI18n("rwpp.menu.settings"),
+                            subText = readI18n("rwpp.menu.settings").uppercase(),
                             clickSound = Sounds.openPopup,
                             onClick = onSettings
                         )
 
                         AeroButton(
-                            text = "编辑模式",
-                            subText = "EDIT MODE",
+                            text = readI18n("rwpp.ingame.editMode"),
+                            subText = readI18n("rwpp.ingame.editMode").uppercase(),
                             clickSound = Sounds.openPopup,
                             onClick = onEditMode
                         )
@@ -343,8 +599,8 @@ class GameScreen : Screen {
                         Spacer(modifier = Modifier.height(4.dp))
 
                         AeroButton(
-                            text = "退出",
-                            subText = "EXIT",
+                            text = readI18n("rwpp.common.exit"),
+                            subText = readI18n("rwpp.common.exit").uppercase(),
                             isDanger = true,
                             clickSound = Sounds.closePopup,
                             onClick = onExit
@@ -354,7 +610,7 @@ class GameScreen : Screen {
                     Spacer(modifier = Modifier.height(18.dp))
 
                     Text(
-                        text = "AERO SCI-FI CORE v2.4.0 — BUILD 2026.08",
+                        text = "RWPP / AERO HUD",
                         fontSize = 9.sp,
                         fontFamily = FontFamily.Monospace,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
@@ -364,631 +620,4 @@ class GameScreen : Screen {
         }
     }
 
-    class SciFiChamferShape(private val cornerSize: Float = 24f) : Shape {
-        override fun createOutline(
-            size: Size,
-            layoutDirection: LayoutDirection,
-            density: Density
-        ): Outline {
-            val path = Path().apply {
-                moveTo(cornerSize, 0f)
-                lineTo(size.width - cornerSize, 0f)
-                lineTo(size.width, cornerSize)
-                lineTo(size.width, size.height - cornerSize)
-                lineTo(size.width - cornerSize, size.height)
-                lineTo(cornerSize, size.height)
-                lineTo(0f, size.height - cornerSize)
-                lineTo(0f, cornerSize)
-                close()
-            }
-            return Outline.Generic(path)
-        }
-    }
-
-    val SciFiCyan = Color(0xFF00F0FF)
-    val SciFiGold = Color(0xFFFFD700)
-    val SciFiOrange = Color(0xFFFF8C00)
-    val SciFiRed = Color(0xFFFF3366)
-    val SciFiDarkBg = Color(0xDC091018)
-    val SciFiDisabled = Color(0x444A5568)
-
-    @Composable
-    fun SciFiActionButton(
-        action: SpecialAction,
-        targetUnit: GameUnit,
-        onActionClick: (SpecialAction) -> Unit,
-        modifier: Modifier = Modifier
-    ) {
-        var progress by remember { mutableFloatStateOf(0f) }
-        var isAvailable by remember { mutableStateOf(false) }
-        var isActivated by remember { mutableStateOf(false) }
-        var affordableCount by remember { mutableIntStateOf(0) }
-
-        OnGameUpdate {
-            progress = action.getProgress(targetUnit).coerceIn(0f, 1f)
-            isAvailable = action.isAvailableForUnit(targetUnit)
-            isActivated = action.isGuiBlinkingForUnit(targetUnit)
-            affordableCount = action.getCountForUnit(targetUnit, false)
-        }
-
-        val cost = action.getPriceValue()
-        val isAffordable = cost <= 0 || affordableCount > 0
-
-        val transition = rememberInfiniteTransition(label = "glow")
-        val alphaGlow by transition.animateFloat(
-            initialValue = 0.4f, targetValue = 0.9f,
-            animationSpec = infiniteRepeatable(tween(1000), RepeatMode.Reverse),
-            label = "alpha"
-        )
-
-        val mainColor = when {
-            !isAvailable || !isAffordable -> SciFiDisabled
-            action.isHighPriorityQueueItem() -> SciFiGold
-            isActivated -> SciFiOrange
-            else -> SciFiCyan
-        }
-
-        val shape = remember { SciFiChamferShape(12f) }
-
-        Box(
-            modifier = modifier
-                .size(72.dp)
-                .clip(shape)
-                .background(SciFiDarkBg)
-                .border(
-                    width = if (action.isHighPriorityQueueItem() || isActivated) 2.dp else 1.dp,
-                    color = if (isAvailable) mainColor.copy(alpha = alphaGlow) else SciFiDisabled,
-                    shape = shape
-                )
-                .clickable(enabled = isAvailable && isAffordable) {
-                    onActionClick(action)
-                }
-                .padding(4.dp)
-        ) {
-            if (progress > 0f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .fillMaxHeight(progress)
-                        .align(Alignment.BottomCenter)
-                        .background(mainColor.copy(alpha = 0.3f))
-                )
-            }
-
-            if (action.isHighPriorityQueueItem()) {
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .align(Alignment.TopEnd)
-                        .background(SciFiGold, shape = RoundedCornerShape(2.dp))
-                )
-            }
-
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = action.getDisplayName(),
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isAvailable && isAffordable) Color.White else Color.Gray,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 2.dp)
-                )
-
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (cost > 0) {
-                        Text(
-                            text = "$${cost}",
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (isAffordable) SciFiCyan else SciFiRed
-                        )
-                    }
-
-                    if (isActivated) {
-                        Text(
-                            text = "ACTIVE",
-                            fontSize = 8.sp,
-                            fontWeight = FontWeight.Black,
-                            color = SciFiOrange
-                        )
-                    }
-                }
-            }
-
-            if (progress > 0f) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    drawRect(
-                        color = mainColor,
-                        style = Stroke(width = 2.dp.toPx())
-                    )
-                }
-            }
-        }
-    }
-
-    @Composable
-    fun MultiUnitSelectionHeader(
-        groupedUnits: Map<UnitTypeInterface, List<GameUnit>>,
-        activeUnitType: UnitTypeInterface?,
-        onSelectUnitType: (UnitTypeInterface) -> Unit
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(32.dp)
-                .background(Color(0xCC050A0E)),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "选中单位:",
-                fontSize = 11.sp,
-                color = Color.Gray,
-                modifier = Modifier.padding(horizontal = 8.dp)
-            )
-
-            groupedUnits.forEach { (type, units) ->
-                val isSelected = type == activeUnitType
-                val shape = remember { SciFiChamferShape(8f) }
-
-                Row(
-                    modifier = Modifier
-                        .padding(end = 6.dp)
-                        .clip(shape)
-                        .background(if (isSelected) SciFiCyan.copy(alpha = 0.25f) else Color(0x22FFFFFF))
-                        .border(1.dp, if (isSelected) SciFiCyan else Color.Transparent, shape)
-                        .clickable { onSelectUnitType(type) }
-                        .padding(horizontal = 8.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = type.getInternalName(),
-                        fontSize = 11.sp,
-                        color = if (isSelected) Color.White else Color.LightGray,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "x${units.size}",
-                        fontSize = 10.sp,
-                        color = SciFiCyan
-                    )
-                }
-            }
-        }
-    }
-
-    @Composable
-    fun SciFiActionGrid(
-        actions: List<SpecialAction>,
-        targetUnit: GameUnit,
-        onActionClick: (SpecialAction) -> Unit,
-        modifier: Modifier = Modifier
-    ) {
-        var selectedCategory by remember { mutableStateOf(SpecialActionCategory.building) }
-
-        val filteredActions = remember(actions, selectedCategory, targetUnit) {
-            actions
-                .filter { it.getActionCategory() == selectedCategory }
-                .sortedWith(
-                    compareByDescending<SpecialAction> { it.isHighPriorityQueueItem() }
-                        .thenBy { it.getSortOrder() }
-                )
-        }
-
-        Column(modifier = modifier) {
-            SecondaryTabRow(
-                selectedCategory.ordinal,
-                Modifier, Color.Transparent,
-                SciFiCyan,
-                {
-                    TabRowDefaults.SecondaryIndicator(
-                        Modifier.tabIndicatorOffset(selectedCategory.ordinal, true),
-                        color = SciFiCyan
-                    )
-                },
-                @Composable { HorizontalDivider() }) {
-                SpecialActionCategory.values().forEach { category ->
-                    Tab(
-                        selected = selectedCategory == category,
-                        onClick = { selectedCategory = category },
-                        text = {
-                            Text(
-                                text = category.name.replaceFirstChar { it.titlecase() },
-                                fontSize = 11.sp,
-                                fontWeight = if (selectedCategory == category) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            if (filteredActions.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("该分类无可用指令", color = Color.Gray, fontSize = 11.sp)
-                }
-            } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 72.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(
-                        items = filteredActions,
-                        key = { "${it.getDisplayName()}_${it.getSortOrder()}" }
-                    ) { action ->
-                        SciFiActionButton(
-                            action = action,
-                            targetUnit = targetUnit,
-                            onActionClick = onActionClick
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    @Composable
-    fun SciFiRtsHudConsole(
-        selectedUnits: List<GameUnit>,
-        onExecuteAction: (action: SpecialAction, targetUnits: List<GameUnit>) -> Unit,
-        modifier: Modifier = Modifier
-    ) {
-        val groupedUnits = remember(selectedUnits) {
-            selectedUnits.groupBy { it.getUnitTypeInterface() }
-        }
-
-        var activeUnitType by remember(groupedUnits) {
-            mutableStateOf(groupedUnits.keys.firstOrNull())
-        }
-
-        val currentTypeUnits = remember(selectedUnits) { groupedUnits[activeUnitType] ?: emptyList() }
-        val primaryUnit = remember(selectedUnits) { currentTypeUnits.firstOrNull() }
-
-        val availableActions = remember(primaryUnit) {
-            primaryUnit?.getSpecialActions()?.filterIsInstance<SpecialAction>() ?: emptyList()
-        }
-
-        Box(
-            modifier = modifier
-                .fillMaxWidth()
-                .height(230.dp)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, SciFiDarkBg)
-                    )
-                )
-                .padding(6.dp)
-        ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-
-                if (groupedUnits.size > 1) {
-                    MultiUnitSelectionHeader(
-                        groupedUnits = groupedUnits,
-                        activeUnitType = activeUnitType,
-                        onSelectUnitType = { activeUnitType = it }
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                }
-
-                Row(modifier = Modifier.fillMaxSize()) {
-
-                    SciFiUnitStatusPanel(
-                        selectedUnits = currentTypeUnits,
-                        primaryUnit = primaryUnit,
-                        modifier = Modifier
-                            .weight(0.3f)
-                            .fillMaxHeight()
-                    )
-
-                    Spacer(modifier = Modifier.width(6.dp))
-
-                    if (primaryUnit != null) {
-                        SciFiActionGrid(
-                            actions = availableActions,
-                            targetUnit = primaryUnit,
-                            onActionClick = { action ->
-                                onExecuteAction(action, currentTypeUnits)
-                            },
-                            modifier = Modifier
-                                .weight(0.7f)
-                                .fillMaxHeight()
-                                .clip(SciFiChamferShape(12f))
-                                .background(Color(0x8803070A))
-                                .border(1.dp, SciFiCyan.copy(alpha = 0.3f), SciFiChamferShape(12f))
-                                .padding(6.dp)
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .weight(0.7f)
-                                .fillMaxHeight()
-                                .clip(SciFiChamferShape(12f))
-                                .background(Color(0x4403070A)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("未选择单位 - 全局监控中", color = Color.Gray, fontSize = 12.sp)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    @Composable
-    fun SciFiRtsHudConsoleVertical(
-        selectedUnits: List<GameUnit>,
-        onExecuteAction: (action: SpecialAction, targetUnits: List<GameUnit>) -> Unit,
-        modifier: Modifier = Modifier
-    ) {
-        val groupedUnits = remember(selectedUnits) {
-            selectedUnits.groupBy { it.getUnitTypeInterface() }
-        }
-
-        var activeUnitType by remember(groupedUnits) {
-            mutableStateOf(groupedUnits.keys.firstOrNull())
-        }
-
-        val currentTypeUnits = groupedUnits[activeUnitType] ?: emptyList()
-        val primaryUnit = currentTypeUnits.firstOrNull()
-
-        val availableActions = remember(primaryUnit) {
-            primaryUnit?.getSpecialActions()?.filterIsInstance<SpecialAction>() ?: emptyList()
-        }
-
-        val shape = remember { SciFiChamferShape(16f) }
-
-        Box(
-            modifier = modifier
-                .width(280.dp)
-                .fillMaxHeight()
-                .clip(shape)
-                .background(
-                    Brush.horizontalGradient(
-                        colors = listOf(Color(0x11000000), SciFiDarkBg)
-                    )
-                )
-                .border(1.dp, SciFiCyan.copy(alpha = 0.25f), shape)
-                .padding(8.dp)
-        ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-
-                if (groupedUnits.size > 1) {
-                    MultiUnitSelectionHeader(
-                        groupedUnits = groupedUnits,
-                        activeUnitType = activeUnitType,
-                        onSelectUnitType = { activeUnitType = it }
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                }
-
-                SciFiUnitStatusPanelVertical(
-                    selectedUnits = currentTypeUnits,
-                    primaryUnit = primaryUnit,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .wrapContentHeight()
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                if (primaryUnit != null) {
-                    SciFiActionGrid(
-                        actions = availableActions,
-                        targetUnit = primaryUnit,
-                        onActionClick = { action ->
-                            onExecuteAction(action, currentTypeUnits)
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                            .clip(SciFiChamferShape(12f))
-                            .background(Color(0x8803070A))
-                            .border(1.dp, SciFiCyan.copy(alpha = 0.3f), SciFiChamferShape(12f))
-                            .padding(6.dp)
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                            .clip(SciFiChamferShape(12f))
-                            .background(Color(0x4403070A)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("未选择单位 - 全局监控中", color = Color.Gray, fontSize = 12.sp)
-                    }
-                }
-            }
-        }
-    }
-
-    @Composable
-    fun SciFiUnitStatusPanel(
-        selectedUnits: List<GameUnit>,
-        primaryUnit: GameUnit?,
-        modifier: Modifier = Modifier
-    ) {
-        var avgHpRatio by remember { mutableDoubleStateOf(0.0) }
-        var avgShieldRatio by remember { mutableDoubleStateOf(0.0) }
-
-        OnGameUpdate {
-            val size = selectedUnits.size
-            if (selectedUnits.isNotEmpty()) {
-                logger().info("avg: $avgHpRatio")
-                avgHpRatio = selectedUnits.sumOf { (it.hp / it.maxHp).toDouble() } / size
-                avgShieldRatio = selectedUnits.sumOf { (it.shield / it.maxShield).toDouble() } / size
-            }
-        }
-
-        val shape = remember { SciFiChamferShape(12f) }
-
-        Box(
-            modifier = modifier
-                .clip(shape)
-                .background(Color(0x8803070A))
-                .border(1.dp, SciFiCyan.copy(alpha = 0.3f), shape)
-                .padding(8.dp)
-        ) {
-            if (primaryUnit != null) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    Text(
-                        text = primaryUnit.getUnitTypeInterface().getInternalName(),
-                        color = SciFiCyan,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp
-                    )
-                    Text(
-                        text = "数量: ${selectedUnits.size}",
-                        color = Color.LightGray,
-                        fontSize = 10.sp
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Text(text = "HP (${(avgHpRatio * 100).toInt()}%)", color = Color.Gray, fontSize = 9.sp)
-                    LinearProgressIndicator(
-                        progress = { avgHpRatio.toFloat() },
-                        modifier = Modifier.fillMaxWidth().height(4.dp),
-                        color = if (avgHpRatio > 0.3f) Color.Green else SciFiRed,
-                        trackColor = Color.DarkGray
-                    )
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    if (primaryUnit.maxShield > 0) {
-                        Text(text = "SHIELD", color = Color.Gray, fontSize = 9.sp)
-                        LinearProgressIndicator(
-                            progress = { avgShieldRatio.toFloat() },
-                            modifier = Modifier.fillMaxWidth().height(4.dp),
-                            color = SciFiCyan,
-                            trackColor = Color.DarkGray
-                        )
-                    }
-                }
-            } else {
-                Text(text = "待命", color = Color.Gray, fontSize = 11.sp, modifier = Modifier.align(Alignment.Center))
-            }
-        }
-    }
-
-    @Composable
-    fun SciFiUnitStatusPanelVertical(
-        selectedUnits: List<GameUnit>,
-        primaryUnit: GameUnit?,
-        modifier: Modifier = Modifier
-    ) {
-        var avgHpRatio by remember { mutableFloatStateOf(0f) }
-        var avgShieldRatio by remember { mutableFloatStateOf(0f) }
-
-        OnGameUpdate {
-            if (selectedUnits.isNotEmpty()) {
-                avgHpRatio = selectedUnits.map { (it.hp / it.maxHp).coerceAtLeast(1f) }.average().toFloat()
-                avgShieldRatio = selectedUnits.map {
-                    if (it.maxShield > 0) it.shield.toFloat() / it.maxShield else 0f
-                }.average().toFloat()
-            }
-        }
-
-        val shape = remember { SciFiChamferShape(12f) }
-
-        Box(
-            modifier = modifier
-                .clip(shape)
-                .background(Color(0x8803070A))
-                .border(1.dp, SciFiCyan.copy(alpha = 0.3f), shape)
-                .padding(10.dp)
-        ) {
-            if (primaryUnit != null) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                        text = primaryUnit.getUnitTypeInterface().getInternalName(),
-                            color = SciFiCyan,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Text(
-                            text = "x${selectedUnits.size}",
-                            color = Color.LightGray,
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(text = "HP", color = Color.Gray, fontSize = 9.sp)
-                        Text(
-                            text = "${(avgHpRatio * 100).toInt()}%",
-                            color = if (avgHpRatio > 0.3f) Color.Green else SciFiRed,
-                            fontSize = 9.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(2.dp))
-                    LinearProgressIndicator(
-                        progress = { avgHpRatio },
-                        modifier = Modifier.fillMaxWidth().height(4.dp),
-                        color = if (avgHpRatio > 0.3f) Color.Green else SciFiRed,
-                        trackColor = Color.DarkGray
-                    )
-
-                    if (primaryUnit.maxShield > 0) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(text = "SHIELD", color = Color.Gray, fontSize = 9.sp)
-                            Text(
-                                text = "${(avgShieldRatio * 100).toInt()}%",
-                                color = SciFiCyan,
-                                fontSize = 9.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(2.dp))
-                        LinearProgressIndicator(
-                            progress = { avgShieldRatio },
-                            modifier = Modifier.fillMaxWidth().height(4.dp),
-                            color = SciFiCyan,
-                            trackColor = Color.DarkGray
-                        )
-                    }
-                }
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(40.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(text = "待命", color = Color.Gray, fontSize = 11.sp)
-                }
-            }
-        }
-    }
 }

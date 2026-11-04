@@ -1,11 +1,9 @@
 package io.github.rwpp.api.net.impl
 
-import io.github.rwpp.server.net.NativeTcpSocket
-import io.github.rwpp.server.net.NativeTcpServerSocket
-import io.github.rwpp.server.net.NativeKcpServerSocket
-import io.github.rwpp.server.net.ServerTransportBackend
 import io.github.rwpp.api.net.transport.TransportRuntime
-
+import io.github.rwpp.server.net.NativeTcpServerSocket
+import io.github.rwpp.server.net.NativeTcpSocket
+import io.github.rwpp.server.net.ServerTransportBackend
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.net.InetSocketAddress
@@ -16,9 +14,18 @@ import java.util.concurrent.TimeUnit
 import kotlin.test.*
 
 class NativeTcpSocketTest {
-    @BeforeTest fun installBackend() { TransportRuntime.install(ServerTransportBackend()) }
-    @AfterTest fun stopBackend() { TransportRuntime.close() }
-    @Test fun fragmentedAndCoalescedNativeFramesPreserveOrderAndWireFormat() {
+    @BeforeTest
+    fun installBackend() {
+        TransportRuntime.install(ServerTransportBackend())
+    }
+
+    @AfterTest
+    fun stopBackend() {
+        TransportRuntime.close()
+    }
+
+    @Test
+    fun fragmentedAndCoalescedNativeFramesPreserveOrderAndWireFormat() {
         NativeTcpServerSocket(0).use { server ->
             Socket("127.0.0.1", server.localPort).use { client ->
                 client.soTimeout = 5000
@@ -44,7 +51,8 @@ class NativeTcpSocketTest {
         }
     }
 
-    @Test fun clientAndServerNettySocketsExchangeLargeModFrames() {
+    @Test
+    fun clientAndServerNettySocketsExchangeLargeModFrames() {
         NativeTcpServerSocket(0).use { server ->
             NativeTcpSocket().use { client ->
                 client.connect(InetSocketAddress("127.0.0.1", server.localPort), 5000)
@@ -64,13 +72,18 @@ class NativeTcpSocketTest {
         }
     }
 
-    @Test fun oversizedHeaderClosesBeforeTheDeclaredBodyArrives() {
+    @Test
+    fun oversizedHeaderClosesBeforeTheDeclaredBodyArrives() {
         NativeTcpServerSocket(0).use { server ->
             Socket("127.0.0.1", server.localPort).use { client ->
                 client.soTimeout = 5000
                 (server.accept() as NativeTcpSocket).use { accepted ->
                     val stopped = CompletableFuture<String>()
-                    accepted.startReceiving({ 10_000 }, { _, _ -> fail("Oversized packet was delivered") }, stopped::complete)
+                    accepted.startReceiving(
+                        { 10_000 },
+                        { _, _ -> fail("Oversized packet was delivered") },
+                        stopped::complete
+                    )
                     DataOutputStream(client.getOutputStream()).apply { writeInt(50_000_000); writeInt(510); flush() }
                     stopped.get(5, TimeUnit.SECONDS)
                     assertEquals(-1, client.getInputStream().read())

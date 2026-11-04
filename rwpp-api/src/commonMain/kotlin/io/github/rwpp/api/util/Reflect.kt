@@ -1,8 +1,8 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.api.util
@@ -52,13 +52,13 @@ object Reflect {
         classes: List<KClass<*>>? = null,
         args: List<Any?>,
     ): K? = (
-        classes?.let {
-            T::class.java.getDeclaredMethod(
-                method,
-                *classes.map { it.java }.toTypedArray(),
-            )
-        } ?: T::class.java.declaredMethods.first { it.name == method }
-        ).apply {
-        isAccessible = true
-    }.invoke(any, *args.toTypedArray()) as K?
+            classes?.let {
+                T::class.java.getDeclaredMethod(
+                    method,
+                    *classes.map { it.java }.toTypedArray(),
+                )
+            } ?: T::class.java.declaredMethods.first { it.name == method }
+            ).apply {
+            isAccessible = true
+        }.invoke(any, *args.toTypedArray()) as K?
 }

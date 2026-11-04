@@ -1,14 +1,15 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.api.game.impl
 
 import com.corrodinggames.rts.game.Team
 import com.corrodinggames.rts.gameFramework.GameEngine
+import com.corrodinggames.rts.gameFramework.network.Connection
 import com.corrodinggames.rts.gameFramework.network.GameSetupMapType
 import com.corrodinggames.rts.gameFramework.network.NetworkEngine
 import io.github.rwpp.api.State
@@ -16,9 +17,18 @@ import io.github.rwpp.api.appKoin
 import io.github.rwpp.api.event.GameEventPublisher
 import io.github.rwpp.api.event.events.TransportConnectedEvent
 import io.github.rwpp.api.event.hooks.broadcastNativeEvent
-import com.corrodinggames.rts.gameFramework.network.Connection
 import io.github.rwpp.api.game.Game
+import io.github.rwpp.api.game.NetworkGameLoadingState
 import io.github.rwpp.api.game.map.MapNames
+import io.github.rwpp.api.game.map.defaultMapPath
+import io.github.rwpp.api.logging.logger
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.selects.onTimeout
+import kotlinx.coroutines.selects.select
+import java.io.IOException
+import java.net.Socket
 
 /** Synchronizes the API game state and events when native menus bypass [Game] entry points. */
 internal object NativeGameLifecycle {
@@ -31,6 +41,136 @@ internal object NativeGameLifecycle {
     private var announcedHostKind: HostKind? = null
     private var joinedClientTeam: Team? = null
     private var connectedAddress: String? = null
+    private var clientRoomJoinTicket: ClientRoomJoinTicket? = null
+    private val clientStartReadyAck = NetworkClientReadyAck()
+
+    internal class ClientRoomJoinTicket {
+        val roomReady = CompletableDeferred<Unit>()
+        @Volatile
+        var expectedSocket: Socket? = null
+        private var redirectPending = false
+        private var activePrompt: Any? = null
+        private val promptChanges = Channel<Unit>(Channel.CONFLATED)
+
+        @Synchronized
+        fun promptOpened(prompt: Any) {
+            if (roomReady.isCompleted) return
+            activePrompt = prompt
+            promptChanges.trySend(Unit)
+        }
+
+        @Synchronized
+        fun promptClosed(prompt: Any) {
+            if (activePrompt !== prompt) return
+            activePrompt = null
+            promptChanges.trySend(Unit)
+        }
+
+        @Synchronized
+        private fun awaitingInput(): Boolean = activePrompt != null
+
+        /** One network budget across socket and room handshake; human interaction has no deadline. */
+        @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+        suspend fun awaitConnectionReady(
+            socketResult: Deferred<Result<Unit>>,
+            timeoutMillis: Long,
+            onSocketReady: () -> Unit = {}
+        ): Boolean {
+            var remainingNanos = timeoutMillis * 1_000_000L
+            suspend fun <T : Any> step(result: Deferred<T>): T? {
+                while (true) {
+                    if (result.isCompleted) return result.await()
+                    val waiting = awaitingInput()
+                    if (!waiting && remainingNanos <= 0) return null
+                    val started = System.nanoTime()
+                    val outcome = select<JoinWait<T>> {
+                        result.onAwait { JoinWait.Completed(it) }
+                        promptChanges.onReceive { JoinWait.Changed }
+                        if (!waiting) onTimeout((remainingNanos + 999_999L) / 1_000_000L) { JoinWait.TimedOut }
+                    }
+                    if (!waiting) remainingNanos -= System.nanoTime() - started
+                    when (outcome) {
+                        is JoinWait.Completed -> return outcome.value
+                        JoinWait.TimedOut -> return null
+                        JoinWait.Changed -> Unit
+                    }
+                }
+            }
+
+            val socket = step(socketResult) ?: return false
+            socket.getOrThrow()
+            onSocketReady()
+            return step(roomReady) != null
+        }
+
+        @Synchronized
+        fun beginNativeRedirect(connection: Connection?): Boolean {
+            if (roomReady.isCompleted || !owns(connection)) return false
+            redirectPending = true
+            return true
+        }
+
+        @Synchronized
+        fun acceptTransport(socket: Socket?): Boolean {
+            if (socket == null) return false
+            if (expectedSocket == null || expectedSocket === socket || redirectPending) {
+                expectedSocket = socket
+                redirectPending = false
+                return true
+            }
+            return false
+        }
+
+        fun owns(connection: Connection?): Boolean {
+            val expected = expectedSocket ?: return false
+            var current = connection
+            // Relay child connections retain the original transport through parent. Bound malformed cycles.
+            repeat(32) {
+                val candidate = current ?: return false
+                if (candidate.socket === expected) return true
+                current = candidate.parent
+            }
+            return false
+        }
+
+        fun completeFromConnection(connection: Connection?): Boolean =
+            owns(connection) && roomReady.complete(Unit)
+
+        fun completeFrom(socket: Socket?): Boolean {
+            if (expectedSocket == null || expectedSocket !== socket) return false
+            return roomReady.complete(Unit)
+        }
+    }
+
+    private sealed interface JoinWait<out T> {
+        data class Completed<T>(val value: T) : JoinWait<T>
+        data object Changed : JoinWait<Nothing>
+        data object TimedOut : JoinWait<Nothing>
+    }
+
+    fun onJoinPromptOpened(prompt: Any) {
+        synchronized(lifecycleLock) { clientRoomJoinTicket?.promptOpened(prompt) }
+    }
+
+    fun onJoinPromptClosed(prompt: Any) {
+        synchronized(lifecycleLock) { clientRoomJoinTicket?.promptClosed(prompt) }
+    }
+
+    fun beginClientRoomJoin(): ClientRoomJoinTicket = synchronized(lifecycleLock) {
+        ClientRoomJoinTicket().also { clientRoomJoinTicket = it }
+    }
+
+    fun expectClientSocket(ticket: ClientRoomJoinTicket, socket: Socket): Boolean = synchronized(lifecycleLock) {
+        if (clientRoomJoinTicket !== ticket || ticket.roomReady.isCompleted) return@synchronized false
+        ticket.expectedSocket = socket
+        true
+    }
+
+    fun finishClientRoomJoin(ticket: ClientRoomJoinTicket) {
+        synchronized(lifecycleLock) {
+            if (clientRoomJoinTicket === ticket) clientRoomJoinTicket = null
+        }
+    }
 
     fun onMultiplayerHostStarted(network: NetworkEngine) {
         val engine = GameEngine.getInstance()
@@ -72,6 +212,8 @@ internal object NativeGameLifecycle {
     }
 
     fun onJoinAttempt(address: String) {
+        clientStartReadyAck.clear()
+        NetworkGameLoadingState.finishMapLoad()
         val game = appKoin.get<Game>()
         synchronized(lifecycleLock) {
             pendingJoinAddress = address
@@ -86,7 +228,9 @@ internal object NativeGameLifecycle {
         game.state.state = State.Menu
     }
 
-    fun onClientConnected(network: NetworkEngine, fallbackAddress: String? = null) {
+    fun onClientConnected(network: NetworkEngine, fallbackAddress: String? = null, socket: Socket? = null) {
+        clientStartReadyAck.clear()
+        NetworkGameLoadingState.finishMapLoad()
         val game = appKoin.get<Game>()
         game.state.multiplayer = network.networked && !network.singlePlayerServer
         game.state.replay = false
@@ -98,46 +242,82 @@ internal object NativeGameLifecycle {
             pendingJoinAddress.also { pendingJoinAddress = null }
         } ?: fallbackAddress
         synchronized(lifecycleLock) { connectedAddress = address; joinedClientTeam = null }
+        synchronized(lifecycleLock) {
+            clientRoomJoinTicket?.let { ticket ->
+                ticket.acceptTransport(socket)
+            }
+        }
         synchronized(lifecycleLock) { sessionActive = true }
         broadcastNativeEvent(TransportConnectedEvent(network, address))
     }
 
+    fun onNativeRedirect(connection: Connection?) {
+        synchronized(lifecycleLock) { clientRoomJoinTicket?.beginNativeRedirect(connection) }
+    }
+
     fun onClientRoomJoined(network: NetworkEngine, connection: Connection?) {
         val team = network.localTeam ?: return
+        var matchingTicket: ClientRoomJoinTicket? = null
         val address = synchronized(lifecycleLock) {
             if (joinedClientTeam != null) return
             joinedClientTeam = team
+            matchingTicket = clientRoomJoinTicket?.takeIf { ticket ->
+                ticket.owns(connection)
+            }
             connectedAddress.orEmpty()
         }
-        GameEventPublisher.joinGame(address, network, connection, team)
+        try {
+            GameEventPublisher.joinGame(address, network, connection, team)
+        } finally {
+            try {
+                // Client packet 115 has populated the local team and player list. The normal
+                // desktop updateUI hook is server-only, so explicitly refresh room consumers.
+                GameEventPublisher.refreshUi()
+            } finally {
+                matchingTicket?.completeFromConnection(connection)
+            }
+        }
     }
 
     fun onNetworkDisconnected(network: NetworkEngine, reason: String): Boolean {
+        clientStartReadyAck.clear()
+        NetworkGameLoadingState.finishMapLoad()
         val endedSession = synchronized(lifecycleLock) {
             sessionActive.also { sessionActive = false }
         }
         if (!network.networked) {
             (appKoin.get<Game>().gameRoom as GameRoomImpl).resetRuntimeState()
+            resetNativeRoomMap(network)
         }
         if (endedSession) GameEventPublisher.disconnect(reason, network)
         if (network.networked) return endedSession
+        var interruptedJoin: ClientRoomJoinTicket? = null
         val startingReplacementConnection = synchronized(lifecycleLock) {
             val keepPendingJoin = reason == "starting new" && pendingJoinAddress != null
-            if (!keepPendingJoin) pendingJoinAddress = null
+            if (!keepPendingJoin) {
+                pendingJoinAddress = null
+                interruptedJoin = clientRoomJoinTicket
+                clientRoomJoinTicket = null
+            }
             announcedHostKind = null
             joinedClientTeam = null
             connectedAddress = null
             keepPendingJoin
         }
+        interruptedJoin?.roomReady?.completeExceptionally(
+            IOException(reason),
+        )
         val game = appKoin.get<Game>()
         game.state.multiplayer = false
-        game.state.replay = GameEngine.getInstance().replayEngine.isPlayingReplay()
+        game.state.replay = GameEngine.getInstance().replayEngine.isPlayingReplay
         game.state.sandbox = network.sandboxMode
         if (!startingReplacementConnection) onMenuShown()
         return endedSession
     }
 
     fun onReturnToBattleroom(network: NetworkEngine) {
+        clientStartReadyAck.clear()
+        NetworkGameLoadingState.finishMapLoad()
         val game = appKoin.get<Game>()
         (game.gameRoom as? GameRoomImpl)?.restoreGeneratedMapSelection()
         val leavingGameplay = game.state.state == State.Playing || game.state.state == State.Paused
@@ -154,9 +334,26 @@ internal object NativeGameLifecycle {
         publishMapChanged(configuredMap, network.gameSetup.mapType)
     }
 
+    fun onServerInfoReceived(network: NetworkEngine) {
+        if (!network.networked || network.isServer || !network.receivedServerInfo) return
+        val mapName = network.gameSetup.mapName ?: return
+        network.currentGameMapPath = defaultMapPath(mapName, network.gameSetup.mapType)
+        publishMapChanged(network.gameSetup.mapName, network.gameSetup.mapType)
+        GameEventPublisher.refreshUi()
+    }
+
+    fun onNetworkStateReset(network: NetworkEngine, keepTeams: Boolean) {
+        if (keepTeams) return // Native single-player preparation deliberately retains its room.
+        resetNativeRoomMap(network)
+        synchronized(lifecycleLock) { lastPublishedMapKey = null }
+    }
+
     fun onMapLoaded() {
         val engine = GameEngine.getInstance()
         if (engine.map?.mapLoaded != true) return
+        if (engine.networkEngine.networked && !engine.networkEngine.isServer && engine.networkEngine.gameStarted) {
+            clientStartReadyAck.markMapLoaded()
+        }
         val mapPath = engine.currentMapPath ?: return
         if (mapPath.startsWith("maps/menu_background/", ignoreCase = true)) return
 
@@ -164,16 +361,26 @@ internal object NativeGameLifecycle {
         val replayLoading = synchronized(lifecycleLock) { replayLoadInProgress }
         syncModeFromEngine(game, engine.networkEngine)
         val trigger = engine.triggerEngine
-        game.gameRoom.gameModes.observeNativeBase(when {
-            trigger?.survivalMap == true -> "survival"
-            trigger?.isSkirmish() == true -> "skirmish"
-            else -> null
-        })
+        game.gameRoom.gameModes.observeNativeBase(
+            when {
+                trigger?.survivalMap == true -> "survival"
+                trigger?.isSkirmish() == true -> "skirmish"
+                else -> null
+            }
+        )
         if (replayLoading) {
             game.state.replay = true
             game.state.multiplayer = false
             game.state.sandbox = false
             return // Replay may still fail after loading its initial map.
+        }
+        if (game.state.multiplayer && engine.networkEngine.gameStarted) {
+            synchronized(lifecycleLock) {
+                clientRoomJoinTicket?.completeFromConnection(engine.networkEngine.clientConnection)
+            }
+            // Transfer ownership before publishing Playing: disposing the join page must never
+            // cancel a live verification map, even if its lobby coroutine has not resumed yet.
+            GamePlatform.completeJoinServer()
         }
         resetGameProgress(game)
         if (!game.state.multiplayer && !game.state.replay && announceHost(HostKind.SinglePlayer)) {
@@ -185,6 +392,8 @@ internal object NativeGameLifecycle {
     }
 
     fun onMapLoadFailed() {
+        clientStartReadyAck.clear()
+        NetworkGameLoadingState.finishMapLoad()
         (appKoin.get<Game>().gameRoom as? GameRoomImpl)?.restoreGeneratedMapSelection()
         synchronized(lifecycleLock) {
             if (replayLoadInProgress) replayMapLoadFailed = true
@@ -253,13 +462,50 @@ internal object NativeGameLifecycle {
     private fun syncModeFromEngine(game: Game, network: NetworkEngine) {
         val engine = GameEngine.getInstance()
         game.state.multiplayer = network.networked && !network.singlePlayerServer
-        game.state.replay = engine.replayEngine.isPlayingReplay()
+        game.state.replay = engine.replayEngine.isPlayingReplay
         game.state.sandbox = network.sandboxMode || engine.debugEditorMode
     }
 
     private fun resetGameProgress(game: Game) {
         game.state.gameOver = false
         game.state.defeatedPlayerSet.clear()
+    }
+
+    /** Called after native packet 120 has initialized the client's network game. */
+    fun onClientNetworkGameStarting(network: NetworkEngine) {
+        val isNetworkedClient = network.networked && !network.isServer
+        clientStartReadyAck.begin(isNetworkedClient)
+        if (isNetworkedClient) NetworkGameLoadingState.beginMapLoad()
+        else NetworkGameLoadingState.finishMapLoad()
+    }
+
+    /** Send the native ready packet only once the map has loaded and the simulation loop is active. */
+    fun acknowledgeClientReadyAfterMapLoad(engine: GameEngine) {
+        if (!clientStartReadyAck.isPending()) return
+        val network = engine.networkEngine
+        val isNetworkedClient = network.networked && !network.isServer
+        if (!clientStartReadyAck.beginAttemptIfReady(
+                isNetworkedClient = isNetworkedClient,
+                gameStarted = network.gameStarted,
+                engineMapLoaded = engine.map?.mapLoaded == true,
+                gameLoopActive = engine.gameLoopActive,
+                gameStatePlaying = appKoin.get<Game>().state.state == State.Playing,
+            )
+        ) return
+
+        val failure = runCatching { network.sendClientReadyState() }.exceptionOrNull()
+        if (failure == null) {
+            clientStartReadyAck.markSent()
+            NetworkGameLoadingState.finishMapLoad()
+        } else if (!clientStartReadyAck.markAttemptFailed()) {
+            logger().warn("Could not send the post-load client-ready packet after three attempts", failure)
+            NetworkGameLoadingState.finishMapLoad()
+        }
+    }
+
+    fun onNativeNetworkStartFailed() {
+        clientStartReadyAck.clear()
+        NetworkGameLoadingState.finishMapLoad()
     }
 
     private fun announceHost(kind: HostKind): Boolean = synchronized(lifecycleLock) {

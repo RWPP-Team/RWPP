@@ -1,8 +1,8 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.api.event.hooks
@@ -11,24 +11,9 @@ import com.corrodinggames.rts.gameFramework.GameEngine
 import com.corrodinggames.rts.gameFramework.GameSaver
 import com.corrodinggames.rts.gameFramework.network.InputNetStream
 import com.corrodinggames.rts.gameFramework.network.OutputNetStream
-import io.github.rwpp.api.event.events.GameLoadRequest
-import io.github.rwpp.api.event.events.GameSaveRequest
-import io.github.rwpp.api.event.events.PersistenceFailure
-import io.github.rwpp.api.event.events.PersistenceFailureReason
-import io.github.rwpp.api.event.events.PersistenceOperation
-import io.github.rwpp.api.event.events.PersistenceReason
-import io.github.rwpp.api.event.events.PersistenceBeforeEvent
-import io.github.rwpp.api.event.events.PersistenceFailedEvent
-import io.github.rwpp.api.event.events.PersistenceLoadedEvent
-import io.github.rwpp.api.event.events.PersistenceSavedEvent
+import io.github.rwpp.api.event.events.*
 import java.io.File
 import java.lang.reflect.InvocationTargetException
-import kim.der.asm.api.annotation.At
-import kim.der.asm.api.annotation.AsmMixin
-import kim.der.asm.api.annotation.InjectionPoint
-import kim.der.asm.api.annotation.Operation
-import kim.der.asm.api.annotation.WrapMethod
-import kim.der.asm.api.annotation.WrapOperation
 
 private class FileSaveAttempt(
     val request: GameSaveRequest,
@@ -43,15 +28,13 @@ private class FileSaveAttempt(
 private val activeFileSave = ThreadLocal<FileSaveAttempt>()
 private val activeReplaySnapshotSave = ThreadLocal<Boolean>()
 
-@AsmMixin("com/corrodinggames/rts/gameFramework/GameSaver")
-object PersistenceEventMixin {
+internal object PersistenceEventCallbacks {
     private val activeFileLoadDepth = ThreadLocal<Int>()
 
-    @WrapMethod(method = "autoSaveGame(Ljava/lang/String;Z)V", require = 1)
     fun wrapFileSave(
         name: String?,
         autoSave: Boolean,
-        operation: Operation<Unit>,
+        operation: () -> Unit,
     ) {
         val saver = GameEngine.getInstance().gameSaver
         val request = GameSaveRequest(
@@ -68,7 +51,7 @@ object PersistenceEventMixin {
         try {
             publishSaveBefore(PersistenceOperation.Saving(request))
             try {
-                operation.call(name, autoSave)
+                operation()
             } catch (failure: Throwable) {
                 val nativeFailure = unwrapPersistenceFailure(failure)
                 if (!attempt.committed) {
@@ -89,14 +72,13 @@ object PersistenceEventMixin {
         }
     }
 
-    @WrapMethod(method = "saveGame(Lcom/corrodinggames/rts/gameFramework/network/OutputNetStream;)V", require = 1)
     fun wrapStreamSave(
         outputStream: Any,
-        operation: Operation<Unit>,
+        operation: (Any) -> Unit,
     ) {
         // File saves call saveGame internally; autoSaveGame owns their full commit boundary.
         if (activeFileSave.get() != null) {
-            operation.call(outputStream)
+            operation(outputStream)
             return
         }
 
@@ -116,7 +98,7 @@ object PersistenceEventMixin {
         val event = PersistenceOperation.Saving(request)
         publishSaveBefore(event)
         try {
-            operation.call(outputStream)
+            operation(outputStream)
         } catch (failure: Throwable) {
             val nativeFailure = unwrapPersistenceFailure(failure)
             fail(event, PersistenceFailureReason.THREW, nativeFailure)
@@ -125,11 +107,10 @@ object PersistenceEventMixin {
         publishSaved(request)
     }
 
-    @WrapMethod(method = "loadSaveFile(Ljava/lang/String;Z)Z", require = 1)
     fun wrapFileLoad(
         name: String?,
         keepTeams: Boolean,
-        operation: Operation<Boolean>,
+        operation: (String?, Boolean) -> Boolean,
     ): Boolean {
         val saver = GameEngine.getInstance().gameSaver
         val request = GameLoadRequest(
@@ -148,7 +129,7 @@ object PersistenceEventMixin {
         try {
             publishSaveBefore(event)
             val loaded = try {
-                operation.call(name, keepTeams)
+                operation(name, keepTeams)
             } catch (failure: Throwable) {
                 val nativeFailure = unwrapPersistenceFailure(failure)
                 fail(event, PersistenceFailureReason.THREW, nativeFailure)
@@ -166,20 +147,16 @@ object PersistenceEventMixin {
         }
     }
 
-    @WrapMethod(
-        method = "loadGameFromStream(Lcom/corrodinggames/rts/gameFramework/network/InputNetStream;ZZZ)Z",
-        require = 1,
-    )
     fun wrapStreamLoad(
         inputStream: Any,
         keepTeams: Boolean,
         flag2: Boolean,
         flag3: Boolean,
-        operation: Operation<Boolean>,
+        operation: (Any, Boolean, Boolean, Boolean) -> Boolean,
     ): Boolean {
         // loadSaveFile provides the path-level event for its nested stream load.
         if ((activeFileLoadDepth.get() ?: 0) > 0) {
-            return operation.call(inputStream, keepTeams, flag2, flag3)
+            return operation(inputStream, keepTeams, flag2, flag3)
         }
 
         val engine = GameEngine.getInstance()
@@ -196,7 +173,7 @@ object PersistenceEventMixin {
         val event = PersistenceOperation.Loading(request)
         publishSaveBefore(event)
         val loaded = try {
-            operation.call(inputStream, keepTeams, flag2, flag3)
+            operation(inputStream, keepTeams, flag2, flag3)
         } catch (failure: Throwable) {
             val nativeFailure = unwrapPersistenceFailure(failure)
             fail(event, PersistenceFailureReason.THREW, nativeFailure)
@@ -242,28 +219,20 @@ object PersistenceEventMixin {
 
 }
 
-/** The file rename is wrapped on its own target class so mixin method order cannot hide this call. */
-@AsmMixin("com/corrodinggames/rts/gameFramework/files/FileLoader")
-object FileSaveCommitMixin {
-    @WrapMethod(method = "renameFile(Ljava/io/File;Ljava/io/File;)Z", require = 1)
-    fun trackFileCommit(
-        sourceFile: File,
-        destinationFile: File,
-        operation: Operation<Boolean>,
-    ): Boolean {
-        val renamed = try {
-            operation.call(sourceFile, destinationFile)
-        } catch (failure: Throwable) {
-            throw unwrapPersistenceFailure(failure)
-        }
-        val attempt = activeFileSave.get()
-        val requestedFile = attempt?.request?.file
-        if (renamed && attempt != null && requestedFile?.absolutePath == destinationFile.absolutePath) {
-            attempt.committed = true
-            publishSaved(attempt.request.copy(file = destinationFile))
-        }
-        return renamed
+/** The file rename is tracked outside the injection adapter so event logic stays here. */
+internal fun trackFileCommit(destinationFile: File, operation: () -> Boolean): Boolean {
+    val renamed = try {
+        operation()
+    } catch (failure: Throwable) {
+        throw unwrapPersistenceFailure(failure)
     }
+    val attempt = activeFileSave.get()
+    val requestedFile = attempt?.request?.file
+    if (renamed && attempt != null && requestedFile?.absolutePath == destinationFile.absolutePath) {
+        attempt.committed = true
+        publishSaved(attempt.request.copy(file = destinationFile))
+    }
+    return renamed
 }
 
 private fun publishSaveBefore(operation: PersistenceOperation) {
@@ -285,30 +254,15 @@ private fun publishLoaded(request: GameLoadRequest) {
 }
 
 /** Marks only the initial gamesave serialization directly invoked by ReplayEngine.startSaving. */
-@AsmMixin("com/corrodinggames/rts/gameFramework/ReplayEngine")
-object ReplaySnapshotSaveMixin {
-    @WrapOperation(
-        method = "startSaving(Ljava/lang/String;)V",
-        at = At(
-            value = InjectionPoint.INVOKE,
-            target = "com.corrodinggames.rts.gameFramework.GameSaver.saveGame(Lcom/corrodinggames/rts/gameFramework/network/OutputNetStream;)V",
-        ),
-        require = 1,
-    )
-    fun markReplaySnapshot(
-        gameSaver: Any,
-        outputStream: Any,
-        operation: Operation<Unit>,
-    ) {
-        val previous = activeReplaySnapshotSave.get()
-        activeReplaySnapshotSave.set(true)
-        try {
-            operation.call(gameSaver, outputStream)
-        } catch (failure: Throwable) {
-            throw unwrapPersistenceFailure(failure)
-        } finally {
-            restoreThreadLocal(activeReplaySnapshotSave, previous)
-        }
+internal fun markReplaySnapshotSave(operation: () -> Unit) {
+    val previous = activeReplaySnapshotSave.get()
+    activeReplaySnapshotSave.set(true)
+    try {
+        operation()
+    } catch (failure: Throwable) {
+        throw unwrapPersistenceFailure(failure)
+    } finally {
+        restoreThreadLocal(activeReplaySnapshotSave, previous)
     }
 }
 

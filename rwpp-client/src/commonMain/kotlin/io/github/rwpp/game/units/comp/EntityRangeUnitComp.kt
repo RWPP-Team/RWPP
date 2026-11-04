@@ -1,8 +1,8 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.game.units.comp
@@ -10,28 +10,42 @@ package io.github.rwpp.game.units.comp
 import android.graphics.Paint
 import android.graphics.RectF
 import androidx.compose.ui.graphics.toArgb
-import com.corrodinggames.rts.gameFramework.render.GraphicsEngine
-import io.github.rwpp.AppContext
-import io.github.rwpp.appKoin
-import io.github.rwpp.config.Settings
-import io.github.rwpp.api.event.GlobalEventChannel
-import io.github.rwpp.api.event.events.DisconnectEvent
-import io.github.rwpp.api.game.Game
-import io.github.rwpp.game.team
 import com.corrodinggames.rts.game.units.OrderableUnit
 import com.corrodinggames.rts.game.units.Unit
 import com.corrodinggames.rts.gameFramework.GameEngine
-import com.corrodinggames.rts.game.units.MovementType
-import io.github.rwpp.api.graphics.ShaderProgram
+import com.corrodinggames.rts.gameFramework.render.GraphicsEngine
+import io.github.rwpp.api.event.GlobalEventChannel
+import io.github.rwpp.api.event.events.DisconnectEvent
+import io.github.rwpp.api.game.Game
+import io.github.rwpp.appKoin
+import io.github.rwpp.config.Settings
+import io.github.rwpp.game.hud.hideFullHealthBarDuringMultiSelection
+import io.github.rwpp.game.team
 import io.github.rwpp.ui.color.getTeamColor
 import io.github.rwpp.utils.argb
 import org.koin.core.annotation.Single
 import kotlin.math.ceil
-import io.github.rwpp.api.logging.logger
 
 @Single
 class EntityRangeUnitComp {
-    var showAttackRange: Boolean = false
+    private val explicitRanges = java.util.WeakHashMap<Unit, Boolean>()
+    fun toggleAttackRange(unit: Unit): Boolean = synchronized(explicitRanges) {
+        if (explicitRanges.remove(unit) == null) {
+            explicitRanges[unit] = true; true
+        } else false
+    }
+
+    fun isAttackRangeShown(unit: Unit): Boolean = synchronized(explicitRanges) { explicitRanges[unit] == true }
+    fun hasExplicitRanges(): Boolean = synchronized(explicitRanges) {
+        explicitRanges.keys.removeAll { it.dead || it.removed }
+        explicitRanges.isNotEmpty()
+    }
+
+    fun clearAttackRanges() = synchronized(explicitRanges) { explicitRanges.clear() }
+
+    init {
+        GlobalEventChannel.filter(DisconnectEvent::class).subscribeAlways { clearAttackRanges() }
+    }
 
     // showUnitWayPoint
     fun onDraw(unit: Unit, graphics: GraphicsEngine, delta: Float) {
@@ -58,6 +72,15 @@ class EntityRangeUnitComp {
         var realPaint = paint
 
         //以颜色判断是否在绘制血条
+        val isHealthBar = Companion.isNativeHealthBarPaintColor(paint.color)
+        if (isHealthBar && hideFullHealthBarDuringMultiSelection(
+                selected = unit.selected,
+                selectedUnitCount = GameEngine.getInstance().interfaceEngine.getSelectedUnitCount(),
+                hp = unit.hp,
+                maxHp = unit.maxHp,
+            )
+        ) return
+
         if ((paint.color == argb1 || paint.color == argb2) && settings.improvedHealthBar) {
             val percentage = ceil(unit.hp) / unit.maxHp
             realPaint = when (percentage) {
@@ -76,32 +99,22 @@ class EntityRangeUnitComp {
 
         private val argb1 = argb(200, 183, 44, 44)
         private val argb2 = argb(200, 0, 150, 0)
+        private val healthBarEnemyOutline = argb(120, 255, 60, 60)
+        private val healthBarAllyOutline = argb(120, 0, 230, 0)
+        private val healthBarChange = argb(100, 232, 208, 26)
+
+        internal fun isNativeHealthBarPaintColor(color: Int): Boolean =
+            isNativeHealthFillPaintColor(color) || color == healthBarEnemyOutline ||
+                    color == healthBarAllyOutline || color == healthBarChange
+
+        private fun isNativeHealthFillPaintColor(color: Int): Boolean = color == argb1 || color == argb2
 
         private val game: Game by lazy { appKoin.get<Game>() }
         private val settings by lazy { appKoin.get<Settings>() }
-        private val app by lazy { appKoin.get<AppContext>() }
 
         val layerGroups: MutableMap<Int, ArrayList<Unit>> = mutableMapOf()
 
-        var entityRangeShader: ShaderProgram? = null
-
         val teamPaintMap = mutableMapOf<Int, Paint>()
-
-        // 目前仅PC可跑
-        val vertexSource = """
-            #version 120
-
-            uniform float uPriority;
-
-            void main() {
-                vec4 pos = gl_ModelViewProjectionMatrix * gl_Vertex;
-                
-                gl_Position = vec4(pos.xy, uPriority * pos.w, pos.w);
-                
-                gl_TexCoord[0] = gl_MultiTexCoord0;
-                gl_FrontColor = gl_Color;
-            }
-        """.trimIndent()
 
         fun GraphicsEngine.drawRange(unit: Unit, paint: Paint, range: Float) {
             drawRangeWith(unit, paint, range) { x, y, radius, nativePaint ->
@@ -115,50 +128,15 @@ class EntityRangeUnitComp {
             range: Float,
             drawCircle: (x: Float, y: Float, radius: Float, paint: Paint) -> kotlin.Unit,
         ) {
-            val orderableUnit = unit as? OrderableUnit ?: return
-            if (!unit.dead && orderableUnit.getMaxAttackRange() > 70) {
-                val condition = when (unit.getUnitTypeInterface().movementType) {
-                    MovementType.BUILDING, MovementType.NONE -> {
-                        settings.showBuildingAttackRange
-                    }
-
-                    MovementType.LAND, MovementType.OVER_CLIFF, MovementType.OVER_CLIFF_WATER, MovementType.HOVER -> {
-                        settings.showAttackRangeUnit == "Land" || settings.showAttackRangeUnit == "All"
-                    }
-
-                    MovementType.AIR -> {
-                        settings.showAttackRangeUnit == "Air" || settings.showAttackRangeUnit == "All"
-                    }
-
-                    MovementType.WATER -> {
-                        settings.showAttackRangeUnit == "All"
-                    }
-                }
-                val comp = appKoin.get<EntityRangeUnitComp>()
-                if (condition || comp.showAttackRange) {
-                    val priority =
-                        if (game.gameRoom.localPlayer.team != unit.team.allyTeam) 0.1f else 0.8f
-                    entityRangeShader?.setUniform1f("uPriority", priority)
-                    drawCircle(
-                        unit.x - GameEngine.getInstance().cameraX.toFloat(),
-                        unit.y - GameEngine.getInstance().cameraY.toFloat(),
-                        range,
-                        paint
-                    )
-                }
-            }
+            // Range visuals are now collected from visible world entities and composited as one
+            // team/kind mask by AeroWorldEffects. Leaving this legacy hook empty prevents it from
+            // drawing a second, unmerged circle when the detailed style is disabled.
         }
 
         fun beforeDrawRange() {
-            val unitsSnapShot = com.corrodinggames.rts.gameFramework.GameObject.fastGameObjectList
-            .filterIsInstance<com.corrodinggames.rts.gameFramework.GameObject>()
-            .filter { it.renderedLastFrame }
-            layerGroups.values.forEach { it.clear() }
-            unitsSnapShot.forEach { unit ->
-                if (unit is Unit) {
-                    layerGroups.getOrPut(unit.team.allyTeam, { arrayListOf() }).add(unit)
-                }
-            }
+            // Ranges are owned by the shared Compose world layer now. Clear the legacy native
+            // batches rather than snapshotting every game object for a renderer that is disabled.
+            layerGroups.clear()
         }
 
         @Suppress("MemberVisibilityCanBePrivate")
@@ -175,10 +153,6 @@ class EntityRangeUnitComp {
         }
 
         init {
-            logger().info("try loading shaders")
-            if (app.isDesktop()) {
-                entityRangeShader = ShaderProgram.loadShaderFragFromString(null, vertexSource)
-            }
             GlobalEventChannel.filter(DisconnectEvent::class).subscribeAlways {
                 layerGroups.clear()
             }

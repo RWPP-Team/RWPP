@@ -46,9 +46,11 @@ class ServerExtensionHostTest {
                 source.entries().asSequence().forEach { entry ->
                     out.putNextEntry(JarEntry(entry.name))
                     val bytes = source.getInputStream(entry).readAllBytes()
-                    out.write(if (entry.name == "META-INF/extension.properties") {
-                        String(bytes).replace("fixture.mode", "fixture.second").toByteArray()
-                    } else bytes)
+                    out.write(
+                        if (entry.name == "META-INF/extension.properties") {
+                            String(bytes).replace("fixture.mode", "fixture.second").toByteArray()
+                        } else bytes
+                    )
                     out.closeEntry()
                 }
             }
@@ -72,7 +74,8 @@ class ServerExtensionHostTest {
         val root = Files.createTempDirectory("rwpp-server-extension-test-")
         val classes = Files.createDirectory(root.resolve("classes"))
         val source = root.resolve("FixtureMode.java")
-        Files.writeString(source, """
+        Files.writeString(
+            source, """
             import io.github.rwml.api.ExtensionContext;
             import io.github.rwpp.server.ServerExtension;
             import io.github.rwpp.server.ServerRuntimeContext;
@@ -94,21 +97,26 @@ class ServerExtensionHostTest {
                 }
                 public void requestStop() { }
             }
-        """.trimIndent())
-        val code = ToolProvider.getSystemJavaCompiler().run(null, null, null,
-            "-cp", classpath, "-d", classes.toString(), source.toString())
+        """.trimIndent()
+        )
+        val code = ToolProvider.getSystemJavaCompiler().run(
+            null, null, null,
+            "-cp", classpath, "-d", classes.toString(), source.toString()
+        )
         assertEquals(0, code)
         val extensions = Files.createDirectory(root.resolve("extensions"))
         JarOutputStream(Files.newOutputStream(extensions.resolve("mode.jar"))).use { out ->
             out.putNextEntry(JarEntry("META-INF/extension.properties"))
-            out.write("""
+            out.write(
+                """
                 id=fixture.mode
                 name=Fixture
                 version=1
                 mainClass=FixtureMode
                 dependsOn=io.github.rwpp.server
                 tags=$tags
-            """.trimIndent().toByteArray())
+            """.trimIndent().toByteArray()
+            )
             out.closeEntry()
             out.putNextEntry(JarEntry("FixtureMode.class"))
             out.write(Files.readAllBytes(classes.resolve("FixtureMode.class")))
@@ -119,8 +127,10 @@ class ServerExtensionHostTest {
 
     private fun launch(root: Path): Pair<Int, String> {
         val java = Path.of(System.getProperty("java.home"), "bin", "java").toString()
-        val process = ProcessBuilder(java, "-Djdk.attach.allowAttachSelf=true", "-cp", classpath,
-            "io.github.rwpp.server.Main", "--no-console", "--", "ignored")
+        val process = ProcessBuilder(
+            java, "-Djdk.attach.allowAttachSelf=true", "-cp", classpath,
+            "io.github.rwpp.server.Main", "--no-console", "--", "ignored"
+        )
             .directory(root.toFile()).redirectErrorStream(true).start()
         val output = CompletableFuture.supplyAsync { process.inputStream.bufferedReader().readText() }
         if (!process.waitFor(30, TimeUnit.SECONDS)) {

@@ -1,8 +1,8 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.api
@@ -20,7 +20,7 @@ object ApiRuntime {
     private val lock = Any()
     private var application: KoinApplication? = null
     private var context: ExtensionContext? = null
-    private var componentsInitialized = false
+    private val components = InitializationRegistry()
     private var gameLoaded = false
 
     val extensionContext: ExtensionContext
@@ -69,13 +69,16 @@ object ApiRuntime {
     /** Runs all API and application initialization hooks once the Koin modules are ready. */
     fun initializeComponents() {
         synchronized(lock) {
-            if (componentsInitialized) return
             val koin = checkNotNull(application) {
                 "The RWML API extension must load before components are initialized"
             }.koin
-            koin.getAll<Initialization>().forEach(Initialization::init)
-            componentsInitialized = true
+            components.initialize(koin.getAll<Initialization>(), gameLoaded)
         }
+    }
+
+    /** Client calls this after loading its configuration and declaring its UI services. */
+    fun initializeLateComponents() {
+        synchronized(lock) { if (gameLoaded) initializeComponents() }
     }
 
     /** Finishes the shared game-loaded lifecycle, then publishes the API event. */
@@ -87,7 +90,7 @@ object ApiRuntime {
             val koin = checkNotNull(application) {
                 "The RWML API extension must load before the game is loaded"
             }.koin
-            koin.getAll<Initialization>().forEach(Initialization::onGameLoaded)
+            components.initialize(koin.getAll<Initialization>(), engineReady = true)
             gameLoaded = true
             true
         }

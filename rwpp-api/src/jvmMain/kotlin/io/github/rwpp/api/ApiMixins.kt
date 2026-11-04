@@ -1,61 +1,62 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.api
 
-import io.github.rwpp.api.coroutines.GameDispatcherMixin
-import io.github.rwpp.api.event.hooks.ClientEventMixin
-import io.github.rwpp.api.event.hooks.CommandEventMixin
-import io.github.rwpp.api.event.hooks.DrawEventMixin
-import io.github.rwpp.api.event.hooks.EngineLoadedMixin
-import io.github.rwpp.api.event.hooks.FactoryUnitCreationEventMixin
-import io.github.rwpp.api.event.hooks.FileSaveCommitMixin
-import io.github.rwpp.api.event.hooks.MapTriggerEventMixin
-import io.github.rwpp.api.event.hooks.ModReloadEventHooks
-import io.github.rwpp.api.event.hooks.NativeDecisionMixin
-import io.github.rwpp.api.event.hooks.NativeEngineLifecycleMixin
-import io.github.rwpp.api.event.hooks.NativeJoinDecisionMixin
-import io.github.rwpp.api.event.hooks.NativeNetworkLifecycleMixin
-import io.github.rwpp.api.event.hooks.NativeReplayLifecycleMixin
-import io.github.rwpp.api.event.hooks.NetworkEventMixin
-import io.github.rwpp.api.event.hooks.PersistenceEventMixin
-import io.github.rwpp.api.event.hooks.PlayerEventMixin
-import io.github.rwpp.api.event.hooks.ReplaySnapshotSaveMixin
-import io.github.rwpp.api.event.hooks.RefreshUiEventMixin
-import io.github.rwpp.api.event.hooks.SimulationEventHooks
-import io.github.rwpp.api.event.hooks.UnitDrawEntryMixin
-import io.github.rwpp.api.event.hooks.UnitEventMixin
-import io.github.rwpp.api.event.hooks.UnitMetadataEventMixin
-import io.github.rwpp.api.event.hooks.UnitOverlayBarMixin
-import io.github.rwpp.api.event.hooks.UnitSpawnRegistryMixin
-import io.github.rwpp.api.event.hooks.UnitUpgradeEventMixin
-import io.github.rwpp.api.game.ai.AiControllerHooks
-import io.github.rwpp.api.game.ai.AiTeamLifecycleHooks
-import io.github.rwpp.api.net.impl.NetworkPacketMixin
-import io.github.rwpp.api.net.impl.PayloadCapabilityMixin
+import io.github.rwpp.api.mixin.coroutines.GameDispatcherMixin
+import io.github.rwpp.api.mixin.event.ClientEventMixin
+import io.github.rwpp.api.mixin.event.CommandEventMixin
+import io.github.rwpp.api.mixin.event.DrawEventMixin
+import io.github.rwpp.api.mixin.event.EngineLoadedMixin
+import io.github.rwpp.api.mixin.event.FactoryUnitCreationEventMixin
+import io.github.rwpp.api.mixin.event.FileSaveCommitMixin
+import io.github.rwpp.api.mixin.event.MapTriggerEventMixin
+import io.github.rwpp.api.mixin.event.ModReloadEventHooks
+import io.github.rwpp.api.mixin.event.NetworkEventMixin
+import io.github.rwpp.api.mixin.event.PersistenceEventMixin
+import io.github.rwpp.api.mixin.event.PlayerEventMixin
+import io.github.rwpp.api.mixin.event.RefreshUiEventMixin
+import io.github.rwpp.api.mixin.event.ReplaySnapshotSaveMixin
+import io.github.rwpp.api.mixin.event.SimulationEventMixin
+import io.github.rwpp.api.mixin.event.UnitDrawEntryMixin
+import io.github.rwpp.api.mixin.event.UnitEventMixin
+import io.github.rwpp.api.mixin.event.UnitMetadataEventMixin
+import io.github.rwpp.api.mixin.event.UnitOverlayBarMixin
+import io.github.rwpp.api.mixin.event.UnitSpawnRegistryMixin
+import io.github.rwpp.api.mixin.event.UnitUpgradeEventMixin
+import io.github.rwpp.api.mixin.game.NativeEngineLifecycleMixin
+import io.github.rwpp.api.mixin.game.NativeReplayLifecycleMixin
+import io.github.rwpp.api.mixin.game.ai.AiControllerHooks
+import io.github.rwpp.api.mixin.game.ai.AiTeamLifecycleHooks
+import io.github.rwpp.api.mixin.game.ai.AiUnitMixActionSnapshotMixin
+import io.github.rwpp.api.mixin.game.stats.NativeStatsHistoryAccessMixin
+import io.github.rwpp.api.mixin.game.stats.StatsHistoryLoadMixin
+import io.github.rwpp.api.mixin.network.NativeAddressConnectMixin
+import io.github.rwpp.api.mixin.network.NativeDecisionMixin
+import io.github.rwpp.api.mixin.network.NativeJoinDecisionMixin
+import io.github.rwpp.api.mixin.network.NativeNetworkLifecycleMixin
+import io.github.rwpp.api.mixin.network.NativeTcpConnectMixin
+import io.github.rwpp.api.mixin.network.NativeTcpConnectionMixin
+import io.github.rwpp.api.mixin.network.NativeTcpListenMixin
+import io.github.rwpp.api.mixin.network.NetworkPacketMixin
+import io.github.rwpp.api.mixin.network.PayloadCapabilityMixin
 
 /**
- * API 自带的 Mixin 清单，供把 API 作为内置扩展的宿主注册。
- *
- * API 通常由使用它的扩展归档提供，此时宿主扫描归档即可发现这些类。以库的形式放进宿主类路径时没有归档可供扫描，
- * 而内置扩展又必须由宿主负责注册自己的 Mixin，因此这里给出完整清单。
- *
- * 清单必须与 `@AsmMixin` 标注的类保持一致。新增或删除 Mixin 时同步本文件，遗漏会让对应的事件或命令在服务端
- * 静默失效。
+ * API-owned mixin inventory used when the API is registered as a built-in host extension.
+ * Keep this list synchronized with all `@AsmMixin` classes under `io.github.rwpp.api.mixin`.
  */
 object ApiMixins {
-
-    /** 全部 Mixin 类，顺序无关。 */
+    /** All API mixin classes; ordering is not significant. */
     @JvmStatic
     fun classes(): List<Class<*>> = listOf(
-        io.github.rwpp.api.net.impl.NativeTcpConnectionMixin::class.java,
-        io.github.rwpp.api.net.impl.NativeTcpConnectMixin::class.java,
-        io.github.rwpp.api.net.impl.NativeAddressConnectMixin::class.java,
-        io.github.rwpp.api.net.impl.NativeTcpListenMixin::class.java,
+        NativeTcpConnectionMixin::class.java,
+        NativeTcpConnectMixin::class.java,
+        NativeAddressConnectMixin::class.java,
+        NativeTcpListenMixin::class.java,
         GameDispatcherMixin::class.java,
         EngineLoadedMixin::class.java,
         DrawEventMixin::class.java,
@@ -74,7 +75,7 @@ object ApiMixins {
         PersistenceEventMixin::class.java,
         FileSaveCommitMixin::class.java,
         ReplaySnapshotSaveMixin::class.java,
-        SimulationEventHooks::class.java,
+        SimulationEventMixin::class.java,
         UnitDrawEntryMixin::class.java,
         UnitOverlayBarMixin::class.java,
         CommandEventMixin::class.java,
@@ -84,7 +85,10 @@ object ApiMixins {
         UnitSpawnRegistryMixin::class.java,
         AiControllerHooks::class.java,
         AiTeamLifecycleHooks::class.java,
+        AiUnitMixActionSnapshotMixin::class.java,
         NetworkPacketMixin::class.java,
         PayloadCapabilityMixin::class.java,
+        StatsHistoryLoadMixin::class.java,
+        NativeStatsHistoryAccessMixin::class.java,
     )
 }

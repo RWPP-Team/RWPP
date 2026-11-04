@@ -14,4 +14,11 @@ build/
 /.kotlin/
 /.workbuddy/
 /docs/
-/scripts/
+/scripts/*
+!/scripts/install-client-extensions.ps1
+/AGENTS.md
+
+# 编辑器与 Python 临时文件
+*~
+__pycache__/
+*.pyc

@@ -15,7 +15,8 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class NativeTcpFailureNotificationTest {
-    @Test fun failureCallbackNeverInheritsTheSocketMonitor() {
+    @Test
+    fun failureCallbackNeverInheritsTheSocketMonitor() {
         for (optimized in listOf(true, false)) fixture(optimized) { test ->
             val notified = CompletableFuture<Boolean>()
             test.socket.startReceiving({ 1024 }, { _, _ -> }, {
@@ -29,7 +30,8 @@ class NativeTcpFailureNotificationTest {
         }
     }
 
-    @Test fun failureNotificationWaitsForTheInFlightReceiverToFinish() {
+    @Test
+    fun failureNotificationWaitsForTheInFlightReceiverToFinish() {
         for (optimized in listOf(true, false)) fixture(optimized) { test ->
             val entered = CountDownLatch(1)
             val release = CountDownLatch(1)
@@ -60,11 +62,14 @@ class NativeTcpFailureNotificationTest {
                 assertFalse(heldMonitor.get())
                 test.fail("duplicate failure")
                 assertEquals(1, calls.get())
-            } finally { release.countDown() }
+            } finally {
+                release.countDown()
+            }
         }
     }
 
-    @Test fun rejectedPacketExecutorStillNotifiesExactlyOnceOutsideTheSocketMonitor() = fixture(true) { test ->
+    @Test
+    fun rejectedPacketExecutorStillNotifiesExactlyOnceOutsideTheSocketMonitor() = fixture(true) { test ->
         val notified = CountDownLatch(1)
         val calls = AtomicInteger()
         val heldMonitor = AtomicBoolean(true)
@@ -90,7 +95,8 @@ class NativeTcpFailureNotificationTest {
         assertEquals(1, calls.get())
     }
 
-    @Test fun closePreservesAnAlreadyRegisteredFailureBehindTheWorkerQueue() = fixture(true) { test ->
+    @Test
+    fun closePreservesAnAlreadyRegisteredFailureBehindTheWorkerQueue() = fixture(true) { test ->
         val workerEntered = CountDownLatch(1)
         val releaseWorker = CountDownLatch(1)
         val notified = CompletableFuture<String>()
@@ -113,7 +119,9 @@ class NativeTcpFailureNotificationTest {
             releaseWorker.countDown()
             assertEquals("registered before close", notified.get(3, TimeUnit.SECONDS))
             assertEquals(1, calls.get())
-        } finally { releaseWorker.countDown() }
+        } finally {
+            releaseWorker.countDown()
+        }
     }
 
     private class Fixture(runtime: ServerTransportBackend) {
@@ -148,8 +156,9 @@ class NativeTcpFailureNotificationTest {
             else System.setProperty("rwpp.server.network.optimized", previous)
         }
         val test = Fixture(runtime)
-        try { block(test) }
-        finally {
+        try {
+            block(test)
+        } finally {
             test.socket.close()
             test.channel.finishAndReleaseAll()
             runtime.close()

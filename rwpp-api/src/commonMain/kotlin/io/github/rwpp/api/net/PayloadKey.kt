@@ -1,8 +1,8 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.api.net
@@ -43,6 +43,7 @@ class PayloadKey<T : Any>(
         /** Native packet number reserved exclusively for the RWML envelope. */
         const val PAYLOAD_ENVELOPE_PACKET_ID = 1000
         const val DEFAULT_MAX_PAYLOAD_BYTES = 256 * 1024
+
         /** Leaves enough room for the envelope header under the native 50 MB packet limit. */
         const val MAX_PAYLOAD_BYTES = 49_999_744
         const val MAX_SCHEMA_VERSION = 65_535
@@ -53,7 +54,7 @@ class PayloadKey<T : Any>(
             val separator = value.indexOf(':')
             if (separator <= 0 || separator != value.lastIndexOf(':') || separator == value.lastIndex) return false
             return isIdentifierPart(value.substring(0, separator)) &&
-                isIdentifierPart(value.substring(separator + 1))
+                    isIdentifierPart(value.substring(separator + 1))
         }
 
         private fun isIdentifierPart(value: String): Boolean =

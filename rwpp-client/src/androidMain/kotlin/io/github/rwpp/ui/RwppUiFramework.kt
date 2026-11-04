@@ -1,60 +1,54 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.ui
 
 import android.app.Activity
 import android.content.Context
-import android.graphics.BitmapFactory
 import android.os.SystemClock
 import android.view.KeyEvent
-import android.view.Window
 import android.view.View
+import android.view.Window
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.ViewCompositionStrategy
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.lifecycle.Lifecycle
-import io.github.rwpp.api.ApiRuntime
-import io.github.rwml.api.ui.UiContentFactory
-import io.github.rwml.api.ProgressListener
-import io.github.rwml.api.game.GameBoot
-import io.github.rwml.api.game.StageReport
-import io.github.rwml.api.ui.GameUi
-import io.github.rwml.api.ui.UiFramework
-import io.github.rwml.api.ui.UiHost
-import io.github.rwml.api.ui.UiSurface
+import coil3.ImageLoader
+import coil3.compose.AsyncImage
+import coil3.gif.GifDecoder
+import io.github.rwml.api.ui.*
 import io.github.rwpp.AppContext
+import io.github.rwpp.android.AndroidModule
+import io.github.rwpp.api.ApiRuntime
+import io.github.rwpp.api.config.ConfigIO
+import io.github.rwpp.api.game.Game
 import io.github.rwpp.appKoin
 import io.github.rwpp.config.Settings
-import io.github.rwpp.api.config.ConfigIO
-import io.github.rwpp.config.ConfigModule
-import io.github.rwpp.config.ProductTranslations
-import io.github.rwpp.android.AndroidModule
 import io.github.rwpp.game.units.comp.CompModule
-import io.github.rwpp.api.game.Game
+import io.github.rwpp.logic.LogicModule
+import io.github.rwpp.logic.config.ConfigModule
+import io.github.rwpp.logic.config.migrateTerrainEdgeBuildingPreference
+import io.github.rwpp.logic.config.registerClientConfigSerializers
+import io.github.rwpp.logic.i18n.ProductTranslations
 import io.github.rwpp.widget.isLoading
 import io.github.rwpp.widget.loadingMessage
-import io.github.rwpp.android.OffscreenSurfaceView
 import kotlinx.coroutines.runBlocking
 import org.koin.plugin.module.dsl.modules
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Proxy
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
-import io.github.rwpp.api.logging.logger
 
 /** Android services that need the host handle after the framework entry point returns. */
 internal object AndroidUiRuntime {
@@ -155,8 +149,15 @@ class RwppUiFramework : UiFramework {
         val activity = host.platform() as? ComponentActivity
             ?: throw IllegalArgumentException("RWPP Android UI requires a ComponentActivity host")
         initializeKoin(activity)
-        appKoin.get<ConfigIO>().readAllConfig()
+        registerClientConfigSerializers()
+        val configIO = appKoin.get<ConfigIO>()
+        configIO.readAllConfig()
+        if (appKoin.get<Settings>().migrateTerrainEdgeBuildingPreference()) {
+            configIO.saveConfig(appKoin.get<Settings>())
+        }
         ProductTranslations.install()
+        appKoin.get<AppContext>().init()
+        runBlocking { appKoin.get<Game>().load {} }
         val surface = host.createSurface()
 
         surface.uiExecutor().execute {
@@ -165,9 +166,9 @@ class RwppUiFramework : UiFramework {
                 return@execute
             }
 
-            isLoading = true
-            loadingMessage = "Preparing game…"
-            val composeView = ComposeView(activity).apply {
+            isLoading = false
+            loadingMessage = ""
+            val composeView = ComposeView(AndroidExtensionResources.context(activity)).apply {
                 setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
                 setContent { MainComposeContent(safeInsets = true) }
             }
@@ -191,14 +192,21 @@ class RwppUiFramework : UiFramework {
                 },
                 createGameSurface = { createGameSurface(host, surface) }
             )
+            io.github.rwpp.api.game.AndroidGameScreens.open = AndroidUiRuntime::openGameScreen
+            io.github.rwpp.api.game.AndroidGameScreens.close = AndroidUiRuntime::closeGameScreen
+            val gameScreenHandle = host.services().registerScreen("game-start", surface.uiExecutor()) {
+                AndroidUiRuntime.openGameScreen()
+            }
             val closeHandle = surface.onClose {
+                gameScreenHandle.close()
+                io.github.rwpp.api.game.AndroidGameScreens.open = null
+                io.github.rwpp.api.game.AndroidGameScreens.close = null
                 restoreKeys()
                 composeView.disposeComposition()
                 AndroidUiRuntime.clear(host)
             }
             try {
                 surface.attach(composeView)
-                startGameBoot(host, surface)
             } catch (failure: Throwable) {
                 closeHandle.close()
                 restoreKeys()
@@ -221,16 +229,29 @@ class RwppUiFramework : UiFramework {
         surface.attachFactory(UiContentFactory { nativeActivity ->
             val gameActivity = nativeActivity as? Activity
                 ?: throw IllegalArgumentException("Android game surfaces require an Activity owner")
-            val container = FrameLayout(gameActivity)
-            val rangeLayer = OffscreenSurfaceView(gameActivity)
-            container.addView(rangeLayer, FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-            val composeView = ComposeView(gameActivity).apply {
+            val container = object : FrameLayout(gameActivity) {
+                private val windowOffset = IntArray(2)
+                override fun dispatchTouchEvent(event: android.view.MotionEvent): Boolean {
+                    if (event.actionMasked == android.view.MotionEvent.ACTION_DOWN && HudQueuePopupTouch.active) {
+                        getLocationInWindow(windowOffset)
+                        HudQueuePopupTouch.down(
+                            androidx.compose.ui.geometry.Offset(
+                                event.x + windowOffset[0], event.y + windowOffset[1]
+                            )
+                        )
+                    }
+                    return super.dispatchTouchEvent(event)
+                }
+            }
+            val composeView = ComposeView(AndroidExtensionResources.context(gameActivity)).apply {
                 setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
                 setContent { MainComposeContent(showBackground = false, safeInsets = true) }
             }
-            container.addView(composeView, FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+            container.addView(
+                composeView, FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            )
             val restoreKeys = installVolumeKeyMapping(gameActivity)
             val cleaned = AtomicBoolean()
             val cleanup: () -> Unit = {
@@ -255,60 +276,11 @@ class RwppUiFramework : UiFramework {
         return surface
     }
 
-    private fun startGameBoot(host: UiHost, surface: UiSurface) {
-        Thread({
-            try {
-                val report = host.gameBoot().start(ProgressListener { _, message ->
-                    surface.uiExecutor().execute {
-                        if (!surface.isClosed) loadingMessage = message
-                    }
-                })
-                verifyBoot(report)
-
-                // AppContext.init resolves game-backed singletons, so it must follow RWML's DEX preparation and engine stage.
-                appKoin.get<AppContext>().init()
-                runBlocking {
-                    appKoin.get<Game>().load { message ->
-                        surface.uiExecutor().execute {
-                            if (!surface.isClosed) loadingMessage = message
-                        }
-                    }
-                }
-                surface.uiExecutor().execute {
-                    if (!surface.isClosed) {
-                        loadingMessage = ""
-                        isLoading = false
-                    }
-                }
-                logger().info("RWPP Android GameBoot completed: ${report.ran()}")
-            } catch (failure: Throwable) {
-                logger().error("RWPP Android game startup failed", failure)
-                surface.uiExecutor().execute {
-                    if (!surface.isClosed) {
-                        loadingMessage = "Game startup failed: ${failure.message ?: failure::class.simpleName}"
-                    }
-                }
-            }
-        }, "rwpp-android-game-boot").apply {
-            isDaemon = true
-            start()
-        }
-    }
-
-    private fun verifyBoot(report: StageReport) {
-        check(report.contains(GameBoot.ENGINE)) {
-            "The RWML game engine stage did not run; report=$report"
-        }
-        check(report.isClean) {
-            "RWML GameBoot had failed stage(s): ${report.failed().entries.joinToString { "${it.key}: ${it.value}" }}"
-        }
-    }
-
     private fun initializeKoin(activity: ComponentActivity) {
         appKoin.declare(activity, secondaryTypes = listOf(Context::class, Activity::class))
         ApiRuntime.configureKoin {
             modules(io.github.rwpp.client.api.clientServices)
-            modules(ConfigModule::class, AndroidModule::class, CompModule::class, UIModule::class)
+            modules(ConfigModule::class, LogicModule::class, AndroidModule::class, CompModule::class, UIModule::class)
         }
     }
 
@@ -329,23 +301,46 @@ class RwppUiFramework : UiFramework {
                             when (event.action) {
                                 KeyEvent.ACTION_DOWN -> if (event.repeatCount == 0) {
                                     volumeUpDownTime = event.downTime
-                                    dispatchSyntheticKey(original, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_SHIFT_LEFT, volumeUpDownTime)
+                                    dispatchSyntheticKey(
+                                        original,
+                                        KeyEvent.ACTION_DOWN,
+                                        KeyEvent.KEYCODE_SHIFT_LEFT,
+                                        volumeUpDownTime
+                                    )
                                 }
+
                                 KeyEvent.ACTION_UP -> {
-                                    dispatchSyntheticKey(original, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_SHIFT_LEFT, volumeUpDownTime)
+                                    dispatchSyntheticKey(
+                                        original,
+                                        KeyEvent.ACTION_UP,
+                                        KeyEvent.KEYCODE_SHIFT_LEFT,
+                                        volumeUpDownTime
+                                    )
                                     volumeUpDownTime = 0L
                                 }
                             }
                             return@InvocationHandler true
                         }
+
                         KeyEvent.KEYCODE_VOLUME_DOWN -> {
                             when (event.action) {
                                 KeyEvent.ACTION_DOWN -> if (event.repeatCount == 0) {
                                     volumeDownDownTime = event.downTime
-                                    dispatchSyntheticKey(original, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_S, volumeDownDownTime)
+                                    dispatchSyntheticKey(
+                                        original,
+                                        KeyEvent.ACTION_DOWN,
+                                        KeyEvent.KEYCODE_S,
+                                        volumeDownDownTime
+                                    )
                                 }
+
                                 KeyEvent.ACTION_UP -> {
-                                    dispatchSyntheticKey(original, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_S, volumeDownDownTime)
+                                    dispatchSyntheticKey(
+                                        original,
+                                        KeyEvent.ACTION_UP,
+                                        KeyEvent.KEYCODE_S,
+                                        volumeDownDownTime
+                                    )
                                     volumeDownDownTime = 0L
                                 }
                             }
@@ -383,18 +378,16 @@ class RwppUiFramework : UiFramework {
 
 @Composable
 internal actual fun PlatformBackgroundLayer(path: String) {
-    val bitmap = remember(path) {
-        path.takeIf(String::isNotBlank)?.let { runCatching { BitmapFactory.decodeFile(it) }.getOrNull() }
+    if (path.isBlank()) return
+    val context = LocalContext.current
+    val loader = remember(context) {
+        ImageLoader.Builder(context).components { add(GifDecoder.Factory()) }.build()
     }
-    DisposableEffect(bitmap) {
-        onDispose { bitmap?.recycle() }
-    }
-    bitmap?.let {
-        Image(
-            bitmap = it.asImageBitmap(),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
-        )
-    }
+    AsyncImage(
+        model = java.io.File(path),
+        imageLoader = loader,
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        modifier = Modifier.fillMaxSize()
+    )
 }

@@ -1,8 +1,8 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.api.game.team
@@ -36,7 +36,8 @@ object InternalTeamMode2t : InternalTeamMode("2t") {
 object InternalTeamMode3t : InternalTeamMode("3t") {
     override val displayName = "3 Teams (eg 1v1v1)"
     override fun autoTeamAssign(gameRoom: GameRoom, targetSpawnPoint: Int, player: Team) = targetSpawnPoint % 3
-    override fun onPlayerJoin(gameRoom: GameRoom, player: Team) = setOneBasedTeam(gameRoom, player, player.teamId % 3 + 1)
+    override fun onPlayerJoin(gameRoom: GameRoom, player: Team) =
+        setOneBasedTeam(gameRoom, player, player.teamId % 3 + 1)
 }
 
 object InternalTeamModeFFA : InternalTeamMode("FFA") {
@@ -79,7 +80,8 @@ object RandomTeamMode : TeamMode("random-team") {
 object AllVsAI : TeamMode("all-vs-ai") {
     override val displayName = "All vs AI"
     override fun autoTeamAssign(gameRoom: GameRoom, targetSpawnPoint: Int, player: Team) = if (player.isAI) 2 else 1
-    override fun onPlayerJoin(gameRoom: GameRoom, player: Team) = setOneBasedTeam(gameRoom, player, if (player.isAI) 1 else 0)
+    override fun onPlayerJoin(gameRoom: GameRoom, player: Team) =
+        setOneBasedTeam(gameRoom, player, if (player.isAI) 1 else 0)
 
     override fun onInit(gameRoom: GameRoom) {
         gameRoom.getPlayers().forEach { player -> setAllyTeam(gameRoom, player, if (player.isAI) 1 else 0) }
@@ -88,8 +90,11 @@ object AllVsAI : TeamMode("all-vs-ai") {
 
 object AllVs2 : TeamMode("all-vs-2") {
     override val displayName = "All vs 2 (survival)"
-    override fun autoTeamAssign(gameRoom: GameRoom, targetSpawnPoint: Int, player: Team) = if (player.teamId == 1) 1 else 0
-    override fun onPlayerJoin(gameRoom: GameRoom, player: Team) = setOneBasedTeam(gameRoom, player, if (player.teamId == 1) 2 else 1)
+    override fun autoTeamAssign(gameRoom: GameRoom, targetSpawnPoint: Int, player: Team) =
+        if (player.teamId == 1) 1 else 0
+
+    override fun onPlayerJoin(gameRoom: GameRoom, player: Team) =
+        setOneBasedTeam(gameRoom, player, if (player.teamId == 1) 2 else 1)
 
     override fun onInit(gameRoom: GameRoom) {
         gameRoom.getPlayers().forEach { player -> setAllyTeam(gameRoom, player, if (player.teamId == 1) 1 else 0) }

@@ -1,8 +1,8 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.widget
@@ -15,9 +15,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.ripple.RippleAlpha
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -30,7 +27,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -126,7 +122,8 @@ fun <T> LargeDropdownMenu(
             colors = RWOutlinedTextColors,
             value = if (hasValue) items.getOrNull(selectedIndex)?.let { selectedItemToString(it) } ?: "" else "",
             enabled = enabled,
-            modifier = Modifier.menuAnchor().fillMaxWidth(),
+            modifier = Modifier.menuAnchor(androidx.compose.material3.ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                .fillMaxWidth(),
             trailingIcon = {
                 ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
             },
@@ -253,8 +250,9 @@ fun RWSingleOutlinedTextField(
             leadingIcon = leadingIcon,
             onValueChange = {
                 onValueChange(
-                    (if(it.length <= lengthLimitCount
-                        && (!typeInNumberOnly || !typeInOnlyInteger || it.all { s -> s.isDigit() }))
+                    (if (it.length <= lengthLimitCount
+                        && (!typeInNumberOnly || !typeInOnlyInteger || it.all { s -> s.isDigit() })
+                    )
                         it
                     else "").run {
                         if (contains("\n"))
@@ -264,7 +262,7 @@ fun RWSingleOutlinedTextField(
                 )
             },
             visualTransformation = visualTransformation,
-            keyboardOptions = KeyboardOptions(keyboardType = if(typeInNumberOnly) KeyboardType.Number else KeyboardType.Text)
+            keyboardOptions = KeyboardOptions(keyboardType = if (typeInNumberOnly) KeyboardType.Number else KeyboardType.Text)
         )
 
         appendedContent?.invoke()
@@ -326,7 +324,7 @@ fun RowScope.TableCell(
     strokeColor: Color = MaterialTheme.colorScheme.primaryContainer,
     iconLeader: (@Composable () -> Unit)? = null,
 ) {
-    val border = if(drawStroke) Modifier.border(0.5f.dp, strokeColor) else Modifier
+    val border = if (drawStroke) Modifier.border(0.5f.dp, strokeColor) else Modifier
     val settings = koinInject<Settings>()
     Row(
         horizontalArrangement = Arrangement.Center,
@@ -359,20 +357,24 @@ fun ExpandableText(
     fontStyle: FontStyle? = null,
     text: String,
     collapsedMaxLine: Int = DEFAULT_MINIMUM_TEXT_LINE,
-    showMoreText: String = "... Show More",
+    showMoreText: String,
     showMoreStyle: SpanStyle = SpanStyle(fontWeight = FontWeight.W500),
-    showLessText: String = " Show Less",
+    showLessText: String,
     showLessStyle: SpanStyle = showMoreStyle,
+    onExpandToggle: ((Boolean) -> Unit)? = null,
     textAlign: TextAlign? = null
 ) {
     var isExpanded by remember { mutableStateOf(false) }
     var clickable by remember { mutableStateOf(false) }
     var lastCharIndex by remember { mutableIntStateOf(0) }
-    Box(modifier = Modifier
-        .clickable(clickable) {
-            isExpanded = !isExpanded
-        }
-        .then(modifier)
+    Box(
+        modifier = Modifier
+            .clickable(clickable) {
+                val expanded = !isExpanded
+                isExpanded = expanded
+                onExpandToggle?.invoke(expanded)
+            }
+            .then(modifier)
     ) {
         Text(
             modifier = textModifier

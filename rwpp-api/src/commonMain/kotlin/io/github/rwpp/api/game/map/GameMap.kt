@@ -1,8 +1,8 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.api.game.map
@@ -16,19 +16,14 @@ open class GameMap(
     val mapName: String,
     val mapType: GameSetupMapType,
     private val inputStreamProvider: () -> InputStream,
-    private val displayNameProvider: (() -> String)? = null,
     val enginePath: String = defaultMapPath(mapName, mapType),
 ) {
     open fun openInputStream(): InputStream = inputStreamProvider()
 
-    open fun displayName(): String = displayNameProvider?.invoke()
-        ?: mapName.replace(mapPrefixRegex, "")
+    private val _displayName = MapNames.getPrettyMapName(mapName)
+    open fun displayName(): String = _displayName
 
     fun getMapSuffix() = if (mapType == GameSetupMapType.savedGame) ".rwsave" else ".tmx"
-
-    companion object {
-        private val mapPrefixRegex = Regex("""^\[.*?\]""")
-    }
 }
 
 internal fun defaultMapPath(name: String, type: GameSetupMapType): String {

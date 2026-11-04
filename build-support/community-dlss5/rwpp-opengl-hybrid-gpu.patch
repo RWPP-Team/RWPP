@@ -1,0 +1,27 @@
+diff --git a/src/bridge/dxgi_hooks.cpp b/src/bridge/dxgi_hooks.cpp
+index 3e9725c..44077b0 100644
+--- a/src/bridge/dxgi_hooks.cpp
++++ b/src/bridge/dxgi_hooks.cpp
+@@ -176,6 +176,9 @@ void probeGameGuideHooks(SwapCtx& c){
+  if(gpu::installGameTemporalGuideHooks()&&!c.guideHooksLogged){c.guideHooksLogged=true;logAttachStage(AttachLogStage::GameGuideHooksInstalled);}
+ }
+ bool process(IDXGISwapChain*s){
++ // RWPP uses OpenGL. NVIDIA/AWT's internal DXGI presentation must not claim
++ // native ownership and suppress the actual OpenGL frontend.
++ if(GetModuleHandleW(L"lwjgl64.dll") || GetModuleHandleW(L"lwjgl.dll")) return false;
+  if(!ctl||!ctl->valid()||inside)return false;setCrashStage(CrashStage::ProcessEntry);inside=true;Settings set=ctl->readSettings();auto&c=getCtx(s);if(c.presentResyncPending){resetPipelinesForPresentResync(c);c.presentResyncPending=false;}RuntimeStatus st{};st.pid=GetCurrentProcessId();st.state=RuntimeState::Hooked;st.lastTickMs=GetTickCount64();markPipelineStage(st.stageMask,PipelineStage::BridgeInjected);markPipelineStage(st.stageMask,PipelineStage::HooksInstalled);markPipelineStage(st.stageMask,PipelineStage::PresentObserved);if(!c.safeAttach.firstPresentTickMs){c.safeAttach.firstPresentTickMs=st.lastTickMs;logAttachStage(AttachLogStage::PresentObserved);}++c.safeAttach.stablePresents;
+  if(!set.enabled){st.state=RuntimeState::Bypassed;++c.bypassed;wcscpy_s(st.message,L"processing disabled");writeStatus(c,st);inside=false;return false;}
+  const auto resetGen=ctl->historyResetGeneration();if(c.resetGeneration.consume(resetGen)){if(c.p11)c.p11->reset();if(c.p12)c.p12->reset();}
+diff --git a/src/compat/opengl_frontend.cpp b/src/compat/opengl_frontend.cpp
+index 97304e9..c916173 100644
+--- a/src/compat/opengl_frontend.cpp
++++ b/src/compat/opengl_frontend.cpp
+@@ -13,7 +13,7 @@ template<class T>T glProc(const char* name){auto p=wglGetProcAddress(name);if(!p
+ bool adapterMatchesMonitor(IDXGIAdapter1*a,HMONITOR mon){if(!a||!mon)return false;for(UINT i=0;;++i){ComPtr<IDXGIOutput> out;if(a->EnumOutputs(i,&out)==DXGI_ERROR_NOT_FOUND)break;DXGI_OUTPUT_DESC d{};if(out&&SUCCEEDED(out->GetDesc(&d))&&d.Monitor==mon)return true;}return false;}
+ }
+ bool OpenGLFrontend::createD3D11Device(RuntimeStatus& status){
+-    HWND wnd=WindowFromDC(dc_);HMONITOR mon=wnd?MonitorFromWindow(wnd,MONITOR_DEFAULTTONEAREST):nullptr;ComPtr<IDXGIFactory1> factory;if(FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))){fail(status,L"OpenGL compatibility could not create a DXGI factory");return false;}ComPtr<IDXGIAdapter1> adapter;for(UINT i=0;;++i){ComPtr<IDXGIAdapter1>a;if(factory->EnumAdapters1(i,&a)==DXGI_ERROR_NOT_FOUND)break;if(adapterMatchesMonitor(a.Get(),mon)){adapter=a;break;}}
++    HWND wnd=WindowFromDC(dc_);HMONITOR mon=wnd?MonitorFromWindow(wnd,MONITOR_DEFAULTTONEAREST):nullptr;ComPtr<IDXGIFactory1> factory;if(FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))){fail(status,L"OpenGL compatibility could not create a DXGI factory");return false;}const auto* glVendor=reinterpret_cast<const char*>(glGetString(GL_VENDOR)); const bool nvidiaGl=glVendor && std::strstr(glVendor,"NVIDIA"); ComPtr<IDXGIAdapter1> adapter;for(UINT i=0;;++i){ComPtr<IDXGIAdapter1>a;if(factory->EnumAdapters1(i,&a)==DXGI_ERROR_NOT_FOUND)break;DXGI_ADAPTER_DESC1 desc{}; a->GetDesc1(&desc); if(nvidiaGl ? desc.VendorId==0x10de : adapterMatchesMonitor(a.Get(),mon)){adapter=a;break;}}
+     static const D3D_FEATURE_LEVEL levels[]={D3D_FEATURE_LEVEL_11_1,D3D_FEATURE_LEVEL_11_0,D3D_FEATURE_LEVEL_10_1,D3D_FEATURE_LEVEL_10_0};D3D_FEATURE_LEVEL chosen{};HRESULT hr=D3D11CreateDevice(adapter.Get(),adapter?D3D_DRIVER_TYPE_UNKNOWN:D3D_DRIVER_TYPE_HARDWARE,nullptr,0,levels,(UINT)_countof(levels),D3D11_SDK_VERSION,&d11_,&chosen,&d11Context_);if(hr==E_INVALIDARG)hr=D3D11CreateDevice(adapter.Get(),adapter?D3D_DRIVER_TYPE_UNKNOWN:D3D_DRIVER_TYPE_HARDWARE,nullptr,0,levels+1,(UINT)_countof(levels)-1,D3D11_SDK_VERSION,&d11_,&chosen,&d11Context_);if(FAILED(hr)){fail(status,L"OpenGL compatibility could not create a same-monitor D3D11 device");return false;}return true;
+ }
+ bool OpenGLFrontend::resolveGlFunctions(){

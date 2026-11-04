@@ -1,17 +1,15 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.widget.v2
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -47,18 +45,21 @@ fun AeroTabRow(
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f), shape)
             .padding(4.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            tabs.forEachIndexed { index, title ->
-                AeroTab(
-                    selected = selectedTabIndex == index,
-                    onClick = { onTabSelected(index) },
-                    text = title,
-                    accentColor = accentColor,
-                    modifier = Modifier.weight(1f)
-                )
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val tabWidth = maxOf(80.dp, (maxWidth - 8.dp) / tabs.size.coerceAtLeast(1))
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                tabs.forEachIndexed { index, title ->
+                    AeroTab(
+                        selected = selectedTabIndex == index,
+                        onClick = { onTabSelected(index) },
+                        text = title,
+                        accentColor = accentColor,
+                        modifier = Modifier.width(tabWidth)
+                    )
+                }
             }
         }
     }
@@ -231,7 +232,7 @@ fun AeroSettingToggle(
     subLabel: String? = null,
     onCheckedChange: (Boolean) -> Unit,
 ) {
-    var checked by remember { mutableStateOf(defaultValue) }
+    var checked by remember(label, defaultValue) { mutableStateOf(defaultValue) }
     AeroSettingRow(
         label = label,
         subLabel = subLabel,

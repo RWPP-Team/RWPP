@@ -1,30 +1,15 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 package io.github.rwpp.api.graphics
 
-import org.lwjgl.opengl.GL11
-import org.lwjgl.opengl.GL12
-import org.lwjgl.opengl.GL15
+import org.lwjgl.opengl.*
 import org.lwjgl.opengl.GL20
-import org.lwjgl.opengl.GL21
-import org.lwjgl.opengl.GL31
-import org.lwjgl.opengl.GL32
-import org.lwjgl.opengl.GL33
-import org.lwjgl.opengl.GL40
-import org.lwjgl.opengl.GL41
-import org.lwjgl.opengl.GL43
+import java.nio.*
 import org.lwjgl.opengl.GL30 as JGL30
-import java.nio.Buffer
-import java.nio.ByteBuffer
-import java.nio.FloatBuffer
-import java.nio.IntBuffer
-import java.nio.LongBuffer
-import java.nio.ShortBuffer
-import java.nio.DoubleBuffer
 
 actual object GL30 {
     actual fun glReadBuffer(mode: Int) {
@@ -35,10 +20,23 @@ actual object GL30 {
         when (indices) {
             is ByteBuffer -> when (type) {
                 GL11.GL_UNSIGNED_BYTE -> GL12.glDrawRangeElements(mode, start, end, indices.limited(count))
-                GL11.GL_UNSIGNED_SHORT -> GL12.glDrawRangeElements(mode, start, end, indices.duplicate().order(indices.order()).asShortBuffer().limited(count))
-                GL11.GL_UNSIGNED_INT -> GL12.glDrawRangeElements(mode, start, end, indices.duplicate().order(indices.order()).asIntBuffer().limited(count))
+                GL11.GL_UNSIGNED_SHORT -> GL12.glDrawRangeElements(
+                    mode,
+                    start,
+                    end,
+                    indices.duplicate().order(indices.order()).asShortBuffer().limited(count)
+                )
+
+                GL11.GL_UNSIGNED_INT -> GL12.glDrawRangeElements(
+                    mode,
+                    start,
+                    end,
+                    indices.duplicate().order(indices.order()).asIntBuffer().limited(count)
+                )
+
                 else -> error("Unsupported element type: $type")
             }
+
             is ShortBuffer -> GL12.glDrawRangeElements(mode, start, end, indices.limited(count))
             is IntBuffer -> GL12.glDrawRangeElements(mode, start, end, indices.limited(count))
             null -> GL12.glDrawRangeElements(mode, start, end, count, type, 0L)
@@ -50,39 +48,257 @@ actual object GL30 {
         GL12.glDrawRangeElements(mode, start, end, count, type, offset.toLong())
     }
 
-    actual fun glTexImage3D(target: Int, level: Int, internalformat: Int, width: Int, height: Int, depth: Int, border: Int, format: Int, type: Int, pixels: Buffer?) {
+    actual fun glTexImage3D(
+        target: Int,
+        level: Int,
+        internalformat: Int,
+        width: Int,
+        height: Int,
+        depth: Int,
+        border: Int,
+        format: Int,
+        type: Int,
+        pixels: Buffer?
+    ) {
         when (pixels) {
-            is ByteBuffer -> GL12.glTexImage3D(target, level, internalformat, width, height, depth, border, format, type, pixels)
-            is ShortBuffer -> GL12.glTexImage3D(target, level, internalformat, width, height, depth, border, format, type, pixels)
-            is IntBuffer -> GL12.glTexImage3D(target, level, internalformat, width, height, depth, border, format, type, pixels)
-            is FloatBuffer -> GL12.glTexImage3D(target, level, internalformat, width, height, depth, border, format, type, pixels)
-            is DoubleBuffer -> GL12.glTexImage3D(target, level, internalformat, width, height, depth, border, format, type, pixels)
-            null -> GL12.glTexImage3D(target, level, internalformat, width, height, depth, border, format, type, null as ByteBuffer?)
+            is ByteBuffer -> GL12.glTexImage3D(
+                target,
+                level,
+                internalformat,
+                width,
+                height,
+                depth,
+                border,
+                format,
+                type,
+                pixels
+            )
+
+            is ShortBuffer -> GL12.glTexImage3D(
+                target,
+                level,
+                internalformat,
+                width,
+                height,
+                depth,
+                border,
+                format,
+                type,
+                pixels
+            )
+
+            is IntBuffer -> GL12.glTexImage3D(
+                target,
+                level,
+                internalformat,
+                width,
+                height,
+                depth,
+                border,
+                format,
+                type,
+                pixels
+            )
+
+            is FloatBuffer -> GL12.glTexImage3D(
+                target,
+                level,
+                internalformat,
+                width,
+                height,
+                depth,
+                border,
+                format,
+                type,
+                pixels
+            )
+
+            is DoubleBuffer -> GL12.glTexImage3D(
+                target,
+                level,
+                internalformat,
+                width,
+                height,
+                depth,
+                border,
+                format,
+                type,
+                pixels
+            )
+
+            null -> GL12.glTexImage3D(
+                target,
+                level,
+                internalformat,
+                width,
+                height,
+                depth,
+                border,
+                format,
+                type,
+                null as ByteBuffer?
+            )
+
             else -> error("Pixels must be a byte, short, int, float or double buffer")
         }
     }
 
-    actual fun glTexImage3D(target: Int, level: Int, internalformat: Int, width: Int, height: Int, depth: Int, border: Int, format: Int, type: Int, offset: Int) {
+    actual fun glTexImage3D(
+        target: Int,
+        level: Int,
+        internalformat: Int,
+        width: Int,
+        height: Int,
+        depth: Int,
+        border: Int,
+        format: Int,
+        type: Int,
+        offset: Int
+    ) {
         GL12.glTexImage3D(target, level, internalformat, width, height, depth, border, format, type, offset.toLong())
     }
 
-    actual fun glTexSubImage3D(target: Int, level: Int, xoffset: Int, yoffset: Int, zoffset: Int, width: Int, height: Int, depth: Int, format: Int, type: Int, pixels: Buffer?) {
+    actual fun glTexSubImage3D(
+        target: Int,
+        level: Int,
+        xoffset: Int,
+        yoffset: Int,
+        zoffset: Int,
+        width: Int,
+        height: Int,
+        depth: Int,
+        format: Int,
+        type: Int,
+        pixels: Buffer?
+    ) {
         when (pixels) {
-            is ByteBuffer -> GL12.glTexSubImage3D(target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, pixels)
-            is ShortBuffer -> GL12.glTexSubImage3D(target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, pixels)
-            is IntBuffer -> GL12.glTexSubImage3D(target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, pixels)
-            is FloatBuffer -> GL12.glTexSubImage3D(target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, pixels)
-            is DoubleBuffer -> GL12.glTexSubImage3D(target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, pixels)
-            null -> GL12.glTexSubImage3D(target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, null as ByteBuffer?)
+            is ByteBuffer -> GL12.glTexSubImage3D(
+                target,
+                level,
+                xoffset,
+                yoffset,
+                zoffset,
+                width,
+                height,
+                depth,
+                format,
+                type,
+                pixels
+            )
+
+            is ShortBuffer -> GL12.glTexSubImage3D(
+                target,
+                level,
+                xoffset,
+                yoffset,
+                zoffset,
+                width,
+                height,
+                depth,
+                format,
+                type,
+                pixels
+            )
+
+            is IntBuffer -> GL12.glTexSubImage3D(
+                target,
+                level,
+                xoffset,
+                yoffset,
+                zoffset,
+                width,
+                height,
+                depth,
+                format,
+                type,
+                pixels
+            )
+
+            is FloatBuffer -> GL12.glTexSubImage3D(
+                target,
+                level,
+                xoffset,
+                yoffset,
+                zoffset,
+                width,
+                height,
+                depth,
+                format,
+                type,
+                pixels
+            )
+
+            is DoubleBuffer -> GL12.glTexSubImage3D(
+                target,
+                level,
+                xoffset,
+                yoffset,
+                zoffset,
+                width,
+                height,
+                depth,
+                format,
+                type,
+                pixels
+            )
+
+            null -> GL12.glTexSubImage3D(
+                target,
+                level,
+                xoffset,
+                yoffset,
+                zoffset,
+                width,
+                height,
+                depth,
+                format,
+                type,
+                null as ByteBuffer?
+            )
+
             else -> error("Pixels must be a byte, short, int, float or double buffer")
         }
     }
 
-    actual fun glTexSubImage3D(target: Int, level: Int, xoffset: Int, yoffset: Int, zoffset: Int, width: Int, height: Int, depth: Int, format: Int, type: Int, offset: Int) {
-        GL12.glTexSubImage3D(target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, offset.toLong())
+    actual fun glTexSubImage3D(
+        target: Int,
+        level: Int,
+        xoffset: Int,
+        yoffset: Int,
+        zoffset: Int,
+        width: Int,
+        height: Int,
+        depth: Int,
+        format: Int,
+        type: Int,
+        offset: Int
+    ) {
+        GL12.glTexSubImage3D(
+            target,
+            level,
+            xoffset,
+            yoffset,
+            zoffset,
+            width,
+            height,
+            depth,
+            format,
+            type,
+            offset.toLong()
+        )
     }
 
-    actual fun glCopyTexSubImage3D(target: Int, level: Int, xoffset: Int, yoffset: Int, zoffset: Int, x: Int, y: Int, width: Int, height: Int) {
+    actual fun glCopyTexSubImage3D(
+        target: Int,
+        level: Int,
+        xoffset: Int,
+        yoffset: Int,
+        zoffset: Int,
+        x: Int,
+        y: Int,
+        width: Int,
+        height: Int
+    ) {
         GL12.glCopyTexSubImage3D(target, level, xoffset, yoffset, zoffset, x, y, width, height)
     }
 
@@ -150,11 +366,28 @@ actual object GL30 {
         GL21.glUniformMatrix4x3(location, transpose, value.limited(count * 12))
     }
 
-    actual fun glBlitFramebuffer(srcX0: Int, srcY0: Int, srcX1: Int, srcY1: Int, dstX0: Int, dstY0: Int, dstX1: Int, dstY1: Int, mask: Int, filter: Int) {
+    actual fun glBlitFramebuffer(
+        srcX0: Int,
+        srcY0: Int,
+        srcX1: Int,
+        srcY1: Int,
+        dstX0: Int,
+        dstY0: Int,
+        dstX1: Int,
+        dstY1: Int,
+        mask: Int,
+        filter: Int
+    ) {
         JGL30.glBlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter)
     }
 
-    actual fun glRenderbufferStorageMultisample(target: Int, samples: Int, internalformat: Int, width: Int, height: Int) {
+    actual fun glRenderbufferStorageMultisample(
+        target: Int,
+        samples: Int,
+        internalformat: Int,
+        width: Int,
+        height: Int
+    ) {
         JGL30.glRenderbufferStorageMultisample(target, samples, internalformat, width, height)
     }
 
@@ -199,7 +432,11 @@ actual object GL30 {
     }
 
     actual fun glTransformFeedbackVaryings(program: Int, varyings: Array<String?>?, bufferMode: Int) {
-        JGL30.glTransformFeedbackVaryings(program, requireNotNull(varyings).map { requireNotNull(it) }.toTypedArray(), bufferMode)
+        JGL30.glTransformFeedbackVaryings(
+            program,
+            requireNotNull(varyings).map { requireNotNull(it) }.toTypedArray(),
+            bufferMode
+        )
     }
 
     actual fun glVertexAttribIPointer(index: Int, size: Int, type: Int, stride: Int, offset: Int) {
@@ -267,10 +504,20 @@ actual object GL30 {
     }
 
     actual fun glGetUniformIndices(program: Int, uniformNames: Array<String?>?, uniformIndices: IntBuffer?) {
-        GL31.glGetUniformIndices(program, requireNotNull(uniformNames).map { requireNotNull(it) }.toTypedArray(), uniformIndices)
+        GL31.glGetUniformIndices(
+            program,
+            requireNotNull(uniformNames).map { requireNotNull(it) }.toTypedArray(),
+            uniformIndices
+        )
     }
 
-    actual fun glGetActiveUniformsiv(program: Int, uniformCount: Int, uniformIndices: IntBuffer?, pname: Int, params: IntBuffer?) {
+    actual fun glGetActiveUniformsiv(
+        program: Int,
+        uniformCount: Int,
+        uniformIndices: IntBuffer?,
+        pname: Int,
+        params: IntBuffer?
+    ) {
         GL31.glGetActiveUniforms(program, uniformIndices.limited(uniformCount), pname, params)
     }
 
@@ -282,8 +529,18 @@ actual object GL30 {
         GL31.glGetActiveUniformBlock(program, uniformBlockIndex, pname, params)
     }
 
-    actual fun glGetActiveUniformBlockName(program: Int, uniformBlockIndex: Int, length: Buffer?, uniformBlockName: Buffer?) {
-        GL31.glGetActiveUniformBlockName(program, uniformBlockIndex, length as IntBuffer?, uniformBlockName as ByteBuffer?)
+    actual fun glGetActiveUniformBlockName(
+        program: Int,
+        uniformBlockIndex: Int,
+        length: Buffer?,
+        uniformBlockName: Buffer?
+    ) {
+        GL31.glGetActiveUniformBlockName(
+            program,
+            uniformBlockIndex,
+            length as IntBuffer?,
+            uniformBlockName as ByteBuffer?
+        )
     }
 
     actual fun glUniformBlockBinding(program: Int, uniformBlockIndex: Int, uniformBlockBinding: Int) {
@@ -382,7 +639,15 @@ actual object GL30 {
         GL43.glInvalidateFramebuffer(target, attachments.limited(numAttachments))
     }
 
-    actual fun glInvalidateSubFramebuffer(target: Int, numAttachments: Int, attachments: IntBuffer?, x: Int, y: Int, width: Int, height: Int) {
+    actual fun glInvalidateSubFramebuffer(
+        target: Int,
+        numAttachments: Int,
+        attachments: IntBuffer?,
+        x: Int,
+        y: Int,
+        width: Int,
+        height: Int
+    ) {
         GL43.glInvalidateSubFramebuffer(target, attachments.limited(numAttachments), x, y, width, height)
     }
 

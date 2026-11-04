@@ -3,14 +3,14 @@ package io.github.rwpp.server.validation
 import io.github.rwpp.api.net.impl.NativePacketSocket
 import io.github.rwpp.server.net.NativeTcpServerSocket
 import io.github.rwpp.server.net.ServerTransportBackend
-import java.io.BufferedReader
 import java.io.BufferedOutputStream
+import java.io.BufferedReader
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.lang.management.ManagementFactory
 import java.net.InetSocketAddress
-import java.net.Socket
 import java.net.ServerSocket
+import java.net.Socket
 import java.nio.ByteBuffer
 import java.nio.channels.SelectionKey
 import java.nio.channels.Selector
@@ -25,6 +25,30 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.LongAdder
 import java.util.concurrent.locks.LockSupport
+import kotlin.collections.ArrayDeque
+import kotlin.collections.ArrayList
+import kotlin.collections.List
+import kotlin.collections.Map
+import kotlin.collections.all
+import kotlin.collections.component1
+import kotlin.collections.component2
+import kotlin.collections.drop
+import kotlin.collections.filter
+import kotlin.collections.filterIsInstance
+import kotlin.collections.firstOrNull
+import kotlin.collections.flatMap
+import kotlin.collections.forEach
+import kotlin.collections.getOrElse
+import kotlin.collections.isNotEmpty
+import kotlin.collections.joinToString
+import kotlin.collections.linkedMapOf
+import kotlin.collections.listOf
+import kotlin.collections.map
+import kotlin.collections.mutableListOf
+import kotlin.collections.none
+import kotlin.collections.setOf
+import kotlin.collections.sorted
+import kotlin.collections.sumOf
 import kotlin.math.max
 
 /** Opt-in closed-loop component benchmark. Vanilla models native worker I/O without the game engine. */
@@ -33,17 +57,21 @@ object ServerThroughputBenchmark {
     private const val PREFIX = 24
     private val cpuBean = ManagementFactory.getOperatingSystemMXBean() as com.sun.management.OperatingSystemMXBean
 
-    @JvmStatic fun main(args: Array<String>) {
+    @JvmStatic
+    fun main(args: Array<String>) {
         if (args.firstOrNull() == "server") {
             server(args[1], args[2].toInt(), args[3].toInt())
             return
         }
         require(args.size >= 5) { "optimized|previous|vanilla connections payloadBytes window seconds [serverCpus]" }
-        val result = client(args[0], args[1].toInt(), args[2].toInt(), args[3].toInt(),
-            args[4].toInt(), args.getOrElse(5) { "0-3" }, args.getOrElse(6) { "3" }.toInt())
+        val result = client(
+            args[0], args[1].toInt(), args[2].toInt(), args[3].toInt(),
+            args[4].toInt(), args.getOrElse(5) { "0-3" }, args.getOrElse(6) { "3" }.toInt()
+        )
         println(json(result))
         if (result["errors"] != 0 || result["errors_including_drain"] != 0 || result["incomplete"] != 0L ||
-            result["echo_count_matches_client_completions"] != true || result["drained"] != true) {
+            result["echo_count_matches_client_completions"] != true || result["drained"] != true
+        ) {
             kotlin.system.exitProcess(2)
         }
     }
@@ -88,7 +116,9 @@ object ServerThroughputBenchmark {
                         // Keep the vanilla reference on its original three-argument callback.
                         socket.startReceiving(limit, echo, failure)
                     }
-                } catch (_: Exception) { if (!stopping.get()) errors.increment() }
+                } catch (_: Exception) {
+                    if (!stopping.get()) errors.increment()
+                }
             }
         }, "benchmark-accept").apply { isDaemon = true; start() }
         println("READY ${listener.localPort}")
@@ -104,6 +134,7 @@ object ServerThroughputBenchmark {
                         println("BEGIN ${begin.wire()}")
                         System.out.flush()
                     }
+
                     "END" -> {
                         val before = checkNotNull(begin)
                         val after = snapshot(echoes.sum(), errors.sum())
@@ -111,12 +142,14 @@ object ServerThroughputBenchmark {
                         println("END ${after.minus(before).wire()} ${peakThreads.get()}")
                         System.out.flush()
                     }
+
                     "DRAIN" -> {
                         val afterWindow = checkNotNull(end)
                         val afterDrain = snapshot(echoes.sum(), errors.sum())
                         println("DRAIN ${afterDrain.minus(afterWindow).wire()} ${peakThreads.get()}")
                         System.out.flush()
                     }
+
                     "STOP", null -> break
                 }
             }
@@ -138,6 +171,7 @@ object ServerThroughputBenchmark {
      */
     private class VanillaPacketSocket(private val raw: Socket) : Socket(), NativePacketSocket {
         private data class Frame(val type: Int, val bytes: ByteArray)
+
         private val lock = Object()
         private val queue = ArrayDeque<Frame>()
         private var queuedBytes = 0L
@@ -146,7 +180,9 @@ object ServerThroughputBenchmark {
         private var writer: Thread? = null
         override val transportName = "VANILLA_TCP"
 
-        init { raw.tcpNoDelay = true }
+        init {
+            raw.tcpNoDelay = true
+        }
 
         override fun startReceiving(limit: () -> Int, receive: (Int, ByteArray) -> Unit, failure: (String) -> Unit) {
             check(reader == null && writer == null)
@@ -166,7 +202,9 @@ object ServerThroughputBenchmark {
                     }
                 } catch (problem: Exception) {
                     if (!closed.get()) failure(problem.message ?: "Vanilla writer failed")
-                } finally { close() }
+                } finally {
+                    close()
+                }
             }, "SendWorker-benchmark-${raw.port}").apply { isDaemon = true; start() }
             reader = Thread({
                 try {
@@ -186,7 +224,9 @@ object ServerThroughputBenchmark {
                     }
                 } catch (problem: Exception) {
                     if (!closed.get()) failure(problem.message ?: "Vanilla reader failed")
-                } finally { close() }
+                } finally {
+                    close()
+                }
             }, "ReceiveWorker-benchmark-${raw.port}").apply { isDaemon = true; start() }
         }
 
@@ -202,8 +242,9 @@ object ServerThroughputBenchmark {
         override fun closeAfterWrites() = close() // The harness drains before closing.
         override fun close() {
             if (!closed.compareAndSet(false, true)) return
-            try { raw.close() }
-            finally {
+            try {
+                raw.close()
+            } finally {
                 synchronized(lock) { queue.clear(); queuedBytes = 0; lock.notifyAll() }
                 reader?.interrupt()
                 writer?.interrupt()
@@ -222,26 +263,35 @@ object ServerThroughputBenchmark {
         val gcCount: Long, val gcMillis: Long, val rss: Long, val heap: Long,
     ) {
         fun wire() = listOf(nanos, cpu, messages, errors, gcCount, gcMillis, rss, heap).joinToString(" ")
-        fun minus(other: Snapshot) = copy(nanos = nanos - other.nanos, cpu = cpu - other.cpu,
+        fun minus(other: Snapshot) = copy(
+            nanos = nanos - other.nanos, cpu = cpu - other.cpu,
             messages = messages - other.messages, errors = errors - other.errors,
-            gcCount = gcCount - other.gcCount, gcMillis = gcMillis - other.gcMillis)
+            gcCount = gcCount - other.gcCount, gcMillis = gcMillis - other.gcMillis
+        )
     }
 
     private fun snapshot(messages: Long, errors: Long): Snapshot {
         val collectors = ManagementFactory.getGarbageCollectorMXBeans()
-        val rss = try { Regex("VmRSS:\\s+(\\d+) kB").find(Files.readString(Path.of("/proc/self/status")))
-            ?.groupValues?.get(1)?.toLong()?.times(1024) ?: -1 } catch (_: Exception) { -1 }
+        val rss = try {
+            Regex("VmRSS:\\s+(\\d+) kB").find(Files.readString(Path.of("/proc/self/status")))
+                ?.groupValues?.get(1)?.toLong()?.times(1024) ?: -1
+        } catch (_: Exception) {
+            -1
+        }
         val memory = Runtime.getRuntime()
-        return Snapshot(System.nanoTime(), cpuBean.processCpuTime, messages, errors,
+        return Snapshot(
+            System.nanoTime(), cpuBean.processCpuTime, messages, errors,
             collectors.sumOf { max(0L, it.collectionCount) }, collectors.sumOf { max(0L, it.collectionTime) },
-            rss, memory.totalMemory() - memory.freeMemory())
+            rss, memory.totalMemory() - memory.freeMemory()
+        )
     }
 
     private class Control {
         val phase = AtomicInteger()
         val stopping = AtomicBoolean()
         val failures = ConcurrentLinkedQueue<String>()
-        @Volatile var measureDeadline = Long.MAX_VALUE
+        @Volatile
+        var measureDeadline = Long.MAX_VALUE
     }
 
     private class Slot(val buffer: ByteBuffer) {
@@ -260,13 +310,17 @@ object ServerThroughputBenchmark {
         }
         val key = channel.register(selector, SelectionKey.OP_READ, this)
         val padding = ByteArray(size) { (owner * 31 + it * 17).toByte() }
-        val slots = Array(window) { Slot(ByteBuffer.allocate(size + 8).apply { putInt(size); putInt(TYPE); put(padding); flip() }) }
+        val slots = Array(window) {
+            Slot(
+                ByteBuffer.allocate(size + 8).apply { putInt(size); putInt(TYPE); put(padding); flip() })
+        }
         val writes = ArrayDeque<Slot>()
         val gather = arrayOfNulls<ByteBuffer>(window)
         val incoming = ByteBuffer.allocate(max(64 * 1024, size + 8))
         var nextSequence = 0L
         var expectedSequence = 0L
-        @Volatile var outstanding = 0
+        @Volatile
+        var outstanding = 0
     }
 
     private class Worker(
@@ -279,7 +333,8 @@ object ServerThroughputBenchmark {
         var completedInWindow = 0L
         val latencyNanos = ArrayList<Long>()
         val errorCount = AtomicInteger()
-        @Volatile var observedPhase = 0
+        @Volatile
+        var observedPhase = 0
 
         override fun run() {
             try {
@@ -350,15 +405,23 @@ object ServerThroughputBenchmark {
                 val length = buffer.int
                 val type = buffer.int
                 check(length == connection.size && type == TYPE) { "Invalid response frame $length/$type" }
-                if (buffer.remaining() < length) { buffer.reset(); break }
+                if (buffer.remaining() < length) {
+                    buffer.reset(); break
+                }
                 val offset = buffer.position()
                 val sequence = buffer.getLong(offset)
                 check(sequence == connection.expectedSequence++) { "Response sequence mismatch" }
                 val slot = connection.slots[(sequence % connection.window).toInt()]
-                check(slot.busy && slot.sequence == sequence && buffer.getLong(offset + 8) == slot.sent &&
-                    buffer.getInt(offset + 16) == slot.phase && buffer.getInt(offset + 20) == connection.owner) { "Response identity mismatch" }
-                check(Arrays.mismatch(buffer.array(), offset + PREFIX, offset + length,
-                    connection.padding, PREFIX, length) == -1) { "Response payload mismatch" }
+                check(
+                    slot.busy && slot.sequence == sequence && buffer.getLong(offset + 8) == slot.sent &&
+                            buffer.getInt(offset + 16) == slot.phase && buffer.getInt(offset + 20) == connection.owner
+                ) { "Response identity mismatch" }
+                check(
+                    Arrays.mismatch(
+                        buffer.array(), offset + PREFIX, offset + length,
+                        connection.padding, PREFIX, length
+                    ) == -1
+                ) { "Response payload mismatch" }
                 val receivedAt = System.nanoTime()
                 if (slot.phase == 2) {
                     measureReceived++
@@ -383,16 +446,34 @@ object ServerThroughputBenchmark {
         return (value and 31L) == 0L
     }
 
-    private fun client(mode: String, peers: Int, size: Int, window: Int, seconds: Int, serverCpus: String, warmup: Int): Map<String, Any?> {
+    private fun client(
+        mode: String,
+        peers: Int,
+        size: Int,
+        window: Int,
+        seconds: Int,
+        serverCpus: String,
+        warmup: Int
+    ): Map<String, Any?> {
         require(mode in setOf("optimized", "previous", "vanilla"))
         require(peers in 1..256 && size in PREFIX..2_000_000 && window in 1..128 && seconds in 1..60)
         require(warmup in 1..30)
         val inlineReceive = System.getProperty("rwpp.benchmark.inlineReceive") == "true"
         val command = mutableListOf<String>()
-        if (System.getProperty("os.name").lowercase().contains("linux")) command.addAll(listOf("taskset", "-c", serverCpus))
-        command.addAll(listOf(Path.of(System.getProperty("java.home"), "bin", "java").toString(), "-Xms256m", "-Xmx1g",
-            "-Drwpp.server.network.optimized=${mode == "optimized"}", "-cp", System.getProperty("java.class.path"),
-            ServerThroughputBenchmark::class.java.name, "server", mode, peers.toString(), size.toString()))
+        if (System.getProperty("os.name").lowercase().contains("linux")) command.addAll(
+            listOf(
+                "taskset",
+                "-c",
+                serverCpus
+            )
+        )
+        command.addAll(
+            listOf(
+                Path.of(System.getProperty("java.home"), "bin", "java").toString(), "-Xms256m", "-Xmx1g",
+                "-Drwpp.server.network.optimized=${mode == "optimized"}", "-cp", System.getProperty("java.class.path"),
+                ServerThroughputBenchmark::class.java.name, "server", mode, peers.toString(), size.toString()
+            )
+        )
         val log = Files.createTempFile("rwpp-server-throughput-", ".log").toFile()
         val process = ProcessBuilder(command).redirectError(log).start()
         val reader = process.inputStream.bufferedReader()
@@ -402,8 +483,12 @@ object ServerThroughputBenchmark {
         try {
             val port = response(reader, "READY").split(' ')[1].toInt()
             repeat(minOf(4, peers)) { index ->
-                workers.add(Worker(index, (0 until peers).filter { it % minOf(4, peers) == index },
-                    port, size, window, control))
+                workers.add(
+                    Worker(
+                        index, (0 until peers).filter { it % minOf(4, peers) == index },
+                        port, size, window, control
+                    )
+                )
             }
             workers.forEach { it.start() }
             fun stage(nanos: Long) {
@@ -444,6 +529,7 @@ object ServerThroughputBenchmark {
             val latencies = workers.flatMap { it.latencyNanos }.sorted()
             fun percentile(percent: Double): Double? = if (latencies.isEmpty()) null else
                 latencies[((latencies.size - 1) * percent).toInt()] / 1e6
+
             val mib = size / (1024.0 * 1024)
             val serverCpuMillis = serverFixed[1] / 1e6
             val serverDrainCpuMillis = serverDrain[1] / 1e6
@@ -460,8 +546,8 @@ object ServerThroughputBenchmark {
             val completeEchoes = received
             val echoCountMatchesClientCompletions = serverEchoesIncludingDrain == completeEchoes
             val errorsIncludingDrain = finalClientErrors + serverErrorsIncludingDrain +
-                (if (processExit == 0) 0 else 1) + (if (echoCountMatchesClientCompletions) 0 else 1) +
-                (if (drained) 0 else 1)
+                    (if (processExit == 0) 0 else 1) + (if (echoCountMatchesClientCompletions) 0 else 1) +
+                    (if (drained) 0 else 1)
             val mibPerEcho = completeEchoes.toDouble().coerceAtLeast(1.0)
             return linkedMapOf(
                 "mode" to mode, "connections" to peers, "payload_bytes" to size, "window" to window,
@@ -496,7 +582,7 @@ object ServerThroughputBenchmark {
                 "client_cpu_ms_per_complete_echo_including_drain" to clientCpuIncludingDrainMillis / mibPerEcho,
                 "server_cpu_ms_per_complete_echo_including_drain" to serverCpuIncludingDrainMillis / mibPerEcho,
                 "combined_cpu_ms_per_complete_echo_including_drain" to
-                    (clientCpuIncludingDrainMillis + serverCpuIncludingDrainMillis) / mibPerEcho,
+                        (clientCpuIncludingDrainMillis + serverCpuIncludingDrainMillis) / mibPerEcho,
                 "messages_per_s" to completed / elapsed, "request_payload_mib_per_s" to completed * mib / elapsed,
                 "echo_payload_mib_per_s" to completed * mib * 2 / elapsed,
                 "server_echoes_in_cpu_window" to serverFixed[2], "server_cpu_ms" to serverCpuMillis,
@@ -519,15 +605,26 @@ object ServerThroughputBenchmark {
                 "java_version" to System.getProperty("java.version"),
             )
         } catch (problem: Exception) {
-            return linkedMapOf("mode" to mode, "connections" to peers, "payload_bytes" to size, "window" to window,
-                "errors" to 1, "incomplete" to workers.sumOf { it.connections.sumOf { connection -> connection.outstanding.toLong() } },
-                "failure_detail" to "${problem.message}; ${control.failures.joinToString()}; ${log.readText().takeLast(5000)}")
+            return linkedMapOf(
+                "mode" to mode,
+                "connections" to peers,
+                "payload_bytes" to size,
+                "window" to window,
+                "errors" to 1,
+                "incomplete" to workers.sumOf { it.connections.sumOf { connection -> connection.outstanding.toLong() } },
+                "failure_detail" to "${problem.message}; ${control.failures.joinToString()}; ${
+                    log.readText().takeLast(5000)
+                }"
+            )
         } finally {
             control.phase.set(0)
             control.stopping.set(true)
             workers.forEach { it.join(2000) }
             if (process.isAlive) {
-                try { writer.write("STOP\n"); writer.flush() } catch (_: Exception) { }
+                try {
+                    writer.write("STOP\n"); writer.flush()
+                } catch (_: Exception) {
+                }
                 if (!process.waitFor(5, TimeUnit.SECONDS)) {
                     process.destroy()
                     if (!process.waitFor(2, TimeUnit.SECONDS)) process.destroyForcibly().waitFor()
@@ -577,7 +674,11 @@ object ServerThroughputBenchmark {
                         '\n' -> append("\\n")
                         '\r' -> append("\\r")
                         '\t' -> append("\\t")
-                        else -> if (character.code < 32) append("\\u${character.code.toString(16).padStart(4, '0')}") else append(character)
+                        else -> if (character.code < 32) append(
+                            "\\u${
+                                character.code.toString(16).padStart(4, '0')
+                            }"
+                        ) else append(character)
                     }
                 }
                 append('"')

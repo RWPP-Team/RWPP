@@ -1,21 +1,17 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.ui
 
-import io.github.rwpp.api.coroutines.GameScope
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -24,15 +20,13 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridItemScope
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -41,20 +35,36 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
-import io.github.rwpp.api.game.map.GameMap
+import com.corrodinggames.rts.appFramework.AppContext
+import com.corrodinggames.rts.gameFramework.files.FileLoader
 import com.corrodinggames.rts.gameFramework.network.GameSetupMapType
+import io.github.rwpp.LocalWindowManager
+import io.github.rwpp.api.game.map.GameMap
 import io.github.rwpp.api.game.map.NetworkMap
 import io.github.rwpp.api.i18n.readI18n
+import io.github.rwpp.game.map.GeneratedMapPreview
+import io.github.rwpp.game.map.MapPreviewGenerationService
 import io.github.rwpp.sound.Sounds
+import io.github.rwpp.widget.ResponsiveFilterChoices
+import io.github.rwpp.widget.ResponsiveSelectionBody
 import io.github.rwpp.widget.autoClearFocus
+import io.github.rwpp.widget.usesCompactSelectionLayout
 import io.github.rwpp.widget.v2.*
 import io.github.rwpp.widget.v2.scrollbar.LazyVerticalGridScrollbar
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.koin.compose.koinInject
 
 @Composable
 fun MapViewDialog(
@@ -63,235 +73,508 @@ fun MapViewDialog(
     lastSelectedIndex: Int = 0,
     lastSelectedMapType: GameSetupMapType = GameSetupMapType.skirmishMap,
     displayMaps: List<GameMap>,
+    isLoading: Boolean = false,
+    loadError: String? = null,
     mapTypeItems: List<GameSetupMapType>,
+    lastSelectedMapKey: String? = null,
     onRefresh: () -> Unit,
     onSelectedMap: (Int, GameMap) -> Unit
-) = AnimatedAlertDialog(
-    visible = visible,
-    onDismissRequest = onDismissRequest
-) { dismissAction ->
-    val dialogShape = remember { AeroSciFiTheme.ChamferAeroShape(16f) }
+) {
+    var lastConfirmedMapKey by remember { mutableStateOf(lastSelectedMapKey) }
+    LaunchedEffect(lastSelectedMapKey) {
+        if (lastSelectedMapKey != null) lastConfirmedMapKey = lastSelectedMapKey
+    }
 
-    Surface(
-        shape = dialogShape,
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
-        shadowElevation = 16.dp,
-        modifier = Modifier
-            .fillMaxWidth(0.92f)
-            .fillMaxHeight(0.88f)
-            .padding(12.dp)
-            .autoClearFocus()
-    ) {
+    AnimatedAlertDialog(
+        visible = visible,
+        onDismissRequest = onDismissRequest
+    ) { dismissAction ->
+        val dialogShape = remember { AeroSciFiTheme.ChamferAeroShape(16f) }
 
-        var maps by remember { mutableStateOf(displayMaps) }
-        var filter by remember { mutableStateOf("") }
-        var selectedIndex0 by remember { mutableIntStateOf(lastSelectedMapType.ordinal) }
-        val mapType = remember(selectedIndex0, mapTypeItems) {
-            mapTypeItems[selectedIndex0.coerceAtMost(mapTypeItems.lastIndex)]
-        }
+        Surface(
+            shape = dialogShape,
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
+            shadowElevation = 16.dp,
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .fillMaxHeight(0.88f)
+                .padding(12.dp)
+                .autoClearFocus()
+        ) {
 
-        var selectedMapIndex by remember { mutableIntStateOf(lastSelectedIndex) }
-
-
-        LaunchedEffect(mapType, filter, displayMaps) {
-            maps = displayMaps.filter {
-                map -> map.displayName().contains(filter, true) && map.mapType == mapType
+            var filter by remember { mutableStateOf("") }
+            var selectedIndex0 by remember { mutableIntStateOf(lastSelectedMapType.ordinal) }
+            val mapType = remember(selectedIndex0, mapTypeItems) {
+                mapTypeItems[selectedIndex0.coerceAtMost(mapTypeItems.lastIndex)]
             }
-            if (selectedMapIndex !in maps.indices) {
-                selectedMapIndex = 0
-            }
-        }
-
-        Box(modifier = Modifier.fillMaxSize()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(18.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    AeroHeader(
-                        title = readI18n("rwpp.multiplayer.room.mapView").uppercase(),
-                        tag = "${maps.size} MAPS LOADED",
-                        modifier = Modifier.weight(1f)
-                    )
-
-                    Spacer(modifier = Modifier.width(12.dp))
-
-                    AeroIconButton(
-                        painter = rememberVectorPainter(Icons.Default.Close),
-                        size = 32.dp,
-                        iconSize = 16.dp,
-                        isDanger = true,
-                        clickSound = Sounds.closePopup,
-                        onClick = dismissAction
-                    )
+            val maps by remember(displayMaps, mapType, filter) {
+                derivedStateOf {
+                    displayMaps.filter { it.displayName().contains(filter, true) && it.mapType == mapType }
                 }
+            }
+            var selectedMapKey by remember {
+                mutableStateOf(lastConfirmedMapKey ?: maps.getOrNull(lastSelectedIndex)?.mapSelectionKey())
+            }
+            val selectedMapIndex = resolveMapSelectionIndex(maps, selectedMapKey, lastSelectedIndex)
+            val compactListState = rememberLazyListState()
+            var revealSelectedMapIndex by remember { mutableIntStateOf(-1) }
+            LaunchedEffect(revealSelectedMapIndex) {
+                val index = revealSelectedMapIndex
+                if (index >= 0) {
+                    compactListState.animateScrollToItem(COMPACT_MAP_PAGE_HEADER_ITEMS + index)
+                    revealSelectedMapIndex = -1
+                }
+            }
 
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // 2. 规整对齐的控制工具栏 (AeroPanel)
-                AeroPanel(
-                    borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // 地图类型下拉菜单
-                        Box(modifier = Modifier.weight(1.2f)) {
-                            AeroDropdownMenu(
-                                label = readI18n("rwpp.multiplayer.room.mapType"),
-                                items = mapTypeItems.map { it.getDisplayName() },
-                                selectedIndex = selectedIndex0.coerceAtMost(mapTypeItems.lastIndex),
-                                onItemSelected = { index -> selectedIndex0 = index },
-                                modifier = Modifier.fillMaxWidth()
+            Box(modifier = Modifier.fillMaxSize()) {
+                // Use the host's resolved tier so Middle/Large keep the desktop grid and preview panes.
+                val compact = usesCompactSelectionLayout(LocalWindowManager.current)
+                if (compact) {
+                    ResponsiveSelectionBody(
+                        compact = true,
+                        modifier = Modifier.fillMaxSize().padding(4.dp),
+                        compactState = compactListState,
+                        compactContent = {
+                            item(key = "map-dialog-header") {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    AeroHeader(
+                                        title = "MAP VIEW".uppercase(),
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    AeroIconButton(
+                                        painter = rememberVectorPainter(Icons.Default.Close),
+                                        size = 36.dp,
+                                        iconSize = 18.dp,
+                                        isDanger = true,
+                                        clickSound = Sounds.closePopup,
+                                        onClick = dismissAction,
+                                    )
+                                }
+                                Text(
+                                    text = readI18n("rwpp.multiplayer.room.mapsCount", maps.size),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 12.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                )
+                            }
+                            item(key = "map-dialog-search") {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    AeroTextField(
+                                        value = filter,
+                                        onValueChange = { filter = it },
+                                        placeholder = readI18n("rwpp.multiplayer.room.searchMaps"),
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.Search,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp),
+                                            )
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    AeroIconButton(
+                                        painter = rememberVectorPainter(Icons.Default.Refresh),
+                                        size = 42.dp,
+                                        iconSize = 20.dp,
+                                        onClick = onRefresh,
+                                    )
+                                }
+                            }
+                            item(key = "map-dialog-type-filter") {
+                                ResponsiveFilterChoices(
+                                    label = readI18n("rwpp.multiplayer.room.mapType"),
+                                    items = mapTypeItems.map { it.getDisplayName() },
+                                    selectedIndex = selectedIndex0.coerceAtMost(mapTypeItems.lastIndex),
+                                    onItemSelected = { selectedIndex0 = it },
+                                )
+                            }
+                            item(key = "map-dialog-list-heading") {
+                                AeroDivider()
+                                AeroHeader(title = "MAPS FOUND: ${maps.size}")
+                            }
+                            if (maps.isEmpty()) {
+                                item(key = "map-dialog-empty") {
+                                    Text(
+                                        text = when {
+                                            isLoading -> readI18n("rwpp.catalog.loading")
+                                            loadError != null -> readI18n("rwpp.catalog.failed", loadError)
+                                            else -> readI18n("rwpp.multiplayer.room.noMapsMatchFilter")
+                                        },
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontSize = 14.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                    )
+                                }
+                            } else {
+                                items(count = maps.size, key = { maps[it].mapSelectionKey() }) { index ->
+                                    val map = maps[index]
+                                    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                        MapSelectionButton(
+                                            text = map.displayName(),
+                                            selected = index == selectedMapIndex,
+                                            onClick = {
+                                                selectedMapKey = map.mapSelectionKey()
+                                                revealSelectedMapIndex = index
+                                            },
+                                        )
+                                        if (index == selectedMapIndex) {
+                                            AeroPanel(modifier = Modifier.fillMaxWidth()) {
+                                                MapDetailSidebar(
+                                                    map = map,
+                                                    mapType = mapType,
+                                                    showImage = mapType != GameSetupMapType.savedGame,
+                                                    compact = true,
+                                                    fitContent = true,
+                                                    onConfirmSelect = {
+                                                        lastConfirmedMapKey = map.mapSelectionKey()
+                                                        onSelectedMap(index, map)
+                                                        dismissAction()
+                                                    },
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        desktopContent = {},
+                    )
+                } else {
+                    Column(modifier = Modifier.fillMaxSize().padding(18.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            AeroHeader(
+                                title = "MAP VIEW".uppercase(),
+                                tag = "${maps.size} MAPS LOADED",
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(modifier = Modifier.width(if (compact) 6.dp else 12.dp))
+                            AeroIconButton(
+                                painter = rememberVectorPainter(Icons.Default.Close),
+                                size = 32.dp,
+                                iconSize = 16.dp,
+                                isDanger = true,
+                                clickSound = Sounds.closePopup,
+                                onClick = dismissAction
                             )
                         }
 
-                        AeroTextField(
-                            value = filter,
-                            onValueChange = {
-                                filter = it
-                            },
-                            placeholder = "",
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.Search,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            },
-                            modifier = Modifier
-                                .weight(1.5f)
-                                .align(Alignment.CenterVertically)
-                        )
+                        Spacer(modifier = Modifier.height(if (compact) 4.dp else 12.dp))
 
-                        AeroIconButton(
-                            painter = rememberVectorPainter(Icons.Default.Refresh),
-                            size = 48.dp,
-                            iconSize = 20.dp,
-                            onClick = {
-                               onRefresh()
-                            }
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // 3. 主体区域：地图网格 (左) + 实时预览详情面板 (右)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    // 左侧：地图选择网格面板
-                    AeroPanel(
-                        modifier = Modifier
-                            .weight(1.8f)
-                            .fillMaxHeight(),
-                        borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-                    ) {
-                        if (maps.isEmpty()) {
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
+                        if (compact) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(
-                                        imageVector = Icons.Default.Search,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                        modifier = Modifier.size(40.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text(
-                                        text = "NO MAPS MATCH FILTER",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                        fontSize = 12.sp,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                }
+                                AeroTextField(
+                                    value = filter,
+                                    onValueChange = { filter = it },
+                                    placeholder = readI18n("rwpp.multiplayer.room.searchMaps"),
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.Search,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                AeroIconButton(
+                                    painter = rememberVectorPainter(Icons.Default.Refresh),
+                                    size = 40.dp,
+                                    iconSize = 18.dp,
+                                    onClick = onRefresh,
+                                )
                             }
                         } else {
-                            val gridState = rememberLazyGridState()
-
-                            LaunchedEffect(Unit) {
-                                if (lastSelectedIndex in maps.indices) {
-                                    gridState.scrollToItem(lastSelectedIndex)
+                            // Desktop keeps the complete filter toolbar and side-by-side map preview.
+                            AeroPanel(
+                                borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(modifier = Modifier.weight(1.2f)) {
+                                        AeroDropdownMenu(
+                                            label = readI18n("rwpp.multiplayer.room.mapType"),
+                                            items = mapTypeItems.map { it.displayName },
+                                            selectedIndex = selectedIndex0.coerceAtMost(mapTypeItems.lastIndex),
+                                            onItemSelected = { index -> selectedIndex0 = index },
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                    AeroTextField(
+                                        value = filter,
+                                        onValueChange = { filter = it },
+                                        placeholder = "",
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.Search,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        },
+                                        modifier = Modifier
+                                            .weight(1.5f)
+                                            .align(Alignment.CenterVertically)
+                                    )
+                                    AeroIconButton(
+                                        painter = rememberVectorPainter(Icons.Default.Refresh),
+                                        size = 48.dp,
+                                        iconSize = 20.dp,
+                                        onClick = onRefresh
+                                    )
                                 }
                             }
+                        }
 
+                        if (!compact) Spacer(modifier = Modifier.height(12.dp))
 
-                            LazyVerticalGridScrollbar(
-                                gridState
+                        val gridState = rememberLazyGridState()
+                        LaunchedEffect(Unit) {
+                            if (selectedMapIndex in maps.indices) gridState.scrollToItem(selectedMapIndex)
+                        }
+
+                        val listPane: @Composable () -> Unit = {
+                            AeroPanel(
+                                modifier = Modifier.fillMaxSize(),
+                                borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
                             ) {
-                                LazyVerticalGrid(
-                                    state = gridState,
-                                    columns = GridCells.Adaptive(minSize = 130.dp),
-                                    contentPadding = PaddingValues(10.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                                    modifier = Modifier.fillMaxSize()
-                                ) {
-                                    items(
-                                        count = maps.size,
-                                        key = { maps[it].mapName + maps[it].id }
-                                    ) { index ->
-                                        val map = maps[index]
-                                        val isSelected = index == selectedMapIndex
-                                        val name = rememberSaveable(map) { map.displayName() }
-
-                                        MapGridCard(
-                                            name = name,
-                                            model = map,
-                                            isSelected = isSelected,
-                                            showImage = mapType != GameSetupMapType.savedGame,
-                                            onClick = { selectedMapIndex = index },
-                                            onDoubleClick = {
-                                                onSelectedMap(index, map)
-                                                dismissAction()
+                                if (maps.isEmpty()) {
+                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            if (isLoading) {
+                                                LinearProgressIndicator(Modifier.width(120.dp))
+                                            } else {
+                                                Icon(
+                                                    imageVector = Icons.Default.Search,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                                    modifier = Modifier.size(40.dp)
+                                                )
+                                                Spacer(modifier = Modifier.height(8.dp))
                                             }
-                                        )
+                                            Text(
+                                                text = when {
+                                                    isLoading -> readI18n("rwpp.catalog.loading")
+                                                    loadError != null -> readI18n("rwpp.catalog.failed", loadError)
+                                                    else -> readI18n("rwpp.multiplayer.room.noMapsMatchFilter")
+                                                },
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                                fontSize = 12.sp,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    LazyVerticalGridScrollbar(gridState) {
+                                        LazyVerticalGrid(
+                                            state = gridState,
+                                            columns = GridCells.Adaptive(minSize = if (compact) 120.dp else 130.dp),
+                                            contentPadding = PaddingValues(if (compact) 6.dp else 10.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 10.dp),
+                                            verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 10.dp),
+                                            modifier = Modifier.fillMaxSize()
+                                        ) {
+                                            items(count = maps.size, key = { maps[it].mapSelectionKey() }) { index ->
+                                                val map = maps[index]
+                                                val isSelected = index == selectedMapIndex
+                                                val name = rememberSaveable(map) { map.displayName() }
+                                                MapGridCard(
+                                                    name = name,
+                                                    model = map,
+                                                    isSelected = isSelected,
+                                                    showImage = mapType != GameSetupMapType.savedGame,
+                                                    compact = compact,
+                                                    onClick = { selectedMapKey = map.mapSelectionKey() },
+                                                    onDoubleClick = {
+                                                        lastConfirmedMapKey = map.mapSelectionKey()
+                                                        onSelectedMap(index, map)
+                                                        dismissAction()
+                                                    }
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
 
-                    // 右侧：新增地图详情与实时预览面板
-                    AeroPanel(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight(),
-                        borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-                    ) {
-                        val currentMap = maps.getOrNull(selectedMapIndex)
-
-                        MapDetailSidebar(
-                            map = currentMap,
-                            mapType = mapType,
-                            showImage = mapType != GameSetupMapType.savedGame,
-                            onConfirmSelect = {
-                                if (currentMap != null) {
-                                    onSelectedMap(selectedMapIndex, currentMap)
-                                    dismissAction()
-                                }
+                        val detailsPane: @Composable () -> Unit = {
+                            AeroPanel(
+                                modifier = Modifier.fillMaxSize(),
+                                borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                            ) {
+                                val currentMap = maps.getOrNull(selectedMapIndex)
+                                MapDetailSidebar(
+                                    map = currentMap,
+                                    mapType = mapType,
+                                    showImage = mapType != GameSetupMapType.savedGame,
+                                    compact = compact,
+                                    onConfirmSelect = {
+                                        if (currentMap != null) {
+                                            lastConfirmedMapKey = currentMap.mapSelectionKey()
+                                            onSelectedMap(selectedMapIndex, currentMap)
+                                            dismissAction()
+                                        }
+                                    }
+                                )
                             }
-                        )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth().weight(1f),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        ) {
+                            Box(Modifier.weight(1.8f).fillMaxHeight()) { listPane() }
+                            Box(Modifier.weight(1f).fillMaxHeight()) { detailsPane() }
+                        }
                     }
                 }
+                if (isLoading) {
+                    LinearProgressIndicator(
+                        modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth(),
+                    )
+                }
+            }
+        }
+    }
+}
+
+internal const val COMPACT_MAP_PAGE_HEADER_ITEMS = 4
+
+/** Stable across refreshes and filter changes, unlike an index in the currently visible list. */
+internal fun GameMap.mapSelectionKey(): String = listOf(
+    mapType.name,
+    enginePath.lowercase(),
+    id.toString(),
+    mapName.lowercase(),
+).joinToString(separator = "") { "${it.length}:$it" }
+
+internal fun resolveMapSelectionIndex(
+    maps: List<GameMap>,
+    selectedMapKey: String?,
+    lastSelectedIndex: Int,
+): Int {
+    if (maps.isEmpty()) return -1
+    val selectedIndex = maps.indexOfFirst { it.mapSelectionKey() == selectedMapKey }
+    return if (selectedIndex >= 0) selectedIndex else lastSelectedIndex.takeIf { it in maps.indices } ?: 0
+}
+
+@Composable
+internal fun MapSelectionButton(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val accent = MaterialTheme.colorScheme.primary
+    val shape = remember { AeroSciFiTheme.ChamferAeroShape(8f) }
+
+    LaunchedEffect(isHovered) {
+        if (isHovered) Sounds.playSound(Sounds.hover)
+    }
+
+    val scale by animateFloatAsState(
+        targetValue = when {
+            isPressed -> 0.96f
+            isHovered -> 1.02f
+            else -> 1f
+        },
+        animationSpec = spring(dampingRatio = 0.62f, stiffness = 750f),
+        label = "mapSelectionScale",
+    )
+    val backgroundColor by animateColorAsState(
+        targetValue = when {
+            isPressed -> accent.copy(alpha = 0.34f)
+            selected -> accent.copy(alpha = 0.2f)
+            isHovered -> accent.copy(alpha = 0.12f)
+            else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+        },
+        animationSpec = tween(120),
+        label = "mapSelectionBackground",
+    )
+    val borderColor by animateColorAsState(
+        targetValue = when {
+            isPressed -> Color.White
+            selected -> accent
+            isHovered -> accent.copy(alpha = 0.8f)
+            else -> MaterialTheme.colorScheme.outlineVariant
+        },
+        animationSpec = tween(120),
+        label = "mapSelectionBorder",
+    )
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = 46.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clip(shape)
+            .background(backgroundColor)
+            .border(if (selected) 1.5.dp else 1.dp, borderColor, shape)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.RadioButton,
+            ) {
+                Sounds.playSound(Sounds.select)
+                onClick()
+            }
+            .semantics { this.selected = selected }
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = text,
+                modifier = Modifier.weight(1f),
+                color = if (selected || isHovered || isPressed) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 13.sp,
+                fontWeight = if (selected || isHovered) FontWeight.Bold else FontWeight.Medium,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (selected || isHovered || isPressed) {
+                Spacer(Modifier.width(8.dp))
+                Box(
+                    Modifier
+                        .width(3.dp)
+                        .height(16.dp)
+                        .background(if (isPressed) Color.White else accent, RoundedCornerShape(2.dp)),
+                )
             }
         }
     }
@@ -304,7 +587,8 @@ fun LazyGridItemScope.MapGridCard(
     isSelected: Boolean,
     showImage: Boolean = true,
     onClick: () -> Unit,
-    onDoubleClick: () -> Unit
+    onDoubleClick: () -> Unit,
+    compact: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
@@ -353,7 +637,7 @@ fun LazyGridItemScope.MapGridCard(
     Box(
         modifier = Modifier
             .animateItem()
-            .height(130.dp)
+            .height(if (compact) 72.dp else 130.dp)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
@@ -366,15 +650,15 @@ fun LazyGridItemScope.MapGridCard(
                 indication = null,
                 onClick = {
                     if (isSelected) {
-                        Sounds.closePopup?.play(GameScope.coroutineContext)
+                        Sounds.playSound(Sounds.closePopup)
                         onDoubleClick()
                     } else {
-                        Sounds.select?.play(GameScope.coroutineContext)
+                        Sounds.playSound(Sounds.select)
                         onClick()
                     }
                 }
             )
-            .padding(6.dp)
+            .padding(if (compact) 4.dp else 6.dp)
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -405,7 +689,7 @@ fun LazyGridItemScope.MapGridCard(
                         )
                     } else {
                         Text(
-                            text = "NONE",
+                            text = readI18n("rwpp.common.none"),
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
@@ -450,13 +734,40 @@ private fun MapDetailSidebar(
     map: GameMap?,
     mapType: GameSetupMapType,
     showImage: Boolean,
+    compact: Boolean,
+    fitContent: Boolean = false,
     onConfirmSelect: () -> Unit
 ) {
+    val previewService = koinInject<MapPreviewGenerationService>()
+    val previewScope = rememberCoroutineScope()
+    var previewJob by remember(map) { mutableStateOf<Job?>(null) }
+    DisposableEffect(map) {
+        onDispose { previewJob?.cancel() }
+    }
+    var generatedPreview by remember(map) { mutableStateOf<GeneratedMapPreview?>(null) }
+    var nativePreviewExists by remember(map) { mutableStateOf(false) }
+    var previewCheckComplete by remember(map) { mutableStateOf(false) }
+    var generatingPreview by remember(map) { mutableStateOf(false) }
+    var previewGenerationError by remember(map) { mutableStateOf<String?>(null) }
+    LaunchedEffect(map) {
+        nativePreviewExists = false
+        previewCheckComplete = false
+        val selected = map
+        if (selected != null && previewService.supports(selected)) {
+            nativePreviewExists = withContext(Dispatchers.IO) {
+                runCatching { FileLoader.fileExists(AppContext.getMapImagePath(selected.enginePath)) }
+                    .getOrDefault(false)
+            }
+        }
+        previewCheckComplete = true
+    }
+
     Column(
         modifier = Modifier
-            .fillMaxSize()
-            .padding(14.dp),
-        verticalArrangement = Arrangement.SpaceBetween,
+            .then(if (fitContent) Modifier.fillMaxWidth() else Modifier.fillMaxSize())
+            .padding(if (compact) 10.dp else 14.dp)
+            .then(if (compact && !fitContent) Modifier.verticalScroll(rememberScrollState()) else Modifier),
+        verticalArrangement = if (compact) Arrangement.spacedBy(8.dp) else Arrangement.SpaceBetween,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Column(
@@ -469,7 +780,7 @@ private fun MapDetailSidebar(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "[ MAP PREVIEW ]",
+                    text = "[ ${readI18n("rwpp.multiplayer.room.mapPreview").uppercase()} ]",
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
@@ -484,11 +795,45 @@ private fun MapDetailSidebar(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            AeroMapPreview(map, showImage)
+            AeroMapPreview(map, showImage, generatedPreview)
 
             Spacer(modifier = Modifier.height(12.dp))
 
             if (map != null) {
+                if (previewCheckComplete && !nativePreviewExists && previewService.supports(map) &&
+                    generatedPreview == null
+                ) {
+                    AeroButton(
+                        text = if (generatingPreview) readI18n("rwpp.map.generatingPreview")
+                        else readI18n("rwpp.map.generatePreview"),
+                        onClick = {
+                            if (!generatingPreview) {
+                                generatingPreview = true
+                                previewGenerationError = null
+                                previewJob = previewScope.launch {
+                                    previewService.generate(map).onSuccess { generatedPreview = it }
+                                        .onFailure {
+                                            previewGenerationError = it.message
+                                                ?: readI18n("rwpp.catalog.unknownError")
+                                        }
+                                    generatingPreview = false
+                                }
+                            }
+                        },
+                        enabled = !generatingPreview,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    previewGenerationError?.let { error ->
+                        Text(
+                            text = readI18n("rwpp.map.previewGenerationFailed", error),
+                            color = MaterialTheme.colorScheme.error,
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
                 Text(
                     text = map.displayName(),
                     fontSize = 15.sp,
@@ -510,9 +855,14 @@ private fun MapDetailSidebar(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    MapInfoRow(label = "FILENAME", value = map.mapName.ifEmpty { "N/A" })
-                    MapInfoRow(label = "MAP ID", value = map.id.toString())
-                    MapInfoRow(label = "STATUS", value = "READY FOR MATCH")
+                    MapInfoRow(
+                        label = readI18n("rwpp.common.filename"),
+                        value = map.mapName.ifEmpty { readI18n("rwpp.common.notAvailable") })
+                    MapInfoRow(label = readI18n("rwpp.common.mapId"), value = map.id.toString())
+                    MapInfoRow(
+                        label = readI18n("rwpp.common.status"),
+                        value = readI18n("rwpp.multiplayer.room.mapReady")
+                    )
                 }
             }
         }
@@ -520,7 +870,7 @@ private fun MapDetailSidebar(
         // 底部确认按钮
         AeroButton(
             text = readI18n("rwpp.multiplayer.room.mapView").uppercase(),
-            subText = "CONFIRM ▶",
+            subText = "${readI18n("rwpp.common.confirm").uppercase()} ▶",
             onClick = onConfirmSelect,
             clickSound = Sounds.closePopup,
             modifier = Modifier.fillMaxWidth()

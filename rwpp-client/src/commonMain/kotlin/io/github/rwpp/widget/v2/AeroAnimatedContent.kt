@@ -1,8 +1,8 @@
 /*
  * Copyright 2023-2026 RWPP contributors
- * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
- * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
- * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE
+ * 此源代码的使用受 RWPP-Team Shield 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the RWPP-Team Shield license that can be found through the following link.
+ * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
 package io.github.rwpp.widget.v2
@@ -11,14 +11,12 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.composed
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
@@ -27,9 +25,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.toSize
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -51,7 +49,8 @@ private fun SciFiContentContainer(
     var contentSize by remember { mutableStateOf(Size.Zero) }
 
     val primaryColor = if (isDanger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-    val primaryContainerColor = if (isDanger) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer
+    val primaryContainerColor =
+        if (isDanger) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer
     val coreColor = MaterialTheme.colorScheme.inverseOnSurface
 
     val transition = updateTransition(targetState = visible, label = "SciFiTransition")
@@ -186,6 +185,7 @@ fun AnimatedTransitionDialog(
     enableDismiss: Boolean,
     isDanger: Boolean,
     contentAlignment: Alignment = Alignment.Center,
+    onDismissStarted: () -> Unit = {},
     content: @Composable (AnimatedTransitionDialogHelper) -> Unit
 ) {
     val onDismissSharedFlow: MutableSharedFlow<Any> = remember { MutableSharedFlow() }
@@ -207,6 +207,7 @@ fun AnimatedTransitionDialog(
     Dialog(
         onDismissRequest = {
             if (enableDismiss) {
+                onDismissStarted()
                 coroutineScope.launch {
                     startDismissWithExitAnimation(animateTrigger, onDismissRequest)
                 }
@@ -216,13 +217,102 @@ fun AnimatedTransitionDialog(
     ) {
         Box(
             contentAlignment = contentAlignment,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize().padding(12.dp)
         ) {
             SciFiContentContainer(
                 visible = animateTrigger.value,
                 isDanger = isDanger
             ) {
-                content(AnimatedTransitionDialogHelper(coroutineScope, onDismissSharedFlow))
+                content(AnimatedTransitionDialogHelper(coroutineScope, onDismissSharedFlow, onDismissStarted))
+            }
+        }
+    }
+}
+
+@Composable
+fun AnimatedDialog(
+    onDismissRequest: () -> Unit,
+    enableDismiss: Boolean = true,
+    isDanger: Boolean = false,
+    onDismissStarted: () -> Unit = {},
+    content: @Composable (dismiss: () -> Unit) -> Unit
+) {
+    AnimatedTransitionDialog(
+        onDismissRequest = onDismissRequest,
+        enableDismiss = enableDismiss,
+        isDanger = isDanger,
+        onDismissStarted = onDismissStarted,
+    ) { helper ->
+        content(helper::triggerAnimatedDismiss)
+    }
+}
+
+@Composable
+fun AnimatedAeroPopup(
+    visible: Boolean,
+    onDismissRequest: () -> Unit,
+    popupPositionProvider: PopupPositionProvider,
+    focusable: Boolean = true,
+    enableDismiss: Boolean = true,
+    isDanger: Boolean = false,
+    onDismissStarted: () -> Unit = {},
+    contentAlignment: Alignment = Alignment.Center,
+    content: @Composable (dismiss: () -> Unit) -> Unit
+) {
+    val coroutineScope = rememberCoroutineScope()
+    val currentOnDismissRequest by rememberUpdatedState(onDismissRequest)
+    val currentOnDismissStarted by rememberUpdatedState(onDismissStarted)
+    val currentEnableDismiss by rememberUpdatedState(enableDismiss)
+    var popupVisible by remember { mutableStateOf(false) }
+    var animatedVisible by remember { mutableStateOf(false) }
+    var dismissing by remember { mutableStateOf(false) }
+
+    val requestDismiss = {
+        if (currentEnableDismiss && popupVisible && !dismissing) {
+            dismissing = true
+            currentOnDismissStarted()
+            animatedVisible = false
+            coroutineScope.launch {
+                delay(ANIMATION_TIME.milliseconds)
+                popupVisible = false
+                dismissing = false
+                currentOnDismissRequest()
+            }
+        }
+    }
+
+    LaunchedEffect(visible) {
+        if (visible) {
+            dismissing = false
+            popupVisible = true
+            delay(DIALOG_BUILD_TIME.milliseconds)
+            animatedVisible = true
+        } else if (popupVisible) {
+            dismissing = true
+            animatedVisible = false
+            delay(ANIMATION_TIME.milliseconds)
+            popupVisible = false
+            dismissing = false
+        }
+    }
+
+    if (popupVisible) {
+        Popup(
+            popupPositionProvider = popupPositionProvider,
+            onDismissRequest = requestDismiss,
+            properties = PopupProperties(
+                focusable = focusable,
+                dismissOnBackPress = enableDismiss && focusable,
+                dismissOnClickOutside = enableDismiss,
+            )
+        ) {
+            Box(contentAlignment = contentAlignment) {
+                SciFiContentContainer(
+                    visible = animatedVisible,
+                    isDanger = isDanger
+                ) {
+                    content(requestDismiss)
+                }
             }
         }
     }
@@ -230,9 +320,11 @@ fun AnimatedTransitionDialog(
 
 class AnimatedTransitionDialogHelper(
     private val coroutineScope: CoroutineScope,
-    private val onDismissFlow: MutableSharedFlow<Any>
+    private val onDismissFlow: MutableSharedFlow<Any>,
+    private val onDismissStarted: () -> Unit,
 ) {
     fun triggerAnimatedDismiss() {
+        onDismissStarted()
         coroutineScope.launch {
             onDismissFlow.emit(Any())
         }
@@ -256,14 +348,33 @@ fun AnimatedAlertDialog(
     isDanger: Boolean = false,
     content: @Composable (dismiss: () -> Unit) -> Unit
 ) {
+    AnimatedAlertDialog(
+        visible = visible,
+        onDismissRequest = onDismissRequest,
+        enableDismiss = enableDismiss,
+        isDanger = isDanger,
+        onDismissStarted = {},
+        content = content,
+    )
+}
+
+@Composable
+fun AnimatedAlertDialog(
+    visible: Boolean,
+    onDismissRequest: () -> Unit,
+    enableDismiss: Boolean = true,
+    isDanger: Boolean = false,
+    onDismissStarted: () -> Unit,
+    content: @Composable (dismiss: () -> Unit) -> Unit
+) {
     if (visible) {
-        AnimatedTransitionDialog(
+        AnimatedDialog(
             onDismissRequest = onDismissRequest,
             enableDismiss = enableDismiss,
             isDanger = isDanger,
-        ) { animatedTransitionDialogHelper ->
-            content(animatedTransitionDialogHelper::triggerAnimatedDismiss)
-        }
+            onDismissStarted = onDismissStarted,
+            content = content,
+        )
     }
 }
 
