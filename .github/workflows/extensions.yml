@@ -34,8 +34,13 @@ jobs:
           # Leaving the action's default packages installs it, sdkmanager exits 1,
           # and every later build and publish step is skipped.
           packages: platform-tools
-      - name: Install Android SDK 36
-        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Install the Android platform from the version catalog
+        shell: bash
+        run: |
+          set -euo pipefail
+          compile_sdk=$(sed -n 's/^android-compileSdk = "\([0-9]*\)".*/\1/p' gradle/libs.versions.toml)
+          test -n "$compile_sdk"
+          sdkmanager "platforms;android-$compile_sdk" 'build-tools;36.0.0'
       - uses: gradle/actions/setup-gradle@v4
       - name: Prepare RWML core and mapped game library
         shell: bash
