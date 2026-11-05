@@ -36,7 +36,8 @@ kotlin {
 
     androidLibrary {
         namespace = "io.github.rwml.api"
-        compileSdk = libs.versions.android.compileSdk.get().toInt()
+        compileSdk = (findProperty("androidCompileSdk") as String?)?.toInt()
+            ?: libs.versions.android.compileSdk.get().toInt()
         minSdk = libs.versions.android.minSdk.get().toInt()
         compilerOptions {
             jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)

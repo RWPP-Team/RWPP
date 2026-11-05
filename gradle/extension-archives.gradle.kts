@@ -174,7 +174,8 @@ val androidSdkJar = provider {
     val local = Properties().apply { rootProject.file("local.properties").takeIf { it.isFile }?.inputStream()?.use(::load) }
     val sdk = providers.gradleProperty("androidSdkDir").orNull ?: System.getenv("ANDROID_SDK_ROOT")
         ?: System.getenv("ANDROID_HOME") ?: local.getProperty("sdk.dir") ?: error("Set androidSdkDir or sdk.dir")
-    val level = extensions.getByType<VersionCatalogsExtension>().named("libs").findVersion("android-compileSdk").get().requiredVersion
+    val level = (project.findProperty("androidCompileSdk") as String?)
+        ?: extensions.getByType<VersionCatalogsExtension>().named("libs").findVersion("android-compileSdk").get().requiredVersion
     file(sdk).resolve("platforms/android-$level/android.jar").also { check(it.isFile) { "Missing Android SDK: $it" } }
 }
 val dexDirectory = layout.buildDirectory.dir("dex/extension")

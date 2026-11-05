@@ -155,7 +155,8 @@ compose.resources {
 
 android {
     namespace = "io.github.rwpp"
-    compileSdk = libs.versions.android.compileSdk.get().toInt()
+    compileSdk = (findProperty("androidCompileSdk") as String?)?.toInt()
+        ?: libs.versions.android.compileSdk.get().toInt()
     defaultConfig {
         minSdk = libs.versions.android.minSdk.get().toInt()
     }

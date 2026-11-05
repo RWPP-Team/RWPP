@@ -34,13 +34,15 @@ jobs:
           # Leaving the action's default packages installs it, sdkmanager exits 1,
           # and every later build and publish step is skipped.
           packages: platform-tools
-      - name: Install the Android platform from the version catalog
+      - name: Install the stable Android platform used by CI
         shell: bash
         run: |
           set -euo pipefail
-          compile_sdk=$(sed -n 's/^android-compileSdk = "\([0-9]*\)".*/\1/p' gradle/libs.versions.toml)
-          test -n "$compile_sdk"
-          sdkmanager "platforms;android-$compile_sdk" 'build-tools;36.0.0'
+          # API 37 is only shipped with Android Studio previews and is absent from
+          # the stable SDK repository that CI's sdkmanager can see. The archives
+          # only need android.jar for D8 and the Android plugin, so CI builds with
+          # the latest stable platform and overrides the compile level below.
+          sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
       - uses: gradle/actions/setup-gradle@v4
       - name: Prepare RWML core and mapped game library
         shell: bash
@@ -59,6 +61,7 @@ jobs:
         run: >-
           ./gradlew
           -PrwmlLocalRepo="$GITHUB_WORKSPACE/.ci/rwml/build/local-maven"
+          -PandroidCompileSdk=36
           verifyJvmExtensionPack verifyAndroidExtensionPack
       - name: Collect packs and individual extension archives
         shell: bash
