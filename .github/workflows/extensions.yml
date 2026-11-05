@@ -29,6 +29,11 @@ jobs:
           distribution: jetbrains
           java-version: '25'
       - uses: android-actions/setup-android@v3
+        with:
+          # The legacy "tools" package was removed from Google's SDK repository.
+          # Leaving the action's default packages installs it, sdkmanager exits 1,
+          # and every later build and publish step is skipped.
+          packages: platform-tools
       - name: Install Android SDK 36
         run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
       - uses: gradle/actions/setup-gradle@v4
