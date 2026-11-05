@@ -28,18 +28,29 @@ val bundleResources = tasks.register<JavaExec>("bundleAndroidExtensionResources"
         val output = bundle.get().asFile.canonicalFile
         check(output.toPath().startsWith(layout.buildDirectory.get().asFile.canonicalFile.toPath()))
         output.deleteRecursively(); output.mkdirs()
-        val properties = Properties().apply { rootProject.file("local.properties").inputStream().use(::load) }
-        val sdk = file(properties.getProperty("sdk.dir"))
+        // CI has no local.properties and uses a Linux SDK, so resolve the SDK the
+        // same way as the archive script and accept both aapt2 executable names.
+        val local = Properties().apply {
+            rootProject.file("local.properties").takeIf { it.isFile }?.inputStream()?.use(::load)
+        }
+        val sdk = file(
+            providers.gradleProperty("androidSdkDir").orNull
+                ?: System.getenv("ANDROID_SDK_ROOT")
+                ?: System.getenv("ANDROID_HOME")
+                ?: local.getProperty("sdk.dir")
+                ?: error("Set androidSdkDir, sdk.dir, ANDROID_SDK_ROOT or ANDROID_HOME")
+        )
         val android =
             listOf("android-37.0", "android-37", "android-36").map { sdk.resolve("platforms/$it/android.jar") }
-                .first { it.isFile }
-        val tools = sdk.resolve("build-tools").listFiles()!!.sortedByDescending { it.name }
-            .first { it.resolve("aapt2.exe").isFile }
+                .firstOrNull { it.isFile } ?: error("No supported Android platform in ${sdk.resolve("platforms")}")
+        val tools = sdk.resolve("build-tools").listFiles().orEmpty().sortedByDescending { it.name }
+            .first { it.resolve("aapt2").isFile || it.resolve("aapt2.exe").isFile }
+        val aapt2 = listOf("aapt2", "aapt2.exe").map { tools.resolve(it) }.first { it.isFile }
         val list = output.resolve("aars.txt").apply {
             writeText(resourceAars.files.filter { it.extension == "aar" }.sortedBy { it.absolutePath }
                 .joinToString("\n") { it.absolutePath })
         }
-        args(tools.resolve("aapt2.exe").absolutePath, android.absolutePath, output.absolutePath, list.absolutePath)
+        args(aapt2.absolutePath, android.absolutePath, output.absolutePath, list.absolutePath)
     }
 }
 tasks.named<Jar>("rwppAndroidProgramJar") {
