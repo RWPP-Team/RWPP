@@ -16,6 +16,7 @@ build/
 /docs/
 /scripts/*
 !/scripts/install-client-extensions.ps1
+!/scripts/publish-r2.py
 /AGENTS.md
 
 # 编辑器与 Python 临时文件
