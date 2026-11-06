@@ -31,6 +31,7 @@ import json
 import os
 import pathlib
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -98,23 +99,38 @@ def signed_headers(method: str, canonical_uri: str, canonical_query: str,
 
 
 def s3_request(method: str, key: str, body: bytes | None = None,
-               content_type: str | None = None) -> tuple[int, bytes]:
+               content_type: str | None = None, attempts: int = 3) -> tuple[int, bytes]:
     canonical_uri = "/" + BUCKET + "/" + urllib.parse.quote(key, safe="/")
     payload = body if body is not None else b""
     payload_hash = hashlib.sha256(payload).hexdigest()
     extra = {"Content-Type": content_type} if content_type else None
-    headers = signed_headers(method, canonical_uri, "", payload_hash, extra)
-    request = urllib.request.Request(
-        ENDPOINT + canonical_uri,
-        data=body,
-        headers=headers,
-        method=method,
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=900) as response:
-            return response.status, response.read()
-    except urllib.error.HTTPError as error:
-        return error.code, error.read()
+    last_error: Exception | None = None
+    for attempt in range(attempts):
+        # Sign each attempt: the x-amz-date header must stay inside R2's clock window.
+        headers = signed_headers(method, canonical_uri, "", payload_hash, extra)
+        request = urllib.request.Request(
+            ENDPOINT + canonical_uri,
+            data=body,
+            headers=headers,
+            method=method,
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=900) as response:
+                return response.status, response.read()
+        except urllib.error.HTTPError as error:
+            status, response_body = error.code, error.read()
+            if 500 <= status < 600 and attempt + 1 < attempts:
+                print(f"retry {method} {key}: HTTP {status}", file=sys.stderr)
+                time.sleep(2 ** attempt)
+                continue
+            return status, response_body
+        except (urllib.error.URLError, TimeoutError, OSError) as error:
+            last_error = error
+            if attempt + 1 < attempts:
+                print(f"retry {method} {key}: {type(error).__name__}", file=sys.stderr)
+                time.sleep(2 ** attempt)
+                continue
+    raise SystemExit(f"{method} {key} failed after {attempts} attempts: {last_error}")
 
 
 def ok(status: int, body: bytes, action: str) -> None:
