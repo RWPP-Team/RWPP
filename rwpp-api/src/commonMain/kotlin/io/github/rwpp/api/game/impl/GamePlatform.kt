@@ -22,6 +22,7 @@ import io.github.rwpp.api.net.impl.unwrapNativeInvocationFailure
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import java.io.File
 import java.io.FileNotFoundException
 import java.io.IOException
 import java.io.InputStream
@@ -30,6 +31,58 @@ import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+
+/**
+ * Opens an abstract game path the way the engine itself resolves it. Custom maps live under
+ * `/SD/rusted_warfare_maps`, which only `convertAbstractPath` maps to the real directory;
+ * `openByPath` alone falls through to the asset stream and finds nothing. Mod archives and
+ * built-in assets keep working through the first attempt.
+ */
+fun openGamePath(path: String): InputStream? {
+    // Each backend is isolated: a virtual /SD path makes openByPath throw on some
+    // hosts, and that failure must not skip the converted filesystem lookup.
+    runCatching { FileLoader.openByPath(path) }.getOrNull()?.let { return it }
+    val converted = runCatching { FileLoader.convertAbstractPath(path) }.getOrNull()
+    if (!converted.isNullOrBlank() && converted != path) {
+        runCatching {
+            val direct = File(converted)
+            if (direct.isFile) direct.inputStream() else null
+        }.getOrNull()?.let { return it }
+        val root = System.getProperty("rwpp.gameRoot")?.takeIf(String::isNotBlank)
+            ?: System.getProperty("user.dir")?.takeIf(String::isNotBlank)
+        if (root != null) {
+            runCatching {
+                val rooted = File(root, converted)
+                if (rooted.isFile) rooted.inputStream() else null
+            }.getOrNull()?.let { return it }
+        }
+    }
+    return runCatching { FileLoader.openAsset(path) }.getOrNull()
+}
+
+/**
+ * `MOD|<modHash>/<relativePath>` entries come from ModManager. The engine rewrites the tag while
+ * resolving a virtual path, but the rewrite only happens on paths it recognises, so a mod map or
+ * its preview image can be unreachable. This repeats that rewrite with the mod's own source path.
+ */
+fun openGamePathWithModTag(path: String): InputStream? {
+    val normalized = path.replace('\\', '/')
+    val start = normalized.indexOf("MOD|")
+    if (start < 0) return null
+    val tagged = normalized.substring(start + MOD_TAG.length)
+    val separator = tagged.indexOf('/')
+    if (separator <= 0) return null
+    val hash = tagged.substring(0, separator)
+    val relative = tagged.substring(separator + 1)
+    if (relative.isBlank()) return null
+    val source = runCatching {
+        GameEngine.getInstance().modManager.getModByHash(hash)?.getSourcePath()
+    }.getOrNull()?.takeIf(String::isNotBlank) ?: return null
+    val joined = if (source.endsWith("/") || source.endsWith("\\")) source + relative else "$source/$relative"
+    return openGamePath(joined)
+}
+
+private const val MOD_TAG = "MOD|"
 
 /**
  * Runs native socket completion work through the same frame-owned queue as the game's own
@@ -401,9 +454,13 @@ internal object GamePlatform {
             )
             GameMap(
                 id = index,
-                mapName = fileName.removeSuffixIgnoreCase(".tmx"),
+                // The MOD|/NEW_PATH| tags route the engine to a mod archive; they are not part of
+                // the name a player should read in the map list.
+                mapName = MapNames.stripVirtualMapPrefix(fileName).removeSuffixIgnoreCase(".tmx"),
                 mapType = GameSetupMapType.customMap,
-                inputStreamProvider = { FileLoader.openByPath(path) ?: throw FileNotFoundException(path) },
+                inputStreamProvider = {
+                    openGamePath(path) ?: openGamePathWithModTag(path) ?: throw FileNotFoundException(path)
+                },
                 enginePath = path,
             )
         }
@@ -422,7 +479,7 @@ internal object GamePlatform {
                     id = index,
                     mapName = mapName,
                     mapType = GameSetupMapType.savedGame,
-                    inputStreamProvider = { FileLoader.openByPath(path) ?: throw FileNotFoundException(path) },
+                    inputStreamProvider = { openGamePath(path) ?: throw FileNotFoundException(path) },
                     enginePath = path,
                 )
             }
@@ -475,7 +532,7 @@ internal object GamePlatform {
                             id = index,
                             mapName = fileName.removeSuffixIgnoreCase(".tmx"),
                             mapType = GameSetupMapType.customMap,
-                            inputStreamProvider = { FileLoader.openByPath(path) ?: throw FileNotFoundException(path) },
+                            inputStreamProvider = { openGamePath(path) ?: throw FileNotFoundException(path) },
                             enginePath = path,
                         ),
                     )
@@ -498,7 +555,7 @@ internal object GamePlatform {
                         id = index,
                         mapName = relativeMapPath(fileName, savesDirectory).removeSuffixIgnoreCase(".rwsave"),
                         mapType = GameSetupMapType.savedGame,
-                        inputStreamProvider = { FileLoader.openByPath(path) ?: throw FileNotFoundException(path) },
+                        inputStreamProvider = { openGamePath(path) ?: throw FileNotFoundException(path) },
                         enginePath = path,
                     ),
                 )
@@ -530,7 +587,7 @@ internal object GamePlatform {
                 val provider: () -> InputStream = if (path.startsWith("maps/", ignoreCase = true)) {
                     { openGameAsset(path) }
                 } else {
-                    { FileLoader.openByPath(path) ?: throw FileNotFoundException(path) }
+                    { openGamePath(path) ?: throw FileNotFoundException(path) }
                 }
                 add(
                     GameMap(

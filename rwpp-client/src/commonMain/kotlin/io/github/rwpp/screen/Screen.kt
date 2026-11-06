@@ -194,8 +194,16 @@ class ScreenNavigator(
             val currentScreen = current
 
             val glitchAnimatable = remember { Animatable(0f) }
+            val effects = org.koin.compose.koinInject<io.github.rwpp.config.Settings>().enableAnimations
+            // The counter advances when the user picks another color scheme, so the flash also
+            // covers theme changes that keep the current screen.
+            val themeGeneration = io.github.rwpp.ui.AeroThemeTransition.generation
 
-            LaunchedEffect(currentScreen) {
+            LaunchedEffect(currentScreen, themeGeneration, effects) {
+                if (!effects) {
+                    glitchAnimatable.snapTo(0f)
+                    return@LaunchedEffect
+                }
                 glitchAnimatable.snapTo(0f)
                 glitchAnimatable.animateTo(
                     targetValue = 1.0f,

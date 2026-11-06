@@ -33,6 +33,7 @@ import io.github.rwpp.game.units.comp.EntityRangeUnitComp
 import io.github.rwpp.graphics.*
 import io.github.rwpp.logic.hud.GameUiPauseState
 import org.koin.compose.koinInject
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -153,23 +154,73 @@ internal fun AeroWorldEffectSurface(
                 }
 
                 AeroOrderKind.BUILD -> {
-                    val r = (order.radius * frame.zoom * min(sx, sy)).coerceAtLeast(8.dp.toPx())
-                    val extent = Size(r * 2f, r * 2f)
-                    drawRect(color.copy(alpha = 0.08f), to - Offset(r, r), extent)
-                    drawRect(
-                        color, to - Offset(r, r), extent, style = Stroke(
-                            1.3.dp.toPx(),
-                            pathEffect = PathEffect.dashPathEffect(
-                                floatArrayOf(6.dp.toPx(), 3.dp.toPx()),
-                                frame.phase * 18.dp.toPx()
+                    val grid = order.grid
+                    if (grid != null) {
+                        // Draw over the native green squares with the same world-space bounds,
+                        // keeping one Aero outline per tile.
+                        val topLeft = project(Offset(grid.left, grid.top))
+                        val bottomRight = project(Offset(grid.right, grid.bottom))
+                        val origin = Offset(min(topLeft.x, bottomRight.x), min(topLeft.y, bottomRight.y))
+                        val extent = Size(
+                            abs(bottomRight.x - topLeft.x),
+                            abs(bottomRight.y - topLeft.y)
+                        )
+                        drawRect(color.copy(alpha = 0.08f), origin, extent)
+                        drawRect(
+                            color, origin, extent, style = Stroke(
+                                1.3.dp.toPx(),
+                                pathEffect = PathEffect.dashPathEffect(
+                                    floatArrayOf(6.dp.toPx(), 3.dp.toPx()),
+                                    frame.phase * 18.dp.toPx()
+                                )
                             )
                         )
-                    )
-                    if (order.progress >= 0) drawRect(
-                        color,
-                        to + Offset(-r, r + 3.dp.toPx()),
-                        Size(r * 2 * order.progress, 2.dp.toPx())
-                    )
+                        val stepX = grid.stepX * frame.zoom * sx
+                        val stepY = grid.stepY * frame.zoom * sy
+                        if (stepX > 1f) {
+                            var x = origin.x + stepX
+                            while (x < origin.x + extent.width - 1f) {
+                                drawLine(
+                                    color.copy(alpha = 0.45f), Offset(x, origin.y),
+                                    Offset(x, origin.y + extent.height), 1.dp.toPx()
+                                )
+                                x += stepX
+                            }
+                        }
+                        if (stepY > 1f) {
+                            var y = origin.y + stepY
+                            while (y < origin.y + extent.height - 1f) {
+                                drawLine(
+                                    color.copy(alpha = 0.45f), Offset(origin.x, y),
+                                    Offset(origin.x + extent.width, y), 1.dp.toPx()
+                                )
+                                y += stepY
+                            }
+                        }
+                        if (order.progress >= 0) drawRect(
+                            color,
+                            origin + Offset(0f, extent.height + 3.dp.toPx()),
+                            Size(extent.width * order.progress, 2.dp.toPx())
+                        )
+                    } else {
+                        val r = (order.radius * frame.zoom * min(sx, sy)).coerceAtLeast(8.dp.toPx())
+                        val extent = Size(r * 2f, r * 2f)
+                        drawRect(color.copy(alpha = 0.08f), to - Offset(r, r), extent)
+                        drawRect(
+                            color, to - Offset(r, r), extent, style = Stroke(
+                                1.3.dp.toPx(),
+                                pathEffect = PathEffect.dashPathEffect(
+                                    floatArrayOf(6.dp.toPx(), 3.dp.toPx()),
+                                    frame.phase * 18.dp.toPx()
+                                )
+                            )
+                        )
+                        if (order.progress >= 0) drawRect(
+                            color,
+                            to + Offset(-r, r + 3.dp.toPx()),
+                            Size(r * 2 * order.progress, 2.dp.toPx())
+                        )
+                    }
                 }
 
                 AeroOrderKind.GUARD -> {
@@ -251,6 +302,25 @@ internal fun AeroWorldEffectSurface(
                 drawRect(Color.Black.copy(alpha = 0.65f), origin, Size(w, bounds.height))
                 drawRect(Color(0xffffc66b), origin, Size(w * unit.trail, fillHeight))
                 drawRect(if (unit.hp < 0.25f) Color(0xffff6565) else unit.color, origin, Size(w * unit.hp, fillHeight))
+                barY += 5f * rowScale
+            }
+            if (unit.transportCapacity > 0) {
+                // Aero replaces Unit.drawOverlay, which normally draws this slot grid after
+                // the health bar. Keep the native order, geometry and blue palette.
+                val capacity = unit.transportCapacity
+                val gridWidth = if (capacity > 10) w + 20f * rowScale else w
+                val cell = gridWidth / capacity
+                val fillWidth = (cell - 2f * rowScale).coerceAtLeast(1f)
+                val cellHeight = 3f * rowScale
+                val gridLeft = origin.x - (gridWidth - w) / 2f
+                val outline = Stroke((1f * rowScale).coerceAtLeast(0.5f))
+                for (slot in 0 until capacity) {
+                    val cellOrigin = Offset(gridLeft + slot * cell, barY)
+                    if (slot < unit.transportUsed) {
+                        drawRect(Color(0xF00000FF), cellOrigin, Size(fillWidth, cellHeight))
+                    }
+                    drawRect(Color(0x6E0000D2), cellOrigin, Size(fillWidth, cellHeight), style = outline)
+                }
                 barY += 5f * rowScale
             }
             if (unit.shieldVisible) {

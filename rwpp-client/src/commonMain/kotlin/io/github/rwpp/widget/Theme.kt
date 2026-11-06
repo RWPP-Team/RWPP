@@ -19,6 +19,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.corrodinggames.rts.gameFramework.GameEngine
 import io.github.rwpp.config.Settings
+import io.github.rwpp.ui.AeroThemeTransition
+import io.github.rwpp.ui.HudOpacity
 import io.github.rwpp.ui.UI
 import org.koin.compose.koinInject
 
@@ -62,14 +64,10 @@ val RWTextFieldColors
         focusedTextColor = MaterialTheme.colorScheme.onSurface,
         unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
         focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer.copy(
-            alpha = UI.backgroundTransparency + 0.1f.coerceAtMost(
-                1f
-            )
+            alpha = (HudOpacity.value + 0.1f).coerceAtMost(1f)
         ),
         unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer.copy(
-            alpha = UI.backgroundTransparency + 0.1f.coerceAtMost(
-                1f
-            )
+            alpha = (HudOpacity.value + 0.1f).coerceAtMost(1f)
         ),
         cursorColor = MaterialTheme.colorScheme.primary,
         focusedLabelColor = MaterialTheme.colorScheme.primary,
@@ -114,6 +112,7 @@ fun RWPPTheme(default: Boolean = false, content: @Composable () -> Unit) {
         val settings = koinInject<Settings>()
 
         LaunchedEffect(UI.selectedColorSchemeName) {
+            AeroThemeTransition.onThemeChanged(UI.selectedColorSchemeName)
             if (settings.changeGameTheme) {
                 val color = themes[UI.selectedColorSchemeName]!!.primary
                 GameEngine.getInstance().interfaceEngine.screenMessageTextPaint.color = color.toArgb()

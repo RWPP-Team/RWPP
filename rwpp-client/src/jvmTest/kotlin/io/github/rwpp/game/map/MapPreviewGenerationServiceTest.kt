@@ -72,6 +72,79 @@ class MapPreviewGenerationServiceTest {
     }
 
     @Test
+    fun fallsBackToTheSharedTilesetDirectoryForAuthorMachinePaths() {
+        // Shipped and community maps keep author-machine paths that contain traversal
+        // segments; only the file name is reused inside the shared tileset directories.
+        assertTrue(
+            "tilesets/bitmaps/mountain.png" in previewResourceCandidates(
+                "../../terrain/bitmaps/mountain.png", "tilesets", "assets/maps/normal/mission.tmx",
+            )
+        )
+        assertTrue(
+            "tilesets/bitmaps/longgrass2stone_flat.png" in previewResourceCandidates(
+                "../rusted_warfare/assets/tilesets/bitmaps/longgrass2stone_flat.png", "tilesets", "mods/maps/test.tmx",
+            )
+        )
+    }
+
+    @Test
+    fun keepsTheGidRangeOfAMissingTilesetAsBlankTiles() = runBlocking {
+        val image = MapPreviewRaster(1, 1, intArrayOf(0xFF00FF00.toInt()))
+        val png = encodeMapPreviewPng(image)
+        val xml = """
+            <map orientation="orthogonal" width="2" height="1" tilewidth="1" tileheight="1">
+              <tileset firstgid="1" name="missing" tilewidth="1" tileheight="1" tilecount="1" columns="1">
+                <image source="missing.png" width="1" height="1"/>
+              </tileset>
+              <tileset firstgid="2" name="present" tilewidth="1" tileheight="1" tilecount="1" columns="1">
+                <image source="present.png" width="1" height="1"/>
+              </tileset>
+              <layer name="Ground" width="2" height="1">
+                <data encoding="csv">1,2</data>
+              </layer>
+            </map>
+        """.trimIndent().encodeToByteArray()
+        val rendered = renderMapPreview(
+            tmxBytes = xml,
+            mapPath = "maps/skirmish/test.tmx",
+            maxDimensionPx = 64,
+            readResource = { path -> png.takeIf { path == "tilesets/present.png" } },
+            decodeImage = ::decodeMapPreviewImage,
+        )
+        val background = 0xFF111923.toInt()
+        assertEquals(background, rendered.pixels[0])
+        assertEquals(0xFF00FF00.toInt(), rendered.pixels[1])
+    }
+
+    @Test
+    fun rendersTilesetsEmbeddedInTheTmxPropertyWithoutExternalFiles() = runBlocking {
+        val image = MapPreviewRaster(1, 1, intArrayOf(0xFF00FF00.toInt()))
+        val png = encodeMapPreviewPng(image)
+        val wrapped = Base64.getEncoder().encodeToString(png).chunked(64).joinToString("\n")
+        val xml = """
+            <map orientation="orthogonal" width="1" height="1" tilewidth="1" tileheight="1">
+              <tileset firstgid="1" name="export_ground" tilewidth="1" tileheight="1" tilecount="1" columns="1">
+                <properties>
+                  <property name="embedded_png">$wrapped</property>
+                </properties>
+                <image source="export_ground.png" width="1" height="1"/>
+              </tileset>
+              <layer name="Ground" width="1" height="1">
+                <data encoding="csv">1</data>
+              </layer>
+            </map>
+        """.trimIndent().encodeToByteArray()
+        val rendered = renderMapPreview(
+            tmxBytes = xml,
+            mapPath = "mods/maps/embedded.tmx",
+            maxDimensionPx = 64,
+            readResource = { null },
+            decodeImage = ::decodeMapPreviewImage,
+        )
+        assertEquals(0xFF00FF00.toInt(), rendered.pixels[0])
+    }
+
+    @Test
     fun rejectsDoctypeAndResourceTraversal() {
         val externalEntity = """
             <!DOCTYPE map [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
@@ -84,6 +157,10 @@ class MapPreviewGenerationServiceTest {
                 )
             }
         }
-        assertTrue(previewResourceCandidates("../../outside.png", "tilesets/sub", "maps/test.tmx").isEmpty())
+        // The traversal path itself never survives resolution; only the file name is
+        // reused inside the shared tileset directories.
+        val candidates = previewResourceCandidates("../../outside.png", "tilesets/sub", "maps/test.tmx")
+        assertTrue(candidates.none { ".." in it || it.startsWith("maps/") })
+        assertEquals(listOf("tilesets/bitmaps/outside.png", "tilesets/outside.png"), candidates)
     }
 }

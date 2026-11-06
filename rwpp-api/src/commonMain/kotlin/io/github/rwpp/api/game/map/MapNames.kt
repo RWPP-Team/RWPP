@@ -11,11 +11,33 @@ import java.util.*
 
 /** Pure map-file name formatting shared by Android and desktop game adapters. */
 object MapNames {
+    /**
+     * Map entries produced by ModManager carry virtual filesystem tags such as
+     * `MOD|<modHash>/<relativePath>`. They are engine routing data, never user-visible text.
+     * The tag can appear after a directory prefix, so the first tag wins.
+     */
+    fun stripVirtualMapPrefix(path: String): String {
+        val normalized = path.replace('\\', '/')
+        val start = listOf("MOD|", "NEW_PATH|")
+            .map { normalized.indexOf(it) }
+            .filter { it >= 0 }
+            .minOrNull() ?: return path
+        val tagged = normalized.substring(start)
+        val separator = tagged.indexOf('/')
+        // `MOD|<hash>` alone has nothing to strip; a trailing path is what the user reads.
+        if (separator < 0) return path
+        return tagged.substring(separator + 1)
+    }
+
     fun getPrettyMapName(path: String): String {
-        val fileName = path.substringAfterLast('/').substringAfterLast('\\')
+        val visible = stripVirtualMapPrefix(path)
+        val fileName = visible.substringAfterLast('/').substringAfterLast('\\')
         val prettyName = fileName.removeSuffix(".tmx").removeSuffix(".rwsave")
             .replace(Regex("^\\[.*?]"), "")
             .replace('_', ' ')
+            .trim()
+        // A name that is only the virtual tag keeps the raw file name rather than an empty label.
+        if (prettyName.isEmpty()) return path.substringAfterLast('/').substringAfterLast('\\')
         return prettyName.replaceFirstChar {
             if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString()
         }

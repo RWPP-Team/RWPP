@@ -40,7 +40,7 @@ class NativeGameHotkeysRegressionTest {
                 "rwpp low health",
                 "rwpp auto load",
                 "rwpp building planning",
-                "rwpp blueprint selection"
+                "rwpp reclaim selection"
             )) {
                 io.github.rwpp.logic.hotkeys.hotkeyActionLabel(action, translate)
             }
@@ -62,7 +62,7 @@ class NativeGameHotkeysRegressionTest {
             "rwpp_low_health" to "ALT+H",
             "rwpp_auto_load" to "ALT+L",
             "rwpp_building_planning" to "ALT+B",
-            "rwpp_blueprint_selection" to "SHIFT+ALT+B",
+            "rwpp_reclaim_selection" to "ALT+R",
         )
         tacticalDefaults.forEach { (key, binding) ->
             val button = buttons.single { it.settingsKey == key }

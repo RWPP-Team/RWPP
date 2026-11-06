@@ -54,6 +54,8 @@ class SettingsScreen(
         val compact = LocalWindowManager.current != WindowManager.Large
 
         var backgroundImagePath by remember { mutableStateOf(settings.backgroundImagePath ?: "") }
+        // The opacity state resolves its default before Koin exists in some hosts.
+        LaunchedEffect(Unit) { HudOpacity.syncFrom(settings) }
         var savedOnExit by remember { mutableStateOf(false) }
         DisposableEffect(Unit) {
             onDispose {
@@ -482,6 +484,38 @@ class SettingsScreen(
                                                     )
                                                 }
                                             )
+                                            var cameraDragSpeed by remember {
+                                                mutableFloatStateOf(
+                                                    runCatching { configIO.getGameConfig<Float>("scrollSpeed") }
+                                                        .getOrDefault(1f).coerceIn(0.2f, 3f)
+                                                )
+                                            }
+                                            var cameraEdgeSpeed by remember {
+                                                mutableFloatStateOf(
+                                                    runCatching { configIO.getGameConfig<Float>("edgeScrollSpeed") }
+                                                        .getOrDefault(1f).coerceIn(0.2f, 3f)
+                                                )
+                                            }
+                                            AeroSettingSlider(
+                                                value = cameraDragSpeed,
+                                                onValueChange = {
+                                                    cameraDragSpeed = it
+                                                    runCatching { configIO.setGameConfig("scrollSpeed", it) }
+                                                },
+                                                label = readI18n("rwpp.settings.cameraDragSpeed"),
+                                                valueRange = 0.2f..3f,
+                                                valueFormat = { "${(it * 100f).toInt()}%" }
+                                            )
+                                            AeroSettingSlider(
+                                                value = cameraEdgeSpeed,
+                                                onValueChange = {
+                                                    cameraEdgeSpeed = it
+                                                    runCatching { configIO.setGameConfig("edgeScrollSpeed", it) }
+                                                },
+                                                label = readI18n("rwpp.settings.cameraEdgeSpeed"),
+                                                valueRange = 0.2f..3f,
+                                                valueFormat = { "${(it * 100f).toInt()}%" }
+                                            )
                                         }
                                     }
 
@@ -571,6 +605,17 @@ class SettingsScreen(
                                                     settings.selectedTheme = theme
                                                     themeIndex = idx
                                                 }
+                                            )
+                                            AeroSettingSlider(
+                                                label = readI18n("rwpp.settings.backgroundTransparency"),
+                                                value = HudOpacity.value,
+                                                onValueChange = {
+                                                    val alpha = (it * 100f).roundToInt() / 100f
+                                                    HudOpacity.value = alpha
+                                                    settings.backgroundTransparency = alpha
+                                                },
+                                                valueRange = 0f..1f,
+                                                valueFormat = { "${(it * 100f).roundToInt()}%" },
                                             )
                                             AeroSettingTextField(
                                                 label = readI18n("rwpp.settings.setBackgroundImagePath"),

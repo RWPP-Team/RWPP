@@ -7,18 +7,32 @@
 
 package io.github.rwpp.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.corrodinggames.rts.gameFramework.InputControllerButton
@@ -28,6 +42,7 @@ import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.config.Settings
 import io.github.rwpp.game.hotkeys.NativeGameHotkeys
 import io.github.rwpp.logic.hotkeys.hotkeyActionLabel
+import io.github.rwpp.widget.v2.AeroSciFiTheme
 import io.github.rwpp.widget.v2.AeroSettingGroup
 import io.github.rwpp.widget.v2.AeroTextField
 import kotlinx.coroutines.launch
@@ -130,7 +145,12 @@ internal fun HotkeySettings(settings: Settings) {
     }
 }
 
-/** A real focusable text field that captures shortcuts while it owns focus. */
+/**
+ * A shortcut field is not a text input: it never accepts characters, it only turns
+ * the next key combination into a binding. A real text field routes keys through the
+ * text input session first, so this control owns its own focusable node and reads the
+ * key events directly.
+ */
 @Composable
 internal fun HotkeyBindingField(
     binding: String,
@@ -139,12 +159,18 @@ internal fun HotkeyBindingField(
     onBindingChanged: (String) -> Unit,
     onCaptureChanged: (Boolean) -> Unit = {},
 ) {
-    var capturing by remember { mutableStateOf(false) }
+    var focused by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
     val focusRequester = remember { FocusRequester() }
+    val interactionSource = remember { MutableInteractionSource() }
+    val shape = remember { AeroSciFiTheme.ChamferAeroShape(8f) }
+    val accentColor = MaterialTheme.colorScheme.primary
 
     fun endCapture() {
-        capturing = false
+        if (focused) {
+            focused = false
+            onCaptureChanged(false)
+        }
         focusManager.clearFocus()
     }
 
@@ -153,29 +179,50 @@ internal fun HotkeyBindingField(
         endCapture()
     }
 
-    AeroTextField(
-        value = if (capturing) prompt else binding.ifBlank { "—" },
-        onValueChange = {},
-        placeholder = "",
-        modifier = modifier.onPreviewKeyEvent { event ->
-            capturing && if (event.type != KeyEventType.KeyDown) true else {
-                when (event.key) {
-                    Key.Escape -> endCapture()
-                    Key.Delete if !event.isCtrlPressed && !event.isAltPressed && !event.isShiftPressed -> save("")
-                    else -> capturedHotkey(
-                        event.key,
-                        event.isCtrlPressed,
-                        event.isShiftPressed,
-                        event.isAltPressed
-                    )?.let(::save)
+    fun capture(event: KeyEvent): Boolean {
+        if (event.type != KeyEventType.KeyDown) return true
+        when (event.key) {
+            Key.Escape -> endCapture()
+            Key.Delete if !event.isCtrlPressed && !event.isAltPressed && !event.isShiftPressed -> save("")
+            else -> capturedHotkey(
+                event.key,
+                event.isCtrlPressed,
+                event.isShiftPressed,
+                event.isAltPressed,
+            )?.let(::save)
+        }
+        return true
+    }
+
+    Box(
+        modifier = modifier
+            .height(38.dp)
+            .clip(shape)
+            .background(
+                if (focused) accentColor.copy(alpha = 0.08f)
+                else MaterialTheme.colorScheme.surfaceContainer
+            )
+            .border(1.dp, if (focused) accentColor else MaterialTheme.colorScheme.outlineVariant, shape)
+            .focusRequester(focusRequester)
+            .onFocusChanged { state ->
+                if (focused != state.isFocused) {
+                    focused = state.isFocused
+                    onCaptureChanged(state.isFocused)
                 }
-                true
             }
-        },
-        focusRequester = focusRequester,
-        onFocusChanged = { state ->
-            capturing = state.isFocused
-            onCaptureChanged(state.isFocused)
-        },
-    )
+            .focusable(interactionSource = interactionSource)
+            .onPreviewKeyEvent(::capture)
+            .pointerInput(Unit) { detectTapGestures { focusRequester.requestFocus() } }
+            .padding(horizontal = 10.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Text(
+            text = if (focused) prompt else binding.ifBlank { "—" },
+            color = if (focused) accentColor else MaterialTheme.colorScheme.onSurface,
+            fontSize = 13.sp,
+            fontFamily = FontFamily.Monospace,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }

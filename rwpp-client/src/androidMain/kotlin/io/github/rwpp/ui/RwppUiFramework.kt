@@ -240,13 +240,22 @@ class RwppUiFramework : UiFramework {
                             )
                         )
                     }
-                    return super.dispatchTouchEvent(event)
+                    val handled = super.dispatchTouchEvent(event)
+                    // Returning true keeps the event inside the Compose layer and stops the
+                    // window from offering it to the native game view underneath.
+                    return if (gameInputBlockedByNavigator()) true else handled
+                }
+
+                override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+                    val handled = super.dispatchKeyEvent(event)
+                    return if (gameInputBlockedByNavigator()) true else handled
                 }
             }
             val composeView = ComposeView(AndroidExtensionResources.context(gameActivity)).apply {
                 setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
                 setContent { MainComposeContent(showBackground = false, safeInsets = true) }
             }
+            AndroidHudSurface.attach(composeView)
             container.addView(
                 composeView, FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT
@@ -256,6 +265,7 @@ class RwppUiFramework : UiFramework {
             val cleaned = AtomicBoolean()
             val cleanup: () -> Unit = {
                 if (cleaned.compareAndSet(false, true)) {
+                    AndroidHudSurface.detach(composeView)
                     restoreKeys()
                     composeView.disposeComposition()
                 }

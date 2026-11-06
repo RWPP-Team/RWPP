@@ -10,6 +10,7 @@ package io.github.rwpp.game.hud
 import com.corrodinggames.rts.game.units.OrderableUnit
 import com.corrodinggames.rts.game.units.Unit
 import com.corrodinggames.rts.game.units.actions.ActionType
+import com.corrodinggames.rts.game.units.actions.IndirectedAction
 import com.corrodinggames.rts.game.units.actions.SpecialAction
 import com.corrodinggames.rts.game.units.statusEffects.StatusEffectSpecialActionBlock
 import com.corrodinggames.rts.gameFramework.GameEngine
@@ -189,23 +190,74 @@ internal fun hudQueueCommandPlan(unitSpecificAction: Boolean, remove: Boolean) =
 internal fun hudActionAvailable(action: SpecialAction, nativeAvailability: () -> Boolean): Boolean =
     action.isAvailableForSelection || nativeAvailability()
 
-/** Payment and permission are distinct: placement may wait for money, never for a disabled rule. */
-internal fun hudActionUnlocked(action: SpecialAction, unit: OrderableUnit): Boolean =
-    ((commonActionType(action.actionType) || action in unit.specialActions)
-            && (action.isAvailableForSelection || action.isAvailableForUnit(unit)))
-            && !action.isNoCostForUnit(unit)
-            && StatusEffectSpecialActionBlock.a(
-        unit,
-        action.storedActionId
-    ) <= 0 &&
+/**
+ * Native permission for one action is canControlSpecialActionUnits: the action is available to
+ * the whole selection, the unit resolves it by id, or it is an indirected action whose target
+ * unit the player controls. Attachment slots on modular units wrap another unit's actions, so
+ * membership in `unit.specialActions` is not the criterion; those buttons route through the
+ * wrapped action and its owning unit.
+ */
+internal fun hudActionUnlocked(action: SpecialAction, unit: OrderableUnit): Boolean {
+    val owner: OrderableUnit = (action as? IndirectedAction)?.targetUnit ?: unit
+    val selectionWide = action.isAvailableForSelection
+    // A unit whose native action list is not initialised cannot answer the ownership question.
+    // Leaving that undecided lets the remaining native checks decide instead of failing the HUD.
+    val owned = selectionWide ||
+            runCatching { owner.getSpecialAction(action.storedActionId) != null }.getOrDefault(true)
+    val resolvable = selectionWide ||
+            runCatching { action.isAvailableForUnit(owner) }.getOrDefault(false)
+    return owned && resolvable &&
+            runCatching { !action.isNoCostForUnit(owner) }.getOrDefault(false) &&
+            runCatching { StatusEffectSpecialActionBlock.a(owner, action.storedActionId) <= 0 }
+                .getOrDefault(false) &&
             !BattleInterface.isSpecialActionDemoBlocked(action)
+}
+
+/**
+ * Native resolves permission per selected unit and accepts the action when any controllable unit
+ * owns it. Reading only the primary unit hides an upgrade that another selected unit can perform,
+ * which is exactly the mixed-level selection case.
+ */
+internal fun hudActionUnlockedForSelection(action: SpecialAction, units: List<Unit>): Boolean {
+    if (action.actionType == ActionType.infoOnly) return true
+    val ui = GameEngine.getInstance().interfaceEngine
+    for (unit in units) {
+        if (unit !is OrderableUnit) continue
+        // A modded or half-initialised unit can throw while resolving its native action list; one
+        // broken owner must not disable the button for the rest of the selection.
+        val controllable = runCatching { ui.canPlayerControlUnit(unit) }.getOrDefault(false)
+        if (!controllable) continue
+        if (runCatching { hudActionUnlocked(action, unit) }.getOrDefault(false)) return true
+    }
+    return false
+}
+
+/**
+ * Same predicate as BattleInterface.isSpecialActionUsableBySelection: the action is affordable for
+ * at least one selected owner. Native paints the button surface from it, so mixing it up with the
+ * blinking hint paints every unaffordable action with the red unavailable fill.
+ */
+internal fun hudActionAffordableForSelection(action: SpecialAction, units: List<Unit>): Boolean {
+    if (action.isAvailableForSelection) return true
+    if (action is IndirectedAction &&
+        runCatching { action.canAffordForUnit(action.targetUnit, true) }.getOrDefault(false)
+    ) return true
+    val id = action.storedActionId
+    for (unit in units) {
+        if (unit !is OrderableUnit) continue
+        val owned = runCatching { unit.getSpecialAction(id) }.getOrNull() ?: continue
+        if (runCatching { owned.canAffordForUnit(unit, true) }.getOrDefault(false)) return true
+    }
+    return false
+}
 
 internal fun unitHealthRatio(current: Float, maximum: Float): Float =
     if (maximum > 0f && maximum.isFinite() && current.isFinite()) (current / maximum).coerceIn(0f, 1f) else 0f
 
+/** Orders every controllable unit accepts; they survive a mixed-type selection. */
 internal fun commonActionType(actionType: ActionType): Boolean {
     return when (actionType) {
-        ActionType.patrol, ActionType.guardUnit -> true
+        ActionType.patrol, ActionType.guardUnit, ActionType.attackMove, ActionType.setRally -> true
         else -> false
     }
 }

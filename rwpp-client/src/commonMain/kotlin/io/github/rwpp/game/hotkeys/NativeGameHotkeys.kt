@@ -27,7 +27,7 @@ internal object NativeGameHotkeys {
     private lateinit var lowHealthButton: InputControllerButton
     private lateinit var autoLoadButton: InputControllerButton
     private lateinit var buildingPlanningButton: InputControllerButton
-    private lateinit var blueprintSelectionButton: InputControllerButton
+    private lateinit var reclaimSelectionButton: InputControllerButton
     private var nativeChatDefaultTWasSuppressed = false
 
     private val nativeKeyNames by lazy {
@@ -54,12 +54,12 @@ internal object NativeGameHotkeys {
             autoLoadButton = input.createConfigurableButton("RWPP Auto Load").apply { addKeyBinding("ALT+L") }
             buildingPlanningButton =
                 input.createConfigurableButton("RWPP Building Planning").apply { addKeyBinding("ALT+B") }
-            blueprintSelectionButton =
-                input.createConfigurableButton("RWPP Blueprint Selection").apply { addKeyBinding("ALT+SHIFT+B") }
+            reclaimSelectionButton =
+                input.createConfigurableButton("RWPP Reclaim Selection").apply { addKeyBinding("ALT+R") }
             placeBeforeControlGroupBlock(
                 input, listOf(
                     sameTypeButton, followSelectionButton,
-                    lowHealthButton, autoLoadButton, buildingPlanningButton, blueprintSelectionButton
+                    lowHealthButton, autoLoadButton, buildingPlanningButton, reclaimSelectionButton
                 )
             )
             applied = null
@@ -102,7 +102,7 @@ internal object NativeGameHotkeys {
         if (lowHealthButton.isPressed) NativeTacticalActions.selectLowHealth(engine)
         if (autoLoadButton.isPressed) NativeTacticalActions.autoLoad(engine)
         if (buildingPlanningButton.isPressed) BuildingPlanningController.toggleMode()
-        if (blueprintSelectionButton.isPressed) BuildingPlanningController.beginBlueprintSelection()
+        if (reclaimSelectionButton.isPressed) BuildingPlanningController.beginReclaimSelection()
     }
 
     /** Reuses the native command path for both keyboard and Android HUD controls. */

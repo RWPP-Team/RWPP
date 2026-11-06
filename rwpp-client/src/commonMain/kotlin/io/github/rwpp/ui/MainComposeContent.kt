@@ -88,6 +88,16 @@ fun showSendMessageDialog() {
 @Composable
 internal expect fun PlatformBackgroundLayer(path: String)
 
+/**
+ * The wallpaper is composited above the native game surface. This layer reads the navigator
+ * state itself, so a missed parent recomposition cannot leave the image over a running game.
+ */
+@Composable
+private fun WallpaperLayer(path: String) {
+    if (rememberNavigatorHoldsGameScreen()) return
+    PlatformBackgroundLayer(path)
+}
+
 /** Main RWPP screen and the in-game overlays, shared by both host surfaces. */
 @Composable
 fun MainComposeContent(showBackground: Boolean = true, safeInsets: Boolean = false) {
@@ -98,8 +108,10 @@ fun MainComposeContent(showBackground: Boolean = true, safeInsets: Boolean = fal
             Modifier
         }
     Box(modifier = Modifier.fillMaxSize()) {
-        if (showBackground) {
-            PlatformBackgroundLayer(UI.backgroundImagePath)
+        // The background layer is part of the window, which is composited above the native
+        // game surface; drawing it during gameplay would hide the running game.
+        if (showBackground && !rememberNavigatorHoldsGameScreen()) {
+            WallpaperLayer(UI.backgroundImagePath)
         }
         Box(modifier = Modifier.fillMaxSize().then(foregroundInsets), contentAlignment = Alignment.Center) {
             LoadingAwareContent(
@@ -159,7 +171,7 @@ internal fun LoadingAwareContent(
 @Composable
 fun LoadingComposeContent() {
     Box(Modifier.fillMaxSize()) {
-        PlatformBackgroundLayer(UI.backgroundImagePath)
+        WallpaperLayer(UI.backgroundImagePath)
         if (isLoading) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 MenuLoadingView(loadingMessage)

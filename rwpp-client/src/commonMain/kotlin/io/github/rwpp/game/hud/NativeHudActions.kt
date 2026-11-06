@@ -17,9 +17,30 @@ import com.corrodinggames.rts.game.units.Unit as GameUnit
 internal data class HudActionSize(val heightScale: Float, val columns: Int)
 internal data class HudActionRect(val x: Int, val y: Int, val width: Int, val height: Int)
 
-/** Same action id can have different native owner-specific implementations (e.g. unload). */
-internal fun hudActionCountForUnit(action: SpecialAction, unit: GameUnit, includeQueued: Boolean): Int =
-    unit.getSpecialAction(action.actionId)?.getCountForUnit(unit, includeQueued)?.coerceAtLeast(0) ?: 0
+/**
+ * Native resolves the action per unit and only then asks for its count. Modded units can share an
+ * ActionId with an implementation that casts to a concrete unit type (Dropship.unload), so the
+ * owner's own instance is the only safe target and a mismatch must degrade to a zero count instead
+ * of failing the whole HUD frame.
+ */
+internal fun hudActionCountForUnit(action: SpecialAction, unit: GameUnit, includeQueued: Boolean): Int {
+    val owned = runCatching { unit.getSpecialAction(action.storedActionId) }.getOrNull() ?: return 0
+    return runCatching { owned.getCountForUnit(unit, includeQueued) }.getOrDefault(0).coerceAtLeast(0)
+}
+
+/** Native getSpecialActionProgress scans the whole selection and keeps the highest value. */
+internal fun hudActionProgressForSelection(action: SpecialAction, units: List<GameUnit>): Float {
+    if (action.isInstantAction) return -1f
+    var progress = -1f
+    val id = action.storedActionId
+    for (unit in units) {
+        if (unit !is OrderableUnit) continue
+        val owned = runCatching { unit.getSpecialAction(id) }.getOrNull() ?: continue
+        val value = runCatching { owned.getProgress(unit) }.getOrDefault(-1f)
+        if (value > progress) progress = value
+    }
+    return progress
+}
 
 /** Native getDisplayNameWithCount scans every selected unit using one owner's implementation. */
 internal fun hudActionLabelForUnit(action: SpecialAction, owner: GameUnit?, count: Int): String {
@@ -71,9 +92,14 @@ internal object NativeHudActions {
         actionScratch.clear()
         // Copy/filter the native reusable result before the next native action-bar call.
         val native = battle.getSpecialActionsForSelection(primary, selectedScratch)
+        // getSpecialActionsForSelection already merges the selection the way the native bar does:
+        // the primary unit's actions first, then every action id the other unit types add. Merging
+        // again by category drops one of two upgrade levels and makes a mixed selection unable to
+        // upgrade, so the published list stays exactly what the native bar would render.
         for (candidate in native) {
             val action = candidate as? SpecialAction ?: continue
-            if ((battle as NativeBattleAccess).rwppActionVisible(action, selectedScratch)) actionScratch.add(action)
+            if (!(battle as NativeBattleAccess).rwppActionVisible(action, selectedScratch)) continue
+            actionScratch.add(action)
         }
         val actionsChanged =
             published.size != actionScratch.size || published.indices.any { published[it] !== actionScratch[it] }

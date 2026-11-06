@@ -32,13 +32,17 @@ import org.koin.compose.koinInject
 
 @Composable
 internal fun GameScreen.AeroGameTelemetry() {
+    val settings = koinInject<Settings>()
     var status by remember { mutableStateOf(AnnotatedString("")) }
-    var customResources by remember { mutableStateOf(emptyList<AeroResourceHudLine>()) }
+    var resources by remember { mutableStateOf(emptyList<AeroResourceHudLine>()) }
     var lastTelemetrySampleAt by remember { mutableLongStateOf(Long.MIN_VALUE) }
     val resourceSampler = remember { NativeAeroResourceHudSampler() }
     OnGameUpdate {
         val engine = GameEngine.getInstance()
         val now = System.currentTimeMillis()
+        if (settings.hudCustomResources) {
+            resourceSampler.sample(engine, now)?.let { resources = it }
+        } else if (resources.isNotEmpty()) resources = emptyList()
         if (lastTelemetrySampleAt == Long.MIN_VALUE || now - lastTelemetrySampleAt >= 200L) {
             lastTelemetrySampleAt = now
             val team = aeroPresentationTeam(engine)
@@ -70,12 +74,17 @@ internal fun GameScreen.AeroGameTelemetry() {
                 if (nextStatus != status) status = nextStatus
             }
         }
-        resourceSampler.sample(engine, now)?.let { customResources = it }
     }
-    Column(horizontalAlignment = androidx.compose.ui.Alignment.End) {
+    val horizontal = settings.hudCustomResourcesLayout == "horizontal"
+    val resourcesAbove = settings.hudCustomResourcesPosition == "above"
+    Column(
+        horizontalAlignment = androidx.compose.ui.Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(1.dp),
+    ) {
+        if (resourcesAbove) AeroCustomResourceHud(resources, horizontal)
         Text(
             status.takeIf { it.isNotEmpty() } ?: AnnotatedString(readI18n("rwpp.hud.telemetry.placeholder")),
-            Modifier.background(MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.18f))
+            Modifier.background(MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = hudPanelAlpha(0.18f)))
                 .padding(horizontal = 6.dp, vertical = 3.dp),
             color = MaterialTheme.colorScheme.primary,
             textAlign = TextAlign.End,
@@ -87,7 +96,7 @@ internal fun GameScreen.AeroGameTelemetry() {
                 )
             )
         )
-        AeroCustomResourceHud(customResources)
+        if (!resourcesAbove) AeroCustomResourceHud(resources, horizontal)
     }
 }
 

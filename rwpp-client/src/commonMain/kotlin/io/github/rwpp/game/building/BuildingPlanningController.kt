@@ -24,6 +24,7 @@ import io.github.rwpp.api.coroutines.GameMainDispatcher
 import io.github.rwpp.api.coroutines.GameScope
 import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.game.hotkeys.MouseControlPreferencesController
+import io.github.rwpp.mixin.building.NativeBattlePinchAccess
 import io.github.rwpp.mixin.building.NativeBuildingPlanningCommandAccess
 import io.github.rwpp.mixin.hud.NativeInterfaceAccess
 import kotlinx.coroutines.launch
@@ -136,10 +137,10 @@ private data class CapturedBuilding(
 
 private data class ActivePlanningGesture(
     val mode: BuildingPlanningMode,
-    val startScreenX: Float,
-    val startScreenY: Float,
-    val startWorldX: Float,
-    val startWorldY: Float,
+    var startScreenX: Float,
+    var startScreenY: Float,
+    var startWorldX: Float,
+    var startWorldY: Float,
     var currentScreenX: Float,
     var currentScreenY: Float,
     var currentWorldX: Float,
@@ -228,7 +229,7 @@ internal object BuildingPlanningController {
     private var previousPlayerTeam: Any? = null
     private var reportedStatusIdentity: String? = null
 
-    /** Toggle planning with Alt+B. Selecting a builder first is required. */
+    /** Alt+B arms the blueprint: select an area, then place the copy. The border shows the mode. */
     fun toggleMode() {
         GameScope.launch(GameMainDispatcher) { toggleModeOnGameThread() }
     }
@@ -346,6 +347,9 @@ internal object BuildingPlanningController {
 
         val activeMode = mode
         if (activeMode == BuildingPlanningMode.OFF || activeMode == BuildingPlanningMode.READY) return false
+        if (!GameEngine.isDesktopVersion()) {
+            return processTouchGesture(engine, interfaceAccess, liveBuilders)
+        }
 
         val pointer = currentPointer(engine)
         val pointerAllowed =
@@ -368,18 +372,24 @@ internal object BuildingPlanningController {
         !blocked && (suppressMoveOrder || suppressMoveOrderForReleaseFrame)
 
     private fun toggleModeOnGameThread() {
-        if (mode == BuildingPlanningMode.OFF) {
-            if (!ensureBuilderGroup()) return
-            mode = BuildingPlanningMode.READY
-            statusKey = "rwpp.planning.enabled"
-        } else {
-            gesture = null
-            pendingSelectionStart = null
-            suppressMoveOrder = false
-            suppressMoveOrderForReleaseFrame = false
-            mode = BuildingPlanningMode.OFF
-            statusKey = "rwpp.planning.disabled"
+        if (mode != BuildingPlanningMode.OFF) {
+            exitPlanning()
+            return
         }
+        if (!ensureBuilderGroup()) return
+        gesture = null
+        mode = BuildingPlanningMode.SELECT_BLUEPRINT
+        statusKey = "rwpp.planning.blueprintDrag"
+        publish()
+    }
+
+    private fun exitPlanning() {
+        gesture = null
+        pendingSelectionStart = null
+        suppressMoveOrder = false
+        suppressMoveOrderForReleaseFrame = false
+        mode = BuildingPlanningMode.OFF
+        statusKey = "rwpp.planning.disabled"
         publish()
     }
 
@@ -464,7 +474,7 @@ internal object BuildingPlanningController {
                 gesture = null
                 if (currentMode == BuildingPlanningMode.RECLAIM_AREA) {
                     reclaimCompleted = true
-                    mode = BuildingPlanningMode.READY
+                    mode = BuildingPlanningMode.OFF
                     pendingSelectionStart = null
                     suppressMoveOrderForReleaseFrame = false
                 }
@@ -532,6 +542,141 @@ internal object BuildingPlanningController {
         }
         return false
     }
+
+    /**
+     * Native Android defines a selection box by two fingers: the first and the second pointer
+     * are opposite corners, and BattleInterface ignores it while a pinch is in progress. One
+     * finger therefore keeps panning the camera exactly as it does without planning.
+     */
+    private fun processTouchGesture(
+        engine: GameEngine,
+        ui: NativeInterfaceAccess,
+        builders: List<OrderableUnit>,
+    ): Boolean {
+        val current = mode
+        if (current == BuildingPlanningMode.PLACE_BLUEPRINT) {
+            return processTouchPlacement(engine, ui, builders)
+        }
+        val box = touchSelectionBox(engine)
+        val active = gesture
+        if (active != null) {
+            if (box != null && isBoxInGameArea(engine, ui, box)) {
+                updateGestureToBox(engine, box)
+                suppressMoveOrder = true
+                val rect = planningScreenRect(
+                    active.startScreenX, active.startScreenY,
+                    active.currentScreenX, active.currentScreenY
+                )
+                drawPlanningRect(engine, rect, planningGesturePaint(current))
+                publish(rect)
+            } else {
+                finishGesture(engine, builders)
+                gesture = null
+                suppressMoveOrder = false
+                if (current == BuildingPlanningMode.RECLAIM_AREA) mode = BuildingPlanningMode.OFF
+                awaitPointerRelease = true
+                publish()
+            }
+            return true
+        }
+        if (box == null || !isBoxInGameArea(engine, ui, box)) return false
+        startGesture(engine, current, box.first.first, box.first.second)
+        updateGestureToBox(engine, box)
+        suppressMoveOrder = true
+        publish(planningScreenRect(box.first.first, box.first.second, box.second.first, box.second.second))
+        return true
+    }
+
+    /** Two fingers position the copied layout; lifting them issues the native build orders. */
+    private fun processTouchPlacement(
+        engine: GameEngine,
+        ui: NativeInterfaceAccess,
+        builders: List<OrderableUnit>,
+    ): Boolean {
+        if (awaitPointerRelease) return false
+        val box = touchSelectionBox(engine)
+        val active = gesture
+        if (active != null) {
+            if (box != null && isBoxInGameArea(engine, ui, box)) {
+                updateGestureToBox(engine, box)
+                drawBlueprintPreview(engine, capturedBlueprint, active.currentWorldX, active.currentWorldY)
+                return true
+            }
+            val originX = active.currentWorldX
+            val originY = active.currentWorldY
+            gesture = null
+            awaitPointerRelease = true
+            issueBlueprint(engine, builders, originX, originY)
+            mode = BuildingPlanningMode.OFF
+            publish()
+            return true
+        }
+        if (box == null || !isBoxInGameArea(engine, ui, box)) return false
+        startGesture(engine, BuildingPlanningMode.PLACE_BLUEPRINT, box.first.first, box.first.second)
+        val started = gesture ?: return true
+        updateGestureToBox(engine, box)
+        drawBlueprintPreview(engine, capturedBlueprint, started.currentWorldX, started.currentWorldY)
+        return true
+    }
+
+    /** Returns the two finger positions that span the current selection box, if any. */
+    private fun touchSelectionBox(engine: GameEngine): Pair<Pair<Float, Float>, Pair<Float, Float>>? {
+        if (battlePinchTimer(engine) > 0f) return null
+        val count = runCatching { engine.pointerCount }.getOrDefault(0).coerceIn(0, 10)
+        if (count < 2) return null
+        val points = ArrayList<Pair<Float, Float>>(2)
+        for (index in 0 until count) {
+            if (runCatching { engine.getPointerState(index) }.getOrDefault(0) == 0) continue
+            val x = runCatching { engine.getPointerX(index) }.getOrDefault(Float.NaN)
+            val y = runCatching { engine.getPointerY(index) }.getOrDefault(Float.NaN)
+            if (!x.isFinite() || !y.isFinite()) continue
+            points += x to y
+            if (points.size == 2) break
+        }
+        if (points.size < 2) return null
+        return points[0] to points[1]
+    }
+
+    private fun battlePinchTimer(engine: GameEngine): Float = runCatching {
+        (engine.interfaceEngine.battleInterface as? NativeBattlePinchAccess)?.rwppPinchTimer() ?: 0f
+    }.getOrDefault(0f)
+
+    private fun isBoxInGameArea(
+        engine: GameEngine,
+        ui: NativeInterfaceAccess,
+        box: Pair<Pair<Float, Float>, Pair<Float, Float>>,
+    ): Boolean = isTouchPointInGameArea(engine, box.first.first, box.first.second) &&
+            isTouchPointInGameArea(engine, box.second.first, box.second.second)
+
+    /**
+     * The shared UI-hit test resolves the primary pointer, which is still sitting on the HUD
+     * control that armed the mode. Both fingers therefore have to be validated on their own
+     * coordinates; the Compose layer already consumed anything that landed on a HUD control.
+     */
+    private fun isTouchPointInGameArea(engine: GameEngine, x: Float, y: Float): Boolean {
+        if (x < 0f || y < 0f || x >= engine.gameAreaWidth || y >= engine.screenHeight) return false
+        return runCatching { engine.minimap.minimapToWorld(x, y) == null }.getOrDefault(true)
+    }
+
+    private fun updateGestureToBox(
+        engine: GameEngine,
+        box: Pair<Pair<Float, Float>, Pair<Float, Float>>,
+    ) {
+        val active = gesture ?: return
+        val start = screenToWorld(engine, box.first.first, box.first.second)
+        val end = screenToWorld(engine, box.second.first, box.second.second)
+        active.startScreenX = box.first.first
+        active.startScreenY = box.first.second
+        active.startWorldX = start.first
+        active.startWorldY = start.second
+        active.currentScreenX = box.second.first
+        active.currentScreenY = box.second.second
+        active.currentWorldX = end.first
+        active.currentWorldY = end.second
+    }
+
+    private fun planningGesturePaint(current: BuildingPlanningMode): Paint =
+        if (current == BuildingPlanningMode.RECLAIM_AREA) RECLAIM_PAINT else BLUEPRINT_PAINT
 
     private fun startGesture(engine: GameEngine, gestureMode: BuildingPlanningMode, screenX: Float, screenY: Float) {
         val world = screenToWorld(engine, screenX, screenY)

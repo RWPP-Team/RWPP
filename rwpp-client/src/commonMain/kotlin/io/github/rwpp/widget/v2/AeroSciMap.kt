@@ -44,7 +44,6 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.size.Size
 import io.github.rwpp.api.game.map.GameMap
-import io.github.rwpp.api.game.map.NetworkMap
 import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.sound.Sounds
 import io.github.rwpp.ui.UI
@@ -53,8 +52,9 @@ import io.github.rwpp.ui.UI
 fun AeroMapPreview(
     map: GameMap?,
     showImage: Boolean,
-    generatedPreview: Any? = null,
 ) {
+    // The Coil fetcher renders a preview from the TMX when no PNG ships beside the
+    // map, so a joined multiplayer room is shown even before its network path exists.
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -68,9 +68,9 @@ fun AeroMapPreview(
             ),
         contentAlignment = Alignment.Center
     ) {
-        if (map != null && map !is NetworkMap && showImage) {
+        if (map != null && showImage) {
             AeroZoomableImage(
-                model = generatedPreview ?: map,
+                model = map,
                 modifier = Modifier.fillMaxSize()
             )
 

@@ -8,20 +8,26 @@
 package io.github.rwpp.graphics
 
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.nativeCanvas
-import org.jetbrains.skia.ImageFilter
-import org.jetbrains.skia.RuntimeEffect
-import org.jetbrains.skia.RuntimeShaderBuilder
-import org.jetbrains.skia.Rect as SkiaRect
-
-private val aeroRangeRuntimeEffect by lazy { RuntimeEffect.makeForShader(AERO_RANGE_MASK_SHADER) }
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.dp
 
 internal actual fun DrawScope.beginAeroRangeFrame(phase: Float) = Unit
 
 internal actual fun releaseAeroRangeResources() = Unit
 
+/**
+ * Range masks are drawn as ordinary vector geometry.
+ *
+ * The previous implementation pushed a saveLayer on the compose canvas' native Skia canvas and
+ * pushed the layer through a RuntimeShader image filter. Compose keeps its own save/restore state on
+ * that same canvas, so the layer checkpoint could restore Compose's state instead of the layer. The
+ * leaked layer kept compositing the previous mask, and every newly selected building added another
+ * tinted rectangle. Drawing the union directly removes the layer entirely.
+ */
 internal actual fun DrawScope.drawAeroRangeGroupMask(
     group: AeroRangeGroup,
     camera: Offset,
@@ -31,56 +37,35 @@ internal actual fun DrawScope.drawAeroRangeGroupMask(
     detailed: Boolean,
 ) {
     if (group.circles.isEmpty()) return
-    val bounds = aeroRangeMaskBounds(group, camera, worldToScreen, Size(size.width, size.height)) ?: return
-    val builder = RuntimeShaderBuilder(aeroRangeRuntimeEffect).apply {
-        uniform(
-            "uWorldOrigin", camera.x + bounds.left * worldPerPixel.x,
-            camera.y + bounds.top * worldPerPixel.y
-        )
-        uniform("uWorldPerPixel", worldPerPixel.x, worldPerPixel.y)
-        uniform("uTint", group.color.red, group.color.green, group.color.blue, group.color.alpha)
-        uniform("uPhase", phase)
-        uniform("uDetailed", if (detailed) 1f else 0f)
-    }
-    try {
-        val imageFilter = ImageFilter.makeRuntimeShader(
-            runtimeShaderBuilder = builder,
-            shaderName = "content",
-            input = null,
-        )
-        try {
-            val layerPaint = org.jetbrains.skia.Paint().apply { this.imageFilter = imageFilter }
-            try {
-                val canvas = drawContext.canvas.nativeCanvas
-                val checkpoint = canvas.saveLayer(
-                    SkiaRect.makeLTRB(bounds.left, bounds.top, bounds.right, bounds.bottom), layerPaint,
-                )
-                try {
-                    val maskPaint = org.jetbrains.skia.Paint().apply {
-                        isAntiAlias = true
-                        color = 0xffffffff.toInt()
-                    }
-                    try {
-                        group.circles.forEach { circle ->
-                            val x = (circle.center.x - camera.x) * worldToScreen.x
-                            val y = (circle.center.y - camera.y) * worldToScreen.y
-                            val rx = circle.radius * worldToScreen.x
-                            val ry = circle.radius * worldToScreen.y
-                            canvas.drawOval(x - rx, y - ry, x + rx, y + ry, maskPaint)
-                        }
-                    } finally {
-                        maskPaint.close()
-                    }
-                } finally {
-                    canvas.restoreToCount(checkpoint)
-                }
-            } finally {
-                layerPaint.close()
-            }
-        } finally {
-            imageFilter.close()
+    val viewportWidth = size.width
+    val viewportHeight = size.height
+    if (viewportWidth <= 0f || viewportHeight <= 0f) return
+    var union: Path? = null
+    for (circle in group.circles) {
+        val x = (circle.center.x - camera.x) * worldToScreen.x
+        val y = (circle.center.y - camera.y) * worldToScreen.y
+        val rx = circle.radius * worldToScreen.x
+        val ry = circle.radius * worldToScreen.y
+        if (!x.isFinite() || !y.isFinite() || !rx.isFinite() || !ry.isFinite() || rx <= 0f || ry <= 0f) continue
+        val left = x - rx
+        val top = y - ry
+        val right = x + rx
+        val bottom = y + ry
+        if (right < 0f || bottom < 0f || left > viewportWidth || top > viewportHeight) continue
+        val oval = Path().apply { addOval(Rect(left, top, right, bottom)) }
+        val previous = union
+        union = if (previous == null) oval else Path().apply {
+            op(previous, oval, PathOperation.Union)
         }
-    } finally {
-        builder.close()
     }
+    val merged = union ?: return
+    // One filled union keeps overlaps from darkening each other and keeps a single outline,
+    // matching the native mask composite that this replaced.
+    drawPath(merged, group.color.copy(alpha = 0.025f))
+    val outlineAlpha = group.color.alpha * if (detailed) 0.8f else 0.76f
+    drawPath(
+        merged,
+        group.color.copy(alpha = outlineAlpha.coerceIn(0f, 1f)),
+        style = Stroke(width = if (detailed) 1.4.dp.toPx() else 1.dp.toPx()),
+    )
 }

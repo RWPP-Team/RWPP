@@ -39,6 +39,14 @@ import kotlin.time.Duration.Companion.milliseconds
 internal const val ANIMATION_TIME = 150L
 internal const val DIALOG_BUILD_TIME = 16L
 
+/** Dialog motion follows the shared animation switch; disabled keeps the panel but drops it. */
+internal fun aeroDialogEffectsEnabled(): Boolean =
+    runCatching { io.github.rwpp.appKoin.get<io.github.rwpp.config.Settings>().enableAnimations }
+        .getOrDefault(true)
+
+/** Dismiss delay matching the active transition, so a disabled effect closes immediately. */
+internal fun aeroDialogEffectMillis(): Long = if (aeroDialogEffectsEnabled()) ANIMATION_TIME else 0L
+
 @Suppress("UnusedTransitionTargetStateParameter")
 @Composable
 private fun SciFiContentContainer(
@@ -47,6 +55,7 @@ private fun SciFiContentContainer(
     content: @Composable () -> Unit
 ) {
     var contentSize by remember { mutableStateOf(Size.Zero) }
+    val effects = aeroDialogEffectsEnabled()
 
     val primaryColor = if (isDanger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
     val primaryContainerColor =
@@ -129,19 +138,23 @@ private fun SciFiContentContainer(
         label = "laserIntensity"
     ) { 0f }
 
+    val presentedScaleX = if (effects) scaleX else if (visible) 1f else 0f
+    val presentedScaleY = if (effects) scaleY else if (visible) 1f else 0f
+    val presentedAlpha = if (effects) progress else if (visible) 1f else 0f
+
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .onGloballyPositioned { contentSize = it.size.toSize() }
             .graphicsLayer {
-                this.scaleX = scaleX
-                this.scaleY = scaleY
-                this.alpha = if (progress > 0.01f) 1f else 0f
+                this.scaleX = presentedScaleX
+                this.scaleY = presentedScaleY
+                this.alpha = if (presentedAlpha > 0.01f) 1f else 0f
             }
     ) {
         content()
 
-        if (contentSize.width > 0f && contentSize.height > 0f && laserIntensity > 0f) {
+        if (effects && contentSize.width > 0f && contentSize.height > 0f && laserIntensity > 0f) {
             Canvas(modifier = Modifier.matchParentSize()) {
                 val centerY = size.height / 2f
                 val beamHeight = (size.height * 0.45f * laserIntensity).coerceAtLeast(8f)
@@ -273,7 +286,7 @@ fun AnimatedAeroPopup(
             currentOnDismissStarted()
             animatedVisible = false
             coroutineScope.launch {
-                delay(ANIMATION_TIME.milliseconds)
+                delay(aeroDialogEffectMillis().milliseconds)
                 popupVisible = false
                 dismissing = false
                 currentOnDismissRequest()
@@ -290,7 +303,7 @@ fun AnimatedAeroPopup(
         } else if (popupVisible) {
             dismissing = true
             animatedVisible = false
-            delay(ANIMATION_TIME.milliseconds)
+            delay(aeroDialogEffectMillis().milliseconds)
             popupVisible = false
             dismissing = false
         }
@@ -336,7 +349,7 @@ suspend fun startDismissWithExitAnimation(
     onDismissRequest: () -> Unit
 ) {
     animateTrigger.value = false
-    delay(ANIMATION_TIME.milliseconds)
+    delay(aeroDialogEffectMillis().milliseconds)
     onDismissRequest()
 }
 

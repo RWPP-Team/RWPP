@@ -71,6 +71,12 @@ data class Settings(
     var aeroOrderEffects: Boolean = false,
     var aeroOrderClickEffects: Boolean = false,
     var aeroGroupOrders: Boolean = true,
+    /** Mod-defined resources render inside the status readout; this hides the rows. */
+    var hudCustomResources: Boolean = true,
+    /** Mod resource rows relative to the credit readout: "above" or "below". */
+    var hudCustomResourcesPosition: String = "below",
+    /** Mod resource rows arrangement: "vertical" or "horizontal". */
+    var hudCustomResourcesLayout: String = "vertical",
     var hudChatShowTeam: Boolean = false,
     var hudChatShowTimestamp: Boolean = false,
     /** Use each player's configured team color for unit markers on the Aero minimap. */
@@ -110,7 +116,7 @@ data class Settings(
     var enhancedReinforceTroops: Boolean = false,
     var backgroundImagePath: String? = null,
     var selectedTheme: String? = null,
-    @Deprecated("Will be removed once we don't need anymore")
+    /** Opacity of HUD panels and their controls; 0.7 matches the designed panel alpha. */
     var backgroundTransparency: Float = 0.7f,
     var backgroundImageTransparency: Float = 1f,
     var showBuildingAttackRange: Boolean = false,
@@ -119,7 +125,7 @@ data class Settings(
     var showExtraButton: Boolean = false,
     /** @see unitAttackRangeTypes */
     var showAttackRangeUnit: String = "Never",
-    @Deprecated("We need more animations!!!")
+    /** Master switch for interface motion: buttons, lists, screen flashes and dialog panels. */
     var enableAnimations: Boolean = true,
     var maxDisplayUnitGroupCount: Int = 7,
     var displayUnitGroupXOffset: Int = 0,

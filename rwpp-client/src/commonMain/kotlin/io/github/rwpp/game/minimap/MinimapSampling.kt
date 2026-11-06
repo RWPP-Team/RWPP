@@ -7,10 +7,14 @@
 
 package io.github.rwpp.game.minimap
 
+import com.corrodinggames.rts.game.Team
 import com.corrodinggames.rts.game.map.MapTile
 import com.corrodinggames.rts.game.units.OrderableUnit
 import com.corrodinggames.rts.gameFramework.GameEngine
+import io.github.rwpp.game.hud.isAeroLiveObserver
 import io.github.rwpp.game.replay.aeroPresentationTeam
+import io.github.rwpp.game.replay.aeroUnitVisible
+import io.github.rwpp.game.replay.aeroViewerFogGrid
 import io.github.rwpp.graphics.readHudTexturePixels
 import com.corrodinggames.rts.game.map.Map as GameMap
 import com.corrodinggames.rts.game.units.Unit as GameUnit
@@ -29,6 +33,8 @@ internal data class MinimapDot(
     val color: Int,
     val radiusDp: Float,
     val selected: Boolean,
+    /** Resource sites are drawn last so a selected building can never cover them. */
+    val resource: Boolean = false,
 )
 
 /** Immutable sample handed to Compose; arrays/lists are replaced, never changed after publication. */
@@ -77,7 +83,11 @@ internal fun minimapUnitColor(
     isPlayerUnit: Boolean,
     isEnemy: Boolean,
     usePlayerColors: Boolean,
+    observerTeamColor: Int? = null,
 ): Int = when {
+    // Native MinimapHandler uses Team.lookupTeamColor(allyTeam) for spectators and
+    // replays, so every member of one team shares a colour on the observer map.
+    observerTeamColor != null -> observerTeamColor
     usePlayerColors -> playerColor
     isPlayerUnit -> MINIMAP_PLAYER_UNIT_COLOR
     isEnemy -> MINIMAP_ENEMY_UNIT_COLOR
@@ -97,6 +107,7 @@ internal fun minimapResourceDots(
         MINIMAP_RESOURCE_COLOR,
         MINIMAP_RESOURCE_RADIUS_DP,
         false,
+        resource = true,
     )
 }
 
@@ -127,6 +138,7 @@ internal class MinimapRefreshSchedule {
 /** Samples map textures, fog, resource sites and units on the game update thread. */
 internal class NativeMinimapSampler {
     private var map: GameMap? = null
+    private var resourceDots: List<MinimapDot> = emptyList()
     private var terrain = IntArray(0)
     private var publishedTerrainPixels = IntArray(0)
     private val resolution = MINIMAP_TERRAIN_RESOLUTION
@@ -175,12 +187,31 @@ internal class NativeMinimapSampler {
                 )
             }
             map = current
+            // Resource sites never move for one map, and the native list can be cleared while the
+            // game runs. Sample it once per map so the dots survive a selection change.
+            resourceDots = minimapResourceDots(
+                current.resourcePoolPoints.filterIsInstance<android.graphics.Point>().map { it.x to it.y },
+                current.tileWidth,
+                current.tileHeight,
+            )
             // Force a new immutable fog image on the next sample, even if the map has equal dimensions.
             publishedTerrainPixels = IntArray(0)
         }
+        // A map can publish its resource pools after the first sample; retry until it has any.
+        if (resourceDots.isEmpty() && current.resourcePoolPoints.isNotEmpty()) {
+            resourceDots = minimapResourceDots(
+                current.resourcePoolPoints.filterIsInstance<android.graphics.Point>().map { it.x to it.y },
+                current.tileWidth,
+                current.tileHeight,
+            )
+        }
 
         val playerTeam = aeroPresentationTeam(engine)
-        val fog = if (current.fogOfWarEnabled) playerTeam?.fogGrid else null
+        // Spectators and replays look at a player whose allies share vision, so the map
+        // shows the ally group's combined fog instead of one member's grid.
+        val fog = if (current.fogOfWarEnabled) aeroViewerFogGrid(engine) else null
+        val observerColors = playerTeam == null || playerTeam.isSpectator ||
+                engine.replayEngine.isPlayingReplay || isAeroLiveObserver(engine)
         if (publishedTerrainPixels.size != terrain.size || updateFog) {
             publishedTerrainPixels = updateMinimapFogPixels(
                 terrain,
@@ -192,20 +223,15 @@ internal class NativeMinimapSampler {
             )
         }
 
-        val resourceDots = minimapResourceDots(
-            current.resourcePoolPoints.filterIsInstance<android.graphics.Point>().map { it.x to it.y },
-            current.tileWidth,
-            current.tileHeight,
-        )
-        val dots = ArrayList<MinimapDot>(resourceDots.size + GameUnit.unitList.size)
-        dots.addAll(resourceDots)
+        val resourceDots = this.resourceDots
+        val dots = ArrayList<MinimapDot>(GameUnit.unitList.size + resourceDots.size)
         for (nativeUnit in GameUnit.unitList) {
             val unit = nativeUnit as? GameUnit ?: continue
             if (!minimapUnitMarkerVisible(
                     dead = unit.dead,
                     hasTeam = unit.team != null,
                     transported = unit.transportedBy != null,
-                    visibleToPlayer = unit.isVisibleToTeam(playerTeam),
+                    visibleToPlayer = aeroUnitVisible(engine, unit),
                     shouldShowOnMinimap = unit.shouldShowOnMinimap(),
                     virtualUnit = unit.isVirtualUnit,
                 )
@@ -220,6 +246,9 @@ internal class NativeMinimapSampler {
                         team === playerTeam,
                         playerTeam != null && team.isEnemy(playerTeam),
                         usePlayerColors,
+                        // Matches the native spectator branch, which paints every unit with
+                        // Team.lookupTeamColor(allyTeam) so teammates share one colour.
+                        if (observerColors) Team.lookupTeamColor(team.allyTeam) else null,
                     ),
                     minimapUnitRadiusDp(unit.isBuilding),
                     unit.selected,
@@ -227,6 +256,7 @@ internal class NativeMinimapSampler {
             )
         }
 
+        if (resourceDots.isNotEmpty()) dots.addAll(resourceDots)
         return MinimapFrameData(
             terrainPixels = publishedTerrainPixels,
             terrainWidth = resolution,

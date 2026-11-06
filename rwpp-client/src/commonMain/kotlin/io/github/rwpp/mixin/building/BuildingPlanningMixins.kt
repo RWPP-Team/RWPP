@@ -27,6 +27,18 @@ abstract class NativeBuildingPlanningCommandAccessMixin {
     abstract fun rwppPlanningPendingUnitIds(): FastArrayList
 }
 
+/** BattleInterface.pinchTimer is package private, and the two-finger box must respect it. */
+internal interface NativeBattlePinchAccess {
+    fun rwppPinchTimer(): Float
+}
+
+@AsmMixin("com/corrodinggames/rts/gameFramework/gui/BattleInterface")
+@AddInterface("io/github/rwpp/mixin/building/NativeBattlePinchAccess")
+abstract class NativeBattlePinchAccessMixin {
+    @Accessor("pinchTimer")
+    abstract fun rwppPinchTimer(): Float
+}
+
 /** Replaces only native drag-box handling while a planner gesture owns the pointer. */
 @AsmMixin("com/corrodinggames/rts/gameFramework/gui/BattleInterface")
 object BuildingPlanningDragSelectionMixin {

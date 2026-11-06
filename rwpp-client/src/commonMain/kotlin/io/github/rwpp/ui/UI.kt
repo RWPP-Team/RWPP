@@ -24,11 +24,25 @@ import io.github.rwpp.screen.ScreenNavigator
 import io.github.rwpp.ui.color.getTeamColor
 
 object UI : Initialization, IUserInterface {
-    @Deprecated("Will be removed once we don't need anymore")
-    internal var backgroundTransparency by mutableFloatStateOf(appKoin.get<Settings>().backgroundTransparency)
+    /** Live HUD panel opacity; the settings slider writes here so panels restyle immediately. */
+    internal var backgroundTransparency: Float
+        get() = HudOpacity.value
+        set(value) {
+            HudOpacity.value = value
+        }
     internal var selectedColorSchemeName by mutableStateOf(appKoin.get<Settings>().selectedTheme ?: "RWPP")
 
-    lateinit var globalNavigator: ScreenNavigator
+    /**
+     * Published when the app composition is applied. The window layer reads this as Compose
+     * state, so a GameScreen entering the back stack hides the wallpaper in the same frame.
+     */
+    internal var liveNavigator by mutableStateOf<ScreenNavigator?>(null)
+        private set
+
+    /** Null clears the published navigator when its composition is disposed. */
+    internal fun publishNavigator(navigator: ScreenNavigator?) {
+        liveNavigator = navigator
+    }
 
     var question by mutableStateOf<Question?>(null)
         internal set

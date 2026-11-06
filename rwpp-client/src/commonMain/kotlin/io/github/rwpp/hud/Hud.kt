@@ -105,6 +105,9 @@ private const val HUD_CONSOLE_MOVE_ZONE_WIDTH_DP = 12f
 private const val HUD_CONSOLE_MOVE_ZONE_HEIGHT_DP = 48f
 private const val HUD_CONSOLE_MOVE_ZONE_TOP_DP = 12f
 
+/** A component exists for one kind of game session; others never offer or render it. */
+enum class HudComponentMode { ALWAYS, OBSERVER, SANDBOX }
+
 class HudComponentTemplate(
     val name: String,
     val initialWidthDp: Float = 320f,
@@ -113,6 +116,7 @@ class HudComponentTemplate(
     val fillHeight: Boolean = false,
     val compactHeight: Boolean = false,
     val compactWidth: Boolean = false,
+    val mode: HudComponentMode = HudComponentMode.ALWAYS,
     val content: @Composable () -> Unit
 )
 
@@ -125,12 +129,14 @@ private enum class HudSettingsScope {
     WORLD_EFFECTS,
     COMMAND_CONSOLE,
     CHAT_MESSAGES,
+    STATUS_READOUT,
     COMPONENT
 }
 
 private fun hudSettingsScopeFor(componentId: String) = when (componentId) {
     "hud_console_vertical" -> HudSettingsScope.COMMAND_CONSOLE
     "chat" -> HudSettingsScope.CHAT_MESSAGES
+    "telemetry" -> HudSettingsScope.STATUS_READOUT
     else -> HudSettingsScope.COMPONENT
 }
 
@@ -168,6 +174,7 @@ private fun HudEditorSettingsDialog(
         HudSettingsScope.WORLD_EFFECTS -> "BATTLEFIELD EFFECTS"
         HudSettingsScope.COMMAND_CONSOLE -> "COMMAND CONSOLE SETTINGS"
         HudSettingsScope.CHAT_MESSAGES -> "CHAT MESSAGE SETTINGS"
+        HudSettingsScope.STATUS_READOUT -> "STATUS READOUT SETTINGS"
         HudSettingsScope.COMPONENT -> "IN-GAME HUD SETTINGS"
     }
 
@@ -353,6 +360,43 @@ private fun HudEditorSettingsDialog(
                                 ) {
                                     settings.hudChatShowTimestamp = it
                                 }
+                            }
+                        }
+
+                        HudSettingsScope.STATUS_READOUT -> {
+                            AeroSettingGroup(
+                                title = "RESOURCE ROWS",
+                                tag = "Mod resources",
+                            ) {
+                                HudSettingToggle(
+                                    "rwpp.hud.editor.settings.customResources",
+                                    settings.hudCustomResources,
+                                ) {
+                                    settings.hudCustomResources = it
+                                }
+                                AeroSettingDropDown(
+                                    label = readI18n("rwpp.hud.editor.settings.customResourcesPosition"),
+                                    items = listOf(
+                                        readI18n("rwpp.hud.editor.position.above"),
+                                        readI18n("rwpp.hud.editor.position.below"),
+                                    ),
+                                    selectedIndex = if (settings.hudCustomResourcesPosition == "above") 0 else 1,
+                                    onItemSelected = { index, _ ->
+                                        settings.hudCustomResourcesPosition = if (index == 0) "above" else "below"
+                                    },
+                                )
+                                AeroSettingDropDown(
+                                    label = readI18n("rwpp.hud.editor.settings.customResourcesLayout"),
+                                    items = listOf(
+                                        readI18n("rwpp.hud.editor.layout.vertical"),
+                                        readI18n("rwpp.hud.editor.layout.horizontal"),
+                                    ),
+                                    selectedIndex = if (settings.hudCustomResourcesLayout == "horizontal") 1 else 0,
+                                    onItemSelected = { index, _ ->
+                                        settings.hudCustomResourcesLayout =
+                                            if (index == 1) "horizontal" else "vertical"
+                                    },
+                                )
                             }
                         }
 

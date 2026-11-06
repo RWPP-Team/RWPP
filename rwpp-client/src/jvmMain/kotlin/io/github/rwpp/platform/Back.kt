@@ -23,8 +23,9 @@ actual fun BackHandler(enabled: Boolean, onBack: () -> Unit) {
     if (enabled) {
         GlobalEventChannel.filter(KeyboardEvent::class).OnDispose {
             subscribeAlways { event ->
+                val navigator = io.github.rwpp.ui.UI.liveNavigator
                 if (event.keyEvent.key == Key.Escape && event.keyEvent.type == KeyEventType.KeyDown &&
-                    io.github.rwpp.ui.UI.globalNavigator.current !is io.github.rwpp.ui.GameScreen
+                    navigator != null && navigator.current !is io.github.rwpp.ui.GameScreen
                 ) {
                     callback.value()
                 }

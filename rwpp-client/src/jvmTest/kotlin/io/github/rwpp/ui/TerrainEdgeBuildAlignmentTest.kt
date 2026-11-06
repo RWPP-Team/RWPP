@@ -57,7 +57,7 @@ class TerrainEdgeBuildAlignmentTest {
         )
 
         assertEquals(1, snaps, "only the native snapped start is eager")
-        assertEquals(PointF(0f, 0f), samples.points.iterator().next())
+        assertEquals(0f to 0f, samples.points.iterator().next().let { it.x to it.y })
         assertEquals(2, snaps, "the first native sample is snapped only when requested")
     }
 
@@ -76,7 +76,7 @@ class TerrainEdgeBuildAlignmentTest {
                 }
             })
 
-        assertEquals(listOf(PointF(0f, 5f), PointF(10f, 5f)), resolved)
+        assertEquals(listOf(0f to 5f, 10f to 5f), resolved.pairs())
         assertFalse(attempts.any { it.y < 0f }, "after the first positive-side result, only that side is searched")
     }
 
@@ -99,10 +99,10 @@ class TerrainEdgeBuildAlignmentTest {
             },
         )
 
-        assertEquals(listOf(PointF(0f, 5f), PointF(10f, 5f), PointF(20f, 0f), PointF(30f, -5f)), resolved)
-        assertTrue(attempts.contains(PointF(20f, 0f)), "a legal native point is kept without projection")
+        assertEquals(listOf(0f to 5f, 10f to 5f, 20f to 0f, 30f to -5f), resolved.pairs())
+        assertTrue(attempts.any { it.x == 20f && it.y == 0f }, "a legal native point is kept without projection")
         assertTrue(
-            attempts.contains(PointF(30f, -5f)),
+            attempts.any { it.x == 30f && it.y == -5f },
             "the direct placement reset lets the next run search either side"
         )
     }
@@ -124,7 +124,7 @@ class TerrainEdgeBuildAlignmentTest {
             conflictsWithEarlierDragPlacement = { point, _ -> point.x == 10f && point.y == 0f },
         )
 
-        assertEquals(listOf(PointF(0f, 5f), PointF(20f, -5f)), resolved)
+        assertEquals(listOf(0f to 5f, 20f to -5f), resolved.pairs())
     }
 
     @Test
@@ -143,7 +143,7 @@ class TerrainEdgeBuildAlignmentTest {
             },
         )
 
-        assertEquals(listOf(PointF(0f, 10f)), resolved)
+        assertEquals(listOf(0f to 10f), resolved.pairs())
     }
 
     @Test
@@ -158,7 +158,7 @@ class TerrainEdgeBuildAlignmentTest {
             },
         )
 
-        assertEquals(listOf(PointF(0f, 5f), PointF(0f, 15f)), resolved)
+        assertEquals(listOf(0f to 5f, 0f to 15f), resolved.pairs())
     }
 
     @Test
@@ -176,9 +176,9 @@ class TerrainEdgeBuildAlignmentTest {
             },
         )
 
-        assertEquals(listOf(PointF(0f, 5f)), firstDrag)
-        assertEquals(listOf(PointF(5f, -5f)), secondDrag)
-        assertTrue(secondAttempts.contains(PointF(5f, -5f)), "a new drag starts without the prior positive-side lock")
+        assertEquals(listOf(0f to 5f), firstDrag.pairs())
+        assertEquals(listOf(5f to -5f), secondDrag.pairs())
+        assertTrue(secondAttempts.any { it.x == 5f && it.y == -5f }, "a new drag starts without the prior positive-side lock")
     }
 
     @Test
@@ -200,16 +200,16 @@ class TerrainEdgeBuildAlignmentTest {
         assertEquals(0f, terrainEdgeSnapAxisAngle(4.9f))
         assertEquals(90f, terrainEdgeSnapAxisAngle(94.9f))
         assertEquals(6f, terrainEdgeSnapAxisAngle(6f))
-        assertEquals(PointF(0f, 1f), terrainEdgeSearchNormal(4f), "horizontal searches down first")
-        assertEquals(PointF(1f, 0f), terrainEdgeSearchNormal(92f), "vertical searches right first")
+        assertEquals(0f to 1f, terrainEdgeSearchNormal(4f).let { it.x to it.y }, "horizontal searches down first")
+        assertEquals(1f to 0f, terrainEdgeSearchNormal(92f).let { it.x to it.y }, "vertical searches right first")
         assertEquals(
-            PointF(0f, 1f),
-            terrainEdgeSearchNormal(30f),
+            0f to 1f,
+            terrainEdgeSearchNormal(30f).let { it.x to it.y },
             "diagonal drags still use axis-aligned vertical search"
         )
         assertEquals(
-            PointF(1f, 0f),
-            terrainEdgeSearchNormal(60f),
+            1f to 0f,
+            terrainEdgeSearchNormal(60f).let { it.x to it.y },
             "steeper drags still use axis-aligned horizontal search"
         )
     }
@@ -274,4 +274,8 @@ class TerrainEdgeBuildAlignmentTest {
             it.owner == "com/corrodinggames/rts/gameFramework/effects/Blueprint" && it.name == "isFootprintOverBlueprint"
         })
     }
+
+    /** PointF has no value equality, so expectations compare coordinates. */
+    private fun List<PointF>.pairs(): List<Pair<Float, Float>> = map { it.x to it.y }
+
 }

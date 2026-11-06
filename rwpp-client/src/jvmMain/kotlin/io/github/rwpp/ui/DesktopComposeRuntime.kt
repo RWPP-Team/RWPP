@@ -40,6 +40,10 @@ internal object DesktopComposeRuntime {
     private val framePacer = UiFramePacer()
     private val settings by lazy { appKoin.get<io.github.rwpp.config.Settings>() }
 
+    /** Screen changes must repaint the offscreen texture, otherwise the menu wallpaper lingers. */
+    @Volatile
+    private var lastGameplayOwnership = false
+
     fun requestFrame() {
         framePacer.request()
     }
@@ -112,6 +116,13 @@ internal object DesktopComposeRuntime {
             }
         }
         val bridge = contextBridge ?: return
+        // Runs on the Slick thread that owns the LWJGL window, outside the AWT GL bridge.
+        // The HUD frame pacer can skip a Compose frame, so this state must not be gated by it.
+        val gameplay = scene.syncSystemShortcutGate()
+        if (gameplay != lastGameplayOwnership) {
+            lastGameplayOwnership = gameplay
+            framePacer.request()
+        }
         if (framePacer.shouldRender(System.nanoTime(), settings.hudRefreshRate)) {
             bridge.call { scene.render() }
         }

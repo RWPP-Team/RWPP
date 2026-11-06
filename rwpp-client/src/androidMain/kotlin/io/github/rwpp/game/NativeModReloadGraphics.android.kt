@@ -9,4 +9,15 @@ package io.github.rwpp.game
 
 import com.corrodinggames.rts.gameFramework.GameEngine
 
-internal actual fun withNativeModReloadGraphics(engine: GameEngine, reload: () -> Unit) = reload()
+/**
+ * The Android host records frames onto a hardware canvas from its own thread while mod data is
+ * replaced on the game thread. Without the render lock a frame can walk a half-rebuilt unit type
+ * table or a recycled bitmap, which is the crash the mod reload used to produce. Native text and
+ * icon caches also hold the old definitions, so they are dropped once the swap completed.
+ */
+internal actual fun withNativeModReloadGraphics(engine: GameEngine, reload: () -> Unit) {
+    synchronized(engine.renderLock) {
+        reload()
+    }
+    io.github.rwpp.graphics.ActionImages.clear()
+}

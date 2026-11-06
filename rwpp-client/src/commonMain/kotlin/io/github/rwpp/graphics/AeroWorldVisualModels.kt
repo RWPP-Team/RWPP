@@ -63,6 +63,16 @@ internal fun aeroReplayWaypointDestinationVisible(
     return fogGrid[tileX][tileY].toInt() < 5
 }
 
+/** World-space footprint of a native placement grid, used by the Aero build effect. */
+internal data class AeroPlacementGrid(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float,
+    val stepX: Float,
+    val stepY: Float,
+)
+
 internal data class AeroOrder(
     val from: Offset,
     val to: Offset,
@@ -73,7 +83,8 @@ internal data class AeroOrder(
     val team: Int = 0,
     val preview: Boolean = false,
     val radius: Float = 16f,
-    val progress: Float = -1f
+    val progress: Float = -1f,
+    val grid: AeroPlacementGrid? = null
 )
 
 /** Preserve kind, owner and queue position when merging same-destination orders. */
@@ -85,7 +96,8 @@ internal fun aeroOrderGroups(orders: List<AeroOrder>, merge: Boolean): List<Aero
             it.kind,
             it.step,
             it.team,
-            it.preview
+            it.preview,
+            it.grid
         )
     }
         .values.map { group ->
@@ -179,7 +191,8 @@ internal data class SelectedVisual(
     val selected: Boolean = true, val hovered: Boolean = false, val healthVisible: Boolean = true,
     val construction: Float = -1f, val secondary: Float = -1f, val shieldVisible: Boolean = shield > 0f,
     val glowHighlight: Boolean = false,
-    val barRadius: Float = radius, val barScaledDown: Boolean = false, val barMini: Boolean = false
+    val barRadius: Float = radius, val barScaledDown: Boolean = false, val barMini: Boolean = false,
+    val transportUsed: Int = -1, val transportCapacity: Int = -1
 )
 
 internal data class WorldVisuals(

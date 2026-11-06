@@ -24,4 +24,7 @@ internal fun normalizeHudComponents(components: MutableList<HudComponentData>) {
         it.id == "minimap" || it.id == "hud_console" ||
                 it.id == "hud_console_vertical" && it !== console
     }
+    // Mod resources render inside the status readout again; a layout written while they were a
+    // separate component must not keep an empty duplicate anchor.
+    components.removeAll { it.id == "custom_resources" }
 }

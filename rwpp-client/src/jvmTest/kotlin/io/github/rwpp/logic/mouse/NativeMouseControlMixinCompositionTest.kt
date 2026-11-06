@@ -1,7 +1,7 @@
 package io.github.rwpp.logic.mouse
 
 import io.github.rwpp.mixin.building.BuildingPlanningDragSelectionMixin
-import io.github.rwpp.mixin.hud.NativeMouseButtonInterfaceAccessMixin
+import io.github.rwpp.mixin.hud.NativeInterfaceAccessMixin
 import io.github.rwpp.mixin.hud.NativeMouseOrderButtonsMixin
 import io.github.rwpp.mixin.hud.NativeMouseSelectionButtonMixin
 import io.github.rwpp.mixin.hud.NativeSmartSelectionBuilderTypesMixin
@@ -20,7 +20,7 @@ class NativeMouseControlMixinCompositionTest {
             "com/corrodinggames/rts/gameFramework/gui/InterfaceEngine",
             listOf(
                 NativeMouseOrderButtonsMixin::class.java,
-                NativeMouseButtonInterfaceAccessMixin::class.java,
+                NativeInterfaceAccessMixin::class.java,
             ),
             listOf("NativeMouseOrderButtonsMixin" to "updateMouseOrders"),
         )
@@ -62,7 +62,7 @@ class NativeMouseControlMixinCompositionTest {
                 )
             }
             if (target.endsWith("InterfaceEngine")) {
-                assertTrue(node.interfaces.contains("io/github/rwpp/mixin/hud/NativeMouseButtonInterfaceAccess"))
+                assertTrue(node.interfaces.contains("io/github/rwpp/mixin/hud/NativeInterfaceAccess"))
             }
         } finally {
             AsmRegistry.clear()

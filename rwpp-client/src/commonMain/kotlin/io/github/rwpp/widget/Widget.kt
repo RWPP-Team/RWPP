@@ -40,6 +40,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.rwpp.config.Settings
+import io.github.rwpp.ui.HudOpacity
 import io.github.rwpp.ui.UI
 import io.github.rwpp.widget.v2.bounceClick
 import org.koin.compose.koinInject
@@ -48,7 +49,7 @@ import org.koin.compose.koinInject
 fun BorderCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
-    backgroundColor: Color = MaterialTheme.colorScheme.background.copy(UI.backgroundTransparency),
+    backgroundColor: Color = MaterialTheme.colorScheme.background.copy(HudOpacity.value),
     shape: Shape = RoundedCornerShape(20.dp),
     content: @Composable ColumnScope.() -> Unit
 ) {

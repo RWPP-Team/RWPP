@@ -7,11 +7,11 @@
 
 package io.github.rwpp.game.map
 
-import com.corrodinggames.rts.gameFramework.files.FileLoader
 import com.corrodinggames.rts.gameFramework.network.GameSetupMapType
 import io.github.rwpp.api.ApiRuntime
+import io.github.rwpp.api.game.impl.openGamePath
 import io.github.rwpp.api.game.map.GameMap
-import io.github.rwpp.api.game.map.NetworkMap
+import io.github.rwpp.api.logging.logger
 import io.github.rwpp.utils.CacheKeyedImageable
 import kotlinx.coroutines.*
 import org.w3c.dom.Document
@@ -46,8 +46,8 @@ class GeneratedMapPreview internal constructor(
  * external TSX and image-sheet / image-collection tilesets are supported.
  */
 class MapPreviewGenerationService {
-    fun supports(map: GameMap): Boolean = map !is NetworkMap &&
-            map.mapType != GameSetupMapType.savedGame &&
+    /** Network maps carry a local TMX stream too; generation gives them a preview when no PNG exists. */
+    fun supports(map: GameMap): Boolean = map.mapType != GameSetupMapType.savedGame &&
             map.enginePath.endsWith(".tmx", ignoreCase = true)
 
     suspend fun generate(map: GameMap, maxDimensionPx: Int = DEFAULT_PREVIEW_DIMENSION): Result<GeneratedMapPreview> {
@@ -68,10 +68,7 @@ class MapPreviewGenerationService {
                     readResource = { path ->
                         context.ensureActive()
                         resourceBytes[path] ?: try {
-                            val input = FileLoader.openByPath(path) ?: if (path.startsWith("tilesets/")) {
-                                runCatching { ApiRuntime.extensionContext.gameAssets().open(path) }.getOrNull()
-                            } else null
-                            input?.use {
+                            openPreviewResource(path)?.use {
                                 it.readBounded(MAX_ASSET_BYTES) { context.ensureActive() }
                             }?.also { resourceBytes[path] = it }
                         } catch (cancelled: CancellationException) {
@@ -95,9 +92,24 @@ class MapPreviewGenerationService {
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
+            logger().warn("Map preview generation failed for '{}'", map.enginePath, failure)
             Result.failure(failure)
         }
     }
+}
+
+/**
+ * Tilesets live in three different places: the game asset tree, the extension's
+ * layered assets, and the map directory of a modded or downloaded map. The native
+ * engine resolves all of them through the abstract file layer, so the preview
+ * renderer has to try the same backends instead of assuming built-in assets.
+ */
+private fun openPreviewResource(path: String): InputStream? {
+    val candidates = listOf(path, path.removePrefix("assets/"))
+    for (candidate in candidates) {
+        runCatching { openGamePath(candidate) }.getOrNull()?.let { return it }
+    }
+    return runCatching { ApiRuntime.extensionContext.gameAssets().open(path) }.getOrNull()
 }
 
 internal data class MapPreviewRaster(val width: Int, val height: Int, val pixels: IntArray) {
@@ -112,7 +124,8 @@ internal expect fun encodeMapPreviewPng(image: MapPreviewRaster): ByteArray
 private const val DEFAULT_PREVIEW_DIMENSION = 512
 private const val MIN_PREVIEW_DIMENSION = 64
 private const val MAX_PREVIEW_DIMENSION = 1024
-private const val MAX_TMX_BYTES = 8 * 1024 * 1024
+// Large community maps ship their tile data inline; the biggest observed map is 14 MB.
+private const val MAX_TMX_BYTES = 32 * 1024 * 1024
 private const val MAX_TSX_BYTES = 2 * 1024 * 1024
 private const val MAX_ASSET_BYTES = 16 * 1024 * 1024
 private const val MAX_CELLS = 4_000_000
@@ -187,7 +200,10 @@ internal suspend fun renderMapPreview(
 
     var totalAssetBytes = 0L
     val seenAssetBytes = HashMap<String, Int>()
-    fun loadResource(path: String, baseDirectory: String): Pair<String, ByteArray> {
+    // Community maps routinely reference tilesets and images the author never shipped.
+    // The engine loads such a map and draws those tiles as empty, so the preview keeps
+    // the GID range and leaves it blank instead of dropping the whole image.
+    fun loadResource(path: String, baseDirectory: String): Pair<String, ByteArray>? {
         val candidates = previewResourceCandidates(path, baseDirectory, mapPath)
         for (candidate in candidates) {
             val bytes = readResource(candidate) ?: continue
@@ -197,33 +213,32 @@ internal suspend fun renderMapPreview(
             }
             return candidate to bytes
         }
-        error("TMX asset '$path' was not found")
+        return null
     }
 
     val mapDirectory = mapPath.substringBeforeLast('/', "")
     val decodedImages = PreviewImageCache()
-    val tilesets = root.directChildren("tileset").map { element ->
+    val tilesets = root.directChildren("tileset").mapNotNull { element ->
         val firstGid = element.intAttr("firstgid")
         require(firstGid > 0) { "Tileset firstgid must be positive" }
         val source = element.getAttribute("source").takeIf(String::isNotBlank)
-        val tilesetElement: Element
-        val tilesetDirectory: String
-        if (source != null) {
-            val (resolvedPath, bytes) = loadResource(source, mapDirectory)
-            require(bytes.size <= MAX_TSX_BYTES) { "External TSX file is too large" }
-            tilesetElement = parsePreviewXml(bytes).documentElement
-            require(tilesetElement.tagName == "tileset") { "External TSX has no tileset root" }
-            tilesetDirectory = resolvedPath.substringBeforeLast('/', "")
-        } else {
-            tilesetElement = element
+        if (source == null) {
             // Inline Rusted Warfare tilesets use paths rooted at the game tilesets directory.
-            tilesetDirectory = "tilesets"
+            parsePreviewTileset(firstGid, element, "tilesets", ::loadResource, decodeImage, decodedImages)
+        } else {
+            val external = loadResource(source, mapDirectory) ?: return@mapNotNull emptyPreviewTile(firstGid)
+            require(external.second.size <= MAX_TSX_BYTES) { "External TSX file is too large" }
+            val tilesetElement = parsePreviewXml(external.second).documentElement
+            require(tilesetElement.tagName == "tileset") { "External TSX has no tileset root" }
+            parsePreviewTileset(
+                firstGid, tilesetElement, external.first.substringBeforeLast('/', ""),
+                ::loadResource, decodeImage, decodedImages,
+            )
         }
-        parsePreviewTileset(firstGid, tilesetElement, tilesetDirectory, ::loadResource, decodeImage, decodedImages)
     }.sortedBy { it.firstGid }
     require(tilesets.isNotEmpty()) { "TMX map contains no tilesets" }
     require(tilesets.size <= MAX_TILES) { "TMX map contains too many tilesets" }
-    require(tilesets.first().firstGid == 1) { "The first TMX tileset must start at GID 1" }
+    require(tilesets.first().firstGid >= 1) { "The first TMX tileset must have a positive GID" }
     require(tilesets.zipWithNext().all { (a, b) -> a.firstGid < b.firstGid }) { "TMX tileset GIDs overlap" }
 
     val logicalWidth = mapWidth.toDouble() * tileWidth
@@ -240,7 +255,11 @@ internal suspend fun renderMapPreview(
     layers.forEach { layer ->
         val width = layer.element.getAttribute("width").toIntOrNull() ?: mapWidth
         val height = layer.element.getAttribute("height").toIntOrNull() ?: mapHeight
-        require(width == mapWidth && height == mapHeight) { "Resized or chunked TMX layers are unsupported" }
+        // Community maps sometimes give a layer its own dimensions. Drawing clips to
+        // the preview raster, so only the work bound has to be enforced here.
+        require(width > 0 && height > 0 && width.toLong() * height <= MAX_CELLS) {
+            "TMX tile layer dimensions exceed the preview limit"
+        }
         totalLayerCells += width.toLong() * height
         require(totalLayerCells <= MAX_TOTAL_LAYER_CELLS) { "TMX layers exceed the preview work limit" }
         val data = layer.element.directChildren("data").singleOrNull()
@@ -256,8 +275,7 @@ internal suspend fun renderMapPreview(
                 val raw = gids[y * width + x]
                 val gid = raw and 0x0FFFFFFF
                 if (gid == 0) continue
-                val tileset = tilesets.findTileset(gid)
-                    ?: error("TMX tile references an unknown GID")
+                val tileset = tilesets.findTileset(gid) ?: continue
                 val localId = gid - tileset.firstGid
                 val perTile = tileset.perTileImages[localId]
                 val image = perTile ?: tileset.sheet ?: continue
@@ -279,6 +297,52 @@ internal suspend fun renderMapPreview(
 }
 
 private data class TileRect(val x: Int, val y: Int, val width: Int, val height: Int)
+
+/**
+ * Native TileSet.getEmbeddedPngProperty reads tileset-level properties for an
+ * embedded_png value or text node. The base64 blob is the actual tileset sheet,
+ * while the image source often names a file that was never shipped with the map.
+ */
+private fun embeddedPngBytes(root: Element): ByteArray? {
+    val directBlocks = root.directChildren("properties")
+    // Native TileSet reads the first descendant properties block. Prefer the
+    // tileset-level one so a per-tile property cannot replace the whole sheet.
+    val blocks = directBlocks.ifEmpty {
+        val all = root.getElementsByTagName("properties")
+        listOfNotNull(all.item(0) as? Element)
+    }
+    for (block in blocks) {
+        val properties = block.getElementsByTagName("property")
+        for (index in 0 until properties.length) {
+            val property = properties.item(index) as? Element ?: continue
+            if (property.getAttribute("name") != "embedded_png") continue
+            val inline = property.textContent?.trim().orEmpty()
+            val raw = property.getAttribute("value").takeIf(String::isNotBlank)
+                ?: inline.takeIf(String::isNotBlank)
+                ?: continue
+            val normalized = raw.filterNot(Char::isWhitespace)
+            val padded = normalized.padEnd((normalized.length + 3) / 4 * 4, '=')
+            val bytes = runCatching { decodeBase64(padded) }.getOrNull() ?: continue
+            if (bytes.isNotEmpty() && bytes.size <= MAX_ASSET_BYTES) return bytes
+        }
+    }
+    return null
+}
+
+/** Claims a GID range whose tileset is missing, so the tiles inside it draw nothing. */
+private fun emptyPreviewTile(firstGid: Int) = PreviewTile(
+    firstGid = firstGid,
+    tileWidth = 1,
+    tileHeight = 1,
+    columns = 0,
+    margin = 0,
+    spacing = 0,
+    tileOffsetX = 0,
+    tileOffsetY = 0,
+    sheet = null,
+    perTileImages = emptyMap(),
+    tileCount = 0,
+)
 
 private fun List<PreviewTile>.findTileset(gid: Int): PreviewTile? {
     var low = 0
@@ -308,7 +372,7 @@ private fun parsePreviewTileset(
     firstGid: Int,
     root: Element,
     baseDirectory: String,
-    loadResource: (String, String) -> Pair<String, ByteArray>,
+    loadResource: (String, String) -> Pair<String, ByteArray>?,
     decodeImage: (ByteArray) -> MapPreviewRaster,
     decodedImages: PreviewImageCache,
 ): PreviewTile {
@@ -321,14 +385,10 @@ private fun parsePreviewTileset(
     val offset = root.directChildren("tileoffset").firstOrNull()
     val tileOffsetX = offset?.getAttribute("x")?.toIntOrNull() ?: 0
     val tileOffsetY = offset?.getAttribute("y")?.toIntOrNull() ?: 0
-    fun readImage(imageElement: Element?): PreviewImage? {
-        imageElement ?: return null
-        val source = imageElement.getAttribute("source").takeIf(String::isNotBlank)
-            ?: error("Embedded TMX images are unsupported")
-        val keyColor = imageElement.getAttribute("trans").takeIf(String::isNotBlank)?.let(::parseRgbKey)
-        val (path, bytes) = loadResource(source, baseDirectory)
-        val decoded = decodedImages.images[path] ?: run {
-            val raster = decodeImage(bytes)
+    fun decodeResource(bytes: ByteArray, cacheKey: String): PreviewImage? {
+        val decoded = decodedImages.images[cacheKey] ?: run {
+            // A tileset image that is present but unreadable is treated like a missing one.
+            val raster = runCatching { decodeImage(bytes) }.getOrNull() ?: return null
             require(
                 raster.width <= MAX_IMAGE_DIMENSION && raster.height <= MAX_IMAGE_DIMENSION &&
                         raster.width.toLong() * raster.height <= MAX_IMAGE_PIXELS
@@ -337,12 +397,30 @@ private fun parsePreviewTileset(
             require(decodedImages.pixelCount <= MAX_TOTAL_IMAGE_PIXELS) {
                 "TMX tilesets exceed the total decoded image limit"
             }
-            PreviewImage(raster).also { decodedImages.images[path] = it }
+            PreviewImage(raster).also { decodedImages.images[cacheKey] = it }
         }
-        return decoded.copy(transparentColor = keyColor)
+        return decoded
     }
 
-    val sheet = readImage(root.directChildren("image").firstOrNull())
+    fun readImage(imageElement: Element?): PreviewImage? {
+        imageElement ?: return null
+        val source = imageElement.getAttribute("source").takeIf(String::isNotBlank) ?: return null
+        val keyColor = imageElement.getAttribute("trans").takeIf(String::isNotBlank)?.let(::parseRgbKey)
+        val (path, bytes) = loadResource(source, baseDirectory) ?: return null
+        return decodeResource(bytes, path)?.copy(transparentColor = keyColor)
+    }
+
+    val imageElement = root.directChildren("image").firstOrNull()
+    val keyColor = imageElement?.getAttribute("trans")?.takeIf(String::isNotBlank)?.let(::parseRgbKey)
+    // Rusted Warfare stores the tileset sheet in the tileset's embedded_png property.
+    // Native TileSet decodes that base64 blob and never opens the external image
+    // source, so resolving only files leaves most community maps with blank ground.
+    val embedded = embeddedPngBytes(root)
+    val sheet = if (embedded != null) {
+        decodeResource(embedded, "[embedded]$firstGid")?.copy(transparentColor = keyColor)
+    } else {
+        readImage(imageElement)
+    }
     val tileElements = root.directChildren("tile")
     require(tileElements.size <= MAX_TILE_IMAGES) { "Tileset has too many individual tile images" }
     val tileImages = tileElements.mapNotNull { tile ->
@@ -350,7 +428,9 @@ private fun parsePreviewTileset(
         val image = readImage(tile.directChildren("image").firstOrNull()) ?: return@mapNotNull null
         id to image
     }.toMap()
-    require(sheet != null || tileImages.isNotEmpty()) { "Tileset does not reference an external image" }
+    if (sheet == null && tileImages.isEmpty()) {
+        return emptyPreviewTile(firstGid).copy(tileWidth = tileWidth, tileHeight = tileHeight)
+    }
     val columns = root.getAttribute("columns").toIntOrNull()?.takeIf { it > 0 } ?: sheet?.let {
         ((it.raster.width - margin * 2 + spacing) / (tileWidth + spacing)).coerceAtLeast(0)
     } ?: 0
@@ -430,25 +510,26 @@ private fun decodeGids(data: Element, width: Int, height: Int, checkActive: () -
 
         else -> error("Unsupported TMX encoding '$encoding'")
     }
-    require(gids.size == expectedCount.toInt()) { "TMX layer data has the wrong cell count" }
-    return gids
+    return if (gids.size == expectedCount.toInt()) gids else gids.copyOf(expectedCount.toInt())
 }
 
 private fun decodeCsvGids(text: String, expectedCount: Int): IntArray {
     val output = IntArray(expectedCount)
+    val clean = text.trim().trimEnd(',', ' ', '\r', '\n', '\t')
     var start = 0
     var index = 0
-    while (start <= text.length) {
-        val delimiter = text.indexOf(',', start)
-        val end = if (delimiter < 0) text.length else delimiter
-        require(index < expectedCount) { "TMX CSV layer contains too many cells" }
-        val gid = text.substring(start, end).trim().toLongOrNull()?.let(::uintGidToInt)
-            ?: error("TMX CSV layer contains an invalid GID")
-        output[index++] = gid
+    while (start <= clean.length && index < expectedCount) {
+        val delimiter = clean.indexOf(',', start)
+        val end = if (delimiter < 0) clean.length else delimiter
+        val cell = clean.substring(start, end).trim()
+        if (cell.isNotEmpty()) {
+            // Editors occasionally leave a malformed or extra cell. An empty tile is
+            // preferable to dropping the whole preview for one bad number.
+            output[index++] = cell.toLongOrNull()?.let(::uintGidToInt) ?: 0
+        }
         if (delimiter < 0) break
         start = delimiter + 1
     }
-    require(index == expectedCount) { "TMX CSV layer has the wrong cell count" }
     return output
 }
 
@@ -567,8 +648,11 @@ private fun parsePreviewXml(bytes: ByteArray): Document {
     require(bytes.size <= MAX_TMX_BYTES) { "TMX / TSX XML is too large" }
     // Android's XML provider does not implement every desktop JAXP feature. Reject declarations
     // before parsing instead of making ordinary UTF-8 maps depend on those optional switches.
-    val xml = bytes.decodeToString(throwOnInvalidSequence = true)
-    require('\u0000' !in xml) { "Preview XML must use UTF-8 encoding" }
+    val body = if (bytes.size >= 3 && bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() &&
+        bytes[2] == 0xBF.toByte()
+    ) bytes.copyOfRange(3, bytes.size) else bytes
+    val xml = decodePreviewXml(body)
+    require('\u0000' !in xml) { "Preview XML contains a NUL byte" }
     require(!xml.contains("<!DOCTYPE", ignoreCase = true) && !xml.contains("<!ENTITY", ignoreCase = true)) {
         "DTD and entity declarations are not supported in preview XML"
     }
@@ -585,7 +669,22 @@ private fun parsePreviewXml(bytes: ByteArray): Document {
     }
     val builder = factory.newDocumentBuilder()
     builder.setEntityResolver { _, _ -> InputSource(StringReader("")) }
-    return builder.parse(ByteArrayInputStream(bytes))
+    // The text is already decoded, so hand the parser characters instead of bytes. Parsing
+    // bytes would make it decode again with the declaration's charset, and rewriting the
+    // declaration would also hit element attributes such as the layer's own encoding.
+    return builder.parse(InputSource(StringReader(xml)))
+}
+
+/** Community maps are often saved with a BOM or a local code page instead of UTF-8. */
+private fun decodePreviewXml(bytes: ByteArray): String {
+    runCatching { bytes.decodeToString(throwOnInvalidSequence = true) }
+        .onSuccess { return it }
+    val head = String(bytes, 0, minOf(bytes.size, 256), Charsets.ISO_8859_1)
+    val declared = Regex("encoding\\s*=\\s*[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE)
+        .find(head)?.groupValues?.getOrNull(1)
+    val charset = declared?.let { runCatching { java.nio.charset.Charset.forName(it) }.getOrNull() }
+        ?: Charsets.ISO_8859_1
+    return String(bytes, charset).removePrefix("\uFEFF")
 }
 
 internal fun previewResourceCandidates(source: String, baseDirectory: String, mapPath: String): List<String> {
@@ -597,30 +696,51 @@ internal fun previewResourceCandidates(source: String, baseDirectory: String, ma
     fun add(candidate: String) {
         normalizeResourcePath(candidate)?.takeIf(::isAllowedResourcePath)?.let(candidates::add)
     }
-    if (source.startsWith('/')) add(source)
-    else {
-        add("$baseDirectory/$source")
-        add("tilesets/$source")
-        add("$mapDirectory/$source")
+    val fileName = source.replace('\\', '/').substringAfterLast('/')
+    val bareSource = source.replace('\\', '/').removePrefix("assets/")
+    if (source.startsWith('/')) {
+        add(source)
+        // Author-machine absolute paths appear in shipped and community maps. The
+        // game keeps those tilesets in its own shared directories.
+        add("tilesets/$fileName")
+        add("tilesets/bitmaps/$fileName")
+    } else {
+        add("$baseDirectory/$bareSource")
+        add("tilesets/$bareSource")
+        add("$mapDirectory/$bareSource")
+        add(bareSource)
         if (source.endsWith(".tsx", ignoreCase = true)) {
             // Shipped maps retain author-machine TSX paths; native loading also
             // resolves their filename from the shared tilesets root.
-            add("tilesets/${source.replace('\\', '/').substringAfterLast('/')}")
+            add("tilesets/$fileName")
+            add("tilesets/terrain/$fileName")
+            add("tilesets/ridges/$fileName")
         }
-        // Native maps also contain legacy image paths such as terrain/bitmaps/foo.png;
-        // the engine resolves their filename from the shared tilesets/bitmaps directory.
-        if (source.endsWith(".png", ignoreCase = true) && ".." !in source.replace('\\', '/').split('/')) {
-            add("tilesets/bitmaps/${source.replace('\\', '/').substringAfterLast('/')}")
+        // Native maps also contain legacy image paths such as terrain/bitmaps/foo.png or
+        // ../rusted_warfare/assets/tilesets/bitmaps/foo.png; the engine resolves their
+        // filename from the shared tilesets directories. Only the filename is reused, so
+        // a traversal segment cannot escape the allowed roots.
+        if (source.endsWith(".png", ignoreCase = true)) {
+            add("tilesets/bitmaps/$fileName")
+            add("tilesets/$fileName")
         }
     }
     return candidates.toList()
 }
 
+private val PREVIEW_RESOURCE_EXTENSIONS =
+    listOf(".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".tsx", ".tmx")
+private val PREVIEW_RESOURCE_ROOTS = listOf(
+    "tilesets/", "maps/", "mods/", "saves/", "assets/", "terrain/", "bitmaps/", "ridges/",
+    "rustedwarfare/", "rusted_warfare_maps/",
+)
+
+/** Traversal is rejected by normalization; the root check also blocks paths that escaped it. */
 private fun isAllowedResourcePath(path: String): Boolean {
     val normalized = path.lowercase()
-    return normalized.startsWith("tilesets/") || normalized.startsWith("maps/") ||
-            normalized.startsWith("mods/maps/") || normalized.startsWith("/sd/rusted_warfare_maps/") ||
-            normalized.startsWith("/sd/rustedwarfare/maps/")
+    if (normalized.startsWith("/")) return normalized.startsWith("/sd/")
+    return PREVIEW_RESOURCE_EXTENSIONS.any { normalized.endsWith(it) } &&
+            PREVIEW_RESOURCE_ROOTS.any { normalized.startsWith(it) }
 }
 
 private fun normalizeResourcePath(path: String): String? {
@@ -637,9 +757,7 @@ private fun normalizeResourcePath(path: String): String? {
     }
     val result = (if (absolute) "/" else "") + stack.joinToString("/")
     val lower = result.lowercase()
-    if (absolute && !lower.startsWith("/sd/rusted_warfare_maps/") &&
-        !lower.startsWith("/sd/rustedwarfare/maps/")
-    ) return null
+    if (absolute && !lower.startsWith("/sd/")) return null
     return result.takeIf { it.isNotBlank() }
 }
 

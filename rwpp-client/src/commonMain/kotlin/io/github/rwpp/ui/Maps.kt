@@ -44,15 +44,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
-import com.corrodinggames.rts.appFramework.AppContext
-import com.corrodinggames.rts.gameFramework.files.FileLoader
 import com.corrodinggames.rts.gameFramework.network.GameSetupMapType
 import io.github.rwpp.LocalWindowManager
 import io.github.rwpp.api.game.map.GameMap
 import io.github.rwpp.api.game.map.NetworkMap
 import io.github.rwpp.api.i18n.readI18n
-import io.github.rwpp.game.map.GeneratedMapPreview
-import io.github.rwpp.game.map.MapPreviewGenerationService
 import io.github.rwpp.sound.Sounds
 import io.github.rwpp.widget.ResponsiveFilterChoices
 import io.github.rwpp.widget.ResponsiveSelectionBody
@@ -60,11 +56,6 @@ import io.github.rwpp.widget.autoClearFocus
 import io.github.rwpp.widget.usesCompactSelectionLayout
 import io.github.rwpp.widget.v2.*
 import io.github.rwpp.widget.v2.scrollbar.LazyVerticalGridScrollbar
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import org.koin.compose.koinInject
 
 @Composable
 fun MapViewDialog(
@@ -738,30 +729,6 @@ private fun MapDetailSidebar(
     fitContent: Boolean = false,
     onConfirmSelect: () -> Unit
 ) {
-    val previewService = koinInject<MapPreviewGenerationService>()
-    val previewScope = rememberCoroutineScope()
-    var previewJob by remember(map) { mutableStateOf<Job?>(null) }
-    DisposableEffect(map) {
-        onDispose { previewJob?.cancel() }
-    }
-    var generatedPreview by remember(map) { mutableStateOf<GeneratedMapPreview?>(null) }
-    var nativePreviewExists by remember(map) { mutableStateOf(false) }
-    var previewCheckComplete by remember(map) { mutableStateOf(false) }
-    var generatingPreview by remember(map) { mutableStateOf(false) }
-    var previewGenerationError by remember(map) { mutableStateOf<String?>(null) }
-    LaunchedEffect(map) {
-        nativePreviewExists = false
-        previewCheckComplete = false
-        val selected = map
-        if (selected != null && previewService.supports(selected)) {
-            nativePreviewExists = withContext(Dispatchers.IO) {
-                runCatching { FileLoader.fileExists(AppContext.getMapImagePath(selected.enginePath)) }
-                    .getOrDefault(false)
-            }
-        }
-        previewCheckComplete = true
-    }
-
     Column(
         modifier = Modifier
             .then(if (fitContent) Modifier.fillMaxWidth() else Modifier.fillMaxSize())
@@ -795,45 +762,11 @@ private fun MapDetailSidebar(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            AeroMapPreview(map, showImage, generatedPreview)
+            AeroMapPreview(map, showImage)
 
             Spacer(modifier = Modifier.height(12.dp))
 
             if (map != null) {
-                if (previewCheckComplete && !nativePreviewExists && previewService.supports(map) &&
-                    generatedPreview == null
-                ) {
-                    AeroButton(
-                        text = if (generatingPreview) readI18n("rwpp.map.generatingPreview")
-                        else readI18n("rwpp.map.generatePreview"),
-                        onClick = {
-                            if (!generatingPreview) {
-                                generatingPreview = true
-                                previewGenerationError = null
-                                previewJob = previewScope.launch {
-                                    previewService.generate(map).onSuccess { generatedPreview = it }
-                                        .onFailure {
-                                            previewGenerationError = it.message
-                                                ?: readI18n("rwpp.catalog.unknownError")
-                                        }
-                                    generatingPreview = false
-                                }
-                            }
-                        },
-                        enabled = !generatingPreview,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    previewGenerationError?.let { error ->
-                        Text(
-                            text = readI18n("rwpp.map.previewGenerationFailed", error),
-                            color = MaterialTheme.colorScheme.error,
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
                 Text(
                     text = map.displayName(),
                     fontSize = 15.sp,

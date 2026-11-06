@@ -34,17 +34,30 @@ internal object HudFrameClock {
     private var framePosted = false // Choreographer scheduling is confined to the main looper.
 
     private val gameFrame = Runnable {
-        try {
-            callbacks.forEach { callback ->
-                try {
-                    callback.run()
-                } catch (failure: Throwable) {
-                    Log.e(TAG, "Error running a HUD frame callback", failure)
-                }
+        // A native frame end may already have run this batch; only the first claimant runs it.
+        if (!frameQueued.compareAndSet(true, false)) return@Runnable
+        runBatch()
+    }
+
+    private fun runBatch() {
+        callbacks.forEach { callback ->
+            try {
+                callback.run()
+            } catch (failure: Throwable) {
+                Log.e(TAG, "Error running a HUD frame callback", failure)
             }
-        } finally {
-            frameQueued.set(false)
         }
+    }
+
+    /**
+     * The display frame only queues the batch; the game thread owns engine access. Running the
+     * pending batch at the end of the native frame keeps the sampled state one frame fresher
+     * than waiting for the next frame's queue drain, which is what made the overlay trail the
+     * world while the camera moved.
+     */
+    fun flushPending() {
+        if (!frameQueued.compareAndSet(true, false)) return
+        runBatch()
     }
 
     private val displayFrame = object : Choreographer.FrameCallback {
@@ -95,6 +108,11 @@ internal object HudFrameClock {
 
 internal actual fun registerHudFrame(callback: Runnable): AutoCloseable = HudFrameClock.register(callback)
 
-internal actual fun requestWorldPresentationFrame() {
-    Unit
-}
+internal actual fun flushPendingHudFrame() = HudFrameClock.flushPending()
+
+/**
+ * The Compose layer is a separate window layer above the game surface. Re-running its draw pass
+ * makes the world overlay paint the camera captured by the native frame that was just presented,
+ * instead of waiting for the next state invalidation.
+ */
+internal actual fun requestWorldPresentationFrame() = AndroidHudSurface.requestDraw()

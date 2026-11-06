@@ -17,6 +17,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -43,8 +47,12 @@ import androidx.compose.ui.unit.*
 import com.corrodinggames.rts.game.units.OrderableUnit
 import com.corrodinggames.rts.game.units.actions.ActionType
 import com.corrodinggames.rts.game.units.actions.SpecialAction
+import com.corrodinggames.rts.game.units.actions.SpecialActionCategory
 import com.corrodinggames.rts.gameFramework.GameEngine
+import com.corrodinggames.rts.gameFramework.InputControllerButton
 import com.corrodinggames.rts.gameFramework.gui.BattleInterface
+import io.github.rwpp.logic.hud.GameUiPauseState
+import io.github.rwpp.logic.hud.NativeHudVisibility
 import io.github.rwml.api.Platform
 import io.github.rwml.api.Rwml
 import io.github.rwpp.api.i18n.readI18n
@@ -67,6 +75,16 @@ internal data class CommandButton(
     val clickSound: io.github.rwpp.api.game.audio.GameSound? = io.github.rwpp.sound.Sounds.select,
     val identity: String = label,
     val dimmed: Boolean = !enabled,
+    val hotkey: String = "",
+    /** Native action-bar appearance inputs; see BattleInterface.renderActionBar. */
+    val category: SpecialActionCategory = SpecialActionCategory.none,
+    val techLevel: Int = 1,
+    /** BattleInterface.isSpecialActionUsableBySelection: affordable for at least one selected owner. */
+    val usable: Boolean = false,
+    /** BattleInterface.isSpecialActionUsable: the pulsing hint, not an affordability check. */
+    val flash: Boolean = false,
+    val active: Boolean = false,
+    val demoBlocked: Boolean = false,
 )
 
 internal enum class HudActionGlyph { WAYPOINT, RALLY, UPGRADE }
@@ -85,7 +103,10 @@ internal fun sameCommandVisuals(a: CommandFrame, b: CommandFrame): Boolean =
         x.label == y.label && x.heightScale == y.heightScale && x.columns == y.columns &&
                 x.enabled == y.enabled && x.progress == y.progress && x.queued == y.queued && x.image === y.image &&
                 x.showInfo == y.showInfo && x.glyph == y.glyph && x.canAdd == y.canAdd &&
-                x.identity == y.identity && x.clickSound === y.clickSound && x.dimmed == y.dimmed
+                x.identity == y.identity && x.clickSound === y.clickSound && x.dimmed == y.dimmed &&
+                x.hotkey == y.hotkey && x.category == y.category && x.techLevel == y.techLevel &&
+                x.usable == y.usable && x.flash == y.flash && x.active == y.active &&
+                x.demoBlocked == y.demoBlocked
     }
 
 internal data class CommandTooltip(val anchor: Rect, val title: String, val text: String)
@@ -95,6 +116,14 @@ internal object CommandPointer {
 
 internal object CommandHover {
     val current = mutableStateOf<CommandTooltip?>(null)
+}
+
+/** Hover bookkeeping for the information HUD; kept out of composition state to avoid redraw churn. */
+internal class CommandHoverState {
+    var frame: CommandFrame? = null
+    var target = -2
+    var point: Offset? = null
+    var mouse = false
 }
 
 /** A draw-phase snapshot; native image requests use only buttons currently in the viewport. */
@@ -236,6 +265,8 @@ private class CommandButtonFrameBuilder {
         while (callbacks.size > actions.size) callbacks.removeAt(callbacks.lastIndex)
         buttonScratch.clear()
         val nowNanos = System.nanoTime()
+        val hotkeys = commandHotkeys(engine, actions)
+        activateCommandHotkeys(hotkeys, actions, selection)
         for (index in actions.indices) {
             val action = actions[index]
             var callbacksForAction = callbacks.getOrNull(index)
@@ -253,9 +284,11 @@ private class CommandButtonFrameBuilder {
             val actionCallbacks = callbacksForAction
 
             val identity = actionCallbacks.identity
-            val unlocked = action.actionType == ActionType.infoOnly || primary is OrderableUnit &&
-                    engine.interfaceEngine.canPlayerControlUnit(primary) && hudActionUnlocked(action, primary)
-            val available = hudActionAvailableNow(engine, action, primary, unlocked)
+            // Native resolves permission and affordability across the whole selection. Asking only
+            // the primary unit disables an upgrade that another selected unit can perform, which is
+            // why a mixed level selection could not upgrade from the mouse but still did from keys.
+            val unlocked = hudActionUnlockedForSelection(action, selection)
+            val available = hudActionAvailableNow(engine, action, unlocked)
             var queued = 0
             for (unit in selection) {
                 if (unit is OrderableUnit) queued += hudActionCountForUnit(action, unit, true)
@@ -268,21 +301,33 @@ private class CommandButtonFrameBuilder {
             } else null
             val queuePanel = hudUsesTouchQueuePanel(
                 touch, action.actionType, action.hasPersistentTooltip(),
-                primary != null && action.getCountForUnit(primary, false) != -1,
+                hudActionQueueEntry(action, selection),
             )
             val enabled = available || queuePanel && queued > 0 ||
                     action.actionType == ActionType.placeBuilding && unlocked
-            val progress = primary?.let { action.getProgress(it).coerceIn(0f, 1f) } ?: 0f
+            val progress = hudActionProgressForSelection(action, selection).coerceIn(0f, 1f)
             val showInfo = action.actionType != ActionType.infoOnly
             val clickSound = if (queuePanel) null else io.github.rwpp.sound.Sounds.select
             val dimmed = !available || action.isDimmedInActionBar
+            // renderActionBar paints the surface from isSpecialActionUsableBySelection and only the
+            // border pulse from isSpecialActionUsable. Using the pulse as "usable" turned every
+            // unaffordable action red.
+            val usable = hudActionAffordableForSelection(action, selection)
+            val flash = runCatching { engine.interfaceEngine.isSpecialActionUsable(action) }
+                .getOrDefault(false)
+            val category = action.actionCategory
+            val active = engine.interfaceEngine.activeSpecialAction === action
+            val demoBlocked = BattleInterface.isSpecialActionDemoBlocked(action)
+            val techLevel = action.unitType?.techLevel ?: action.techLevel
             val old = published.getOrNull(index)
+            val hotkey = hotkeys.getOrNull(index)?.label ?: ""
             buttonScratch.add(
                 if (old != null && mayReuseCommandButton(
                         callbacksReplaced,
                         sameCommandButtonVisuals(
                             old, label, action.buttonWidthScale, action.buttonColumnSpan, enabled, progress, queued,
-                            image, showInfo, glyph, available, clickSound, identity, dimmed,
+                            image, showInfo, glyph, available, clickSound, identity, dimmed, hotkey,
+                            category, techLevel, usable, flash, active, demoBlocked,
                         ),
                     )
                 ) old else CommandButton(
@@ -301,6 +346,13 @@ private class CommandButtonFrameBuilder {
                     identity = identity,
                     clickSound = clickSound,
                     dimmed = dimmed,
+                    hotkey = hotkey,
+                    category = category,
+                    techLevel = techLevel,
+                    usable = usable,
+                    flash = flash,
+                    active = active,
+                    demoBlocked = demoBlocked,
                 )
             )
         }
@@ -328,12 +380,11 @@ private class CommandButtonFrameBuilder {
         }
         val activate: (Boolean) -> Unit = { remove ->
             val engine = GameEngine.getInstance()
-            val unlocked = action.actionType == ActionType.infoOnly || primary is OrderableUnit &&
-                    engine.interfaceEngine.canPlayerControlUnit(primary) && hudActionUnlocked(action, primary)
-            val available = hudActionAvailableNow(engine, action, primary, unlocked)
+            val unlocked = hudActionUnlockedForSelection(action, selection)
+            val available = hudActionAvailableNow(engine, action, unlocked)
             val queuePanel = hudUsesTouchQueuePanel(
                 touch, action.actionType, action.hasPersistentTooltip(),
-                primary != null && action.getCountForUnit(primary, false) != -1,
+                hudActionQueueEntry(action, selection),
             )
             if (!remove && queuePanel) {
                 val repeat = productionSelection.tap(identity)
@@ -354,11 +405,26 @@ private class CommandButtonFrameBuilder {
 private fun hudActionAvailableNow(
     engine: GameEngine,
     action: SpecialAction,
-    primary: com.corrodinggames.rts.game.units.Unit?,
     unlocked: Boolean,
-): Boolean = action.actionType == ActionType.infoOnly || primary != null &&
-        engine.interfaceEngine.canPlayerControlUnit(primary) && unlocked && hudActionAvailable(action) {
-    engine.interfaceEngine.isSpecialActionAvailable(action, false)
+): Boolean = action.actionType == ActionType.infoOnly ||
+        unlocked && hudActionAvailable(action) {
+            engine.interfaceEngine.isSpecialActionAvailable(action, false)
+        }
+
+/**
+ * Native decides the queue panel from a per-unit count. Asking the button's own action about a
+ * foreign unit is what crashed on a modded selection, so only owners resolving that action answer.
+ */
+private fun hudActionQueueEntry(
+    action: SpecialAction,
+    selection: List<com.corrodinggames.rts.game.units.Unit>,
+): Boolean {
+    for (unit in selection) {
+        if (unit !is OrderableUnit) continue
+        val owned = runCatching { unit.getSpecialAction(action.storedActionId) }.getOrNull() ?: continue
+        if (runCatching { owned.getCountForUnit(unit, false) }.getOrDefault(-1) != -1) return true
+    }
+    return false
 }
 
 private fun sameCommandButtonVisuals(
@@ -376,10 +442,86 @@ private fun sameCommandButtonVisuals(
     clickSound: io.github.rwpp.api.game.audio.GameSound?,
     identity: String,
     dimmed: Boolean,
+    hotkey: String,
+    category: SpecialActionCategory,
+    techLevel: Int,
+    usable: Boolean,
+    flash: Boolean,
+    active: Boolean,
+    demoBlocked: Boolean,
 ): Boolean = button.label == label && button.heightScale == heightScale && button.columns == columns &&
         button.enabled == enabled && button.progress == progress && button.queued == queued && button.image === image &&
         button.showInfo == showInfo && button.glyph == glyph && button.canAdd == canAdd &&
-        button.clickSound === clickSound && button.identity == identity && button.dimmed == dimmed
+        button.clickSound === clickSound && button.identity == identity && button.dimmed == dimmed &&
+        button.hotkey == hotkey && button.category == category && button.techLevel == techLevel &&
+        button.usable == usable && button.flash == flash && button.active == active &&
+        button.demoBlocked == demoBlocked
+
+private data class CommandHotkey(
+    val label: String,
+    val button: InputControllerButton?,
+    val slot: Int,
+    val nativeHandled: Boolean,
+)
+
+/**
+ * The native action bar binds the first ten ordinary actions (custom actions and
+ * building placements included) to InputController.unitActionButtons. Aero draws
+ * its own buttons, so it has to ask the same resolver for the label it would have
+ * printed above each key. The counter is reset by the native renderer each frame.
+ */
+private fun commandHotkeys(engine: GameEngine, actions: List<SpecialAction>): List<CommandHotkey> {
+    if (actions.isEmpty() || !GameEngine.isDesktopVersion()) return emptyList()
+    return try {
+        val battle = engine.interfaceEngine.battleInterface
+        val input = engine.inputController
+        val slots = input.unitActionButtons
+        // InterfaceEngine.update consumes these dedicated buttons itself. Reclaim and
+        // rally have no such consumer, so they rely on the replacement action bar.
+        val nativeHandled = listOf(
+            input.attackMoveButton, input.guardUnitButton, input.patrolButton,
+            input.stopButton, input.pingMapButton, input.saveGameButton,
+        )
+        val allActions = ArrayList(actions)
+        battle.resetActionButtonSlots()
+        actions.mapIndexed { index, action ->
+            val button = runCatching {
+                battle.getHotkeyForSpecialAction(action, index, allActions)
+            }.getOrNull()
+            CommandHotkey(
+                label = button?.getBindingLabel().orEmpty(),
+                button = button,
+                slot = button?.let { resolved -> slots.indexOfFirst { it === resolved } } ?: -1,
+                nativeHandled = button?.let { resolved -> nativeHandled.any { it === resolved } } ?: false,
+            )
+        }
+    } catch (_: Throwable) {
+        emptyList()
+    }
+}
+
+/**
+ * Native keyboard activation lives inside BattleInterface.renderActionBar, which
+ * Aero cancels. Reclaim, rally and custom action buttons have no consumer outside
+ * that method, so they must be polled here even though they never occupy one of
+ * the ten unitActionButtons slots. Buttons already handled by InterfaceEngine.update
+ * are excluded to avoid running the action twice.
+ */
+private fun activateCommandHotkeys(
+    hotkeys: List<CommandHotkey>,
+    actions: List<SpecialAction>,
+    selection: List<com.corrodinggames.rts.game.units.Unit>,
+) {
+    if (hotkeys.isEmpty() || !NativeHudVisibility.hidden || !GameEngine.isDesktopVersion()) return
+    if (GameUiPauseState.blocked || isShowSendMessageDialog || UI.showPlayerList) return
+    val pressed = ArrayList<SpecialAction>(1)
+    for (index in hotkeys.indices) {
+        val hotkey = hotkeys[index]
+        if (index >= actions.size || hotkey.nativeHandled) continue
+        if (hotkey.button?.isPressed() == true) pressed += actions[index]
+    }
+    pressed.forEach { executeHudAction(it, selection) }
+}
 
 /** One stable layout node. Selection changes alter pixels and hit targets, never a button-node tree. */
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
@@ -405,6 +547,52 @@ internal fun CommandSurface(
     var hoveredIndex by remember { mutableIntStateOf(-1) }
     var draggingScrollbar by remember { mutableStateOf(false) }
     var scrollbarGrabOffset by remember { mutableFloatStateOf(0f) }
+    val hoverState = remember { CommandHoverState() }
+
+    /**
+     * The native HUD shows action information on hover. Blank console space and the title strip
+     * show the selected unit instead; a button without information closes the panel.
+     */
+    fun showHoverInfo(point: Offset, force: Boolean = false) {
+        val currentFrame = frame.value
+        val index = geometry.hit(point)
+        val target = when {
+            index != null && currentFrame.buttons.getOrNull(index)?.showInfo == true -> index
+            index == null -> -1
+            else -> -2
+        }
+        if (!force && target == hoverState.target && currentFrame === hoverState.frame) return
+        hoverState.frame = currentFrame
+        hoverState.target = target
+        hoverState.point = point
+        CommandHover.current.value = when {
+            target >= 0 -> currentFrame.buttons[target].info().let { CommandTooltip(anchor, it.first, it.second) }
+            target == -1 -> currentFrame.info().let { CommandTooltip(anchor, it.first, it.second) }
+            else -> null
+        }
+    }
+
+    /** An external dismissal must not leave the cache claiming the panel is still shown. */
+    fun invalidateHoverInfo() {
+        hoverState.frame = null
+        hoverState.target = -2
+    }
+
+    fun clearHoverInfo() {
+        invalidateHoverInfo()
+        hoverState.point = null
+        hoverState.mouse = false
+        CommandHover.current.value = null
+    }
+
+    // A selection change replaces the frame while the pointer rests on the panel.
+    LaunchedEffect(Unit) {
+        snapshotFlow { frame.value }.collect {
+            val point = hoverState.point
+            if (hoverState.mouse && point != null) showHoverInfo(point, force = true)
+        }
+    }
+
     val buttonScale by androidx.compose.animation.core.animateFloatAsState(
         if (pressed) 0.96f else if (hoveredIndex >= 0) 1.02f else 1f,
         if (animations) androidx.compose.animation.core.spring(
@@ -415,6 +603,18 @@ internal fun CommandSurface(
     val feedback by androidx.compose.animation.core.animateFloatAsState(
         if (pressed) 0.35f else if (hoveredIndex >= 0) 0.2f else 0f,
         androidx.compose.animation.core.tween(if (animations) 150 else 0)
+    )
+    // Native pulses the border of a usable action with abs(cos(t)); the state is read inside the
+    // draw scope so the pulse invalidates the canvas only, never the layout.
+    val borderPulse = rememberInfiniteTransition(label = "actionBorder")
+    val borderPulseState = borderPulse.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = androidx.compose.animation.core.tween(1000, easing = androidx.compose.animation.core.LinearEasing),
+            repeatMode = androidx.compose.animation.core.RepeatMode.Restart,
+        ),
+        label = "actionBorderPulse",
     )
     DisposableEffect(Unit) {
         onDispose {
@@ -457,8 +657,12 @@ internal fun CommandSurface(
                                 } else null
                             passThroughGesture = actionIndex == null && grabOffset == null && plannerOwnsBlank()
                             if (passThroughGesture) {
+                                // The blank press belongs to the building planner, but an open queue
+                                // panel must still collapse: every click outside the console clears it.
+                                HudQueuePopupTouch.dismiss()
                                 down = null; last = null; pressed = false; pressedIndex = -1
                                 CommandHover.current.value = null
+                                invalidateHoverInfo()
                                 CommandPointer.inPanel = false
                                 continue
                             }
@@ -476,7 +680,10 @@ internal fun CommandSurface(
                                 pressedIndex = actionIndex ?: -1; pressed = true
                                 val hitIdentity = geometry.frame.buttons.getOrNull(pressedIndex)?.identity
                                 if (HudQueuePopupTouch.active && hitIdentity != HudQueuePopupTouch.selectedIdentity) HudQueuePopupTouch.dismiss()
-                                if (pressedIndex < 0) CommandHover.current.value = null
+                                if (pressedIndex < 0 && !hoverState.mouse) {
+                                    CommandHover.current.value = null
+                                    invalidateHoverInfo()
+                                }
                             }
                             change.consume()
                         }
@@ -490,11 +697,16 @@ internal fun CommandSurface(
                                     dragged = true
                                     HudQueuePopupTouch.dismiss()
                                     CommandHover.current.value = null
+                                    invalidateHoverInfo()
                                 }
                                 if (dragged) geometry.moveScroll((last?.y ?: point.y) - point.y)
                                 last = point; change.consume()
                             } else {
                                 hoveredIndex = geometry.hit(point) ?: -1; CommandPointer.inPanel = true
+                                if (change.type == PointerType.Mouse) {
+                                    hoverState.mouse = true
+                                    showHoverInfo(point)
+                                }
                             }
                         }
 
@@ -506,10 +718,15 @@ internal fun CommandSurface(
                                 draggingScrollbar = false
                             } else if (!dragged && down != null) geometry.hit(point)?.let { index ->
                                 if (geometry.hit(down) == index) geometry.frame.buttons[index].let {
-                                    if (!secondary && it.showInfo) {
-                                        val info = it.info()
-                                        CommandHover.current.value = CommandTooltip(anchor, info.first, info.second)
-                                    } else CommandHover.current.value = null
+                                    // A mouse already owns the panel through hover; only touch
+                                    // still needs the tap to open or close it.
+                                    if (!hoverState.mouse) {
+                                        if (!secondary && it.showInfo) {
+                                            val info = it.info()
+                                            CommandHover.current.value = CommandTooltip(anchor, info.first, info.second)
+                                        } else CommandHover.current.value = null
+                                        invalidateHoverInfo()
+                                    }
                                     if (it.enabled || secondary) {
                                         io.github.rwpp.sound.Sounds.playSound(if (secondary) io.github.rwpp.sound.Sounds.cancel else it.clickSound)
                                         it.activate(secondary)
@@ -518,11 +735,16 @@ internal fun CommandSurface(
                             }
                             if (!dragged && down != null && geometry.hit(point) == null) {
                                 HudQueuePopupTouch.dismiss()
-                                if (point.y < geometry.top && down.y < geometry.top) {
+                                if (point.y < geometry.top && down.y < geometry.top && !hoverState.mouse) {
                                     val info = geometry.frame.info()
                                     CommandHover.current.value = CommandTooltip(anchor, info.first, info.second)
-                                } else CommandHover.current.value = null
+                                    invalidateHoverInfo()
+                                } else if (!hoverState.mouse) {
+                                    CommandHover.current.value = null
+                                    invalidateHoverInfo()
+                                }
                             }
+                            if (hoverState.mouse && !dragged) showHoverInfo(point, force = true)
                             pressed = false
                             down = null; last = null; change.consume()
                         }
@@ -532,11 +754,23 @@ internal fun CommandSurface(
                             val delta = event.changes.sumOf { it.scrollDelta.y.toDouble() }.toFloat()
                             geometry.moveScroll(delta * 32.dp.toPx())
                             CommandHover.current.value = null
+                            invalidateHoverInfo()
                             event.changes.forEach { it.consume() }
+                        }
+
+                        // Compose turns the first hover Move into Enter; the information HUD must
+                        // open on that first event as well, otherwise it still needs a click.
+                        PointerEventType.Enter -> {
+                            CommandPointer.inPanel = true
+                            if (change.type == PointerType.Mouse) {
+                                hoverState.mouse = true
+                                showHoverInfo(point)
+                            }
                         }
 
                         PointerEventType.Exit -> {
                             hoveredIndex = -1; CommandPointer.inPanel = false
+                            if (hoverState.mouse) clearHoverInfo()
                         }
                     }
                 }
@@ -544,7 +778,8 @@ internal fun CommandSurface(
         }) {
         val snapshot = frame.value
         geometry.frame = snapshot
-        geometry.top = 56.dp.toPx(); geometry.height = size.height; geometry.width = size.width
+        // The HP/name readout was removed, so action rows start at the top of the panel.
+        geometry.top = 4.dp.toPx(); geometry.height = size.height; geometry.width = size.width
         val baseHeight = 64.dp.roundToPx()
         val actionSizes = snapshot.buttons.map { HudActionSize(it.heightScale, it.columns) }
         val fullWidthRects = nativeHudActionLayout(
@@ -571,8 +806,8 @@ internal fun CommandSurface(
             drawPath(
                 path, Brush.verticalGradient(
                     listOf(
-                        colors.surfaceContainerHigh.copy(alpha = 0.93f),
-                        colors.surfaceContainerLowest.copy(alpha = 0.9f)
+                        colors.surfaceContainerHigh.copy(alpha = hudPanelAlpha(0.93f)),
+                        colors.surfaceContainerLowest.copy(alpha = hudPanelAlpha(0.9f))
                     ), origin.y, origin.y + extent.height
                 )
             )
@@ -585,6 +820,52 @@ internal fun CommandSurface(
             )
         }
         panel(Offset.Zero, size, colors.primary)
+
+        // BattleInterface.renderActionBar paints a translucent solid, then a border that pulses
+        // while the action is usable. Reproduced here so a modded action looks the same.
+        fun actionBackground(origin: Offset, extent: Size, button: CommandButton, hovered: Boolean) {
+            val usable = button.usable || button.category == SpecialActionCategory.infoOnlyStockpile
+            var fill = when {
+                button.demoBlocked -> Color(180, 100, 100, 100)
+                usable -> Color(100, 100, 100, 70)
+                else -> Color(170, 100, 100, 50)
+            }
+            if (hovered) fill = Color(100, 100, 200, 80)
+            if (button.active) fill = Color(100, 200, 100, 80)
+            if (button.dimmed) fill = fill.copy(alpha = fill.alpha * 0.7f)
+            drawRect(fill, origin, extent)
+        }
+
+        fun actionBorder(origin: Offset, extent: Size, button: CommandButton) {
+            // Only the hint pulse is white and animated. Affordability selects the fill, never the
+            // border, exactly as renderActionBar keeps var53 and var58 separate.
+            val pulse = kotlin.math.abs(kotlin.math.cos(borderPulseState.value * kotlin.math.PI.toFloat()))
+            val color = when {
+                button.dimmed -> Color(155, 155, 155, 50)
+                button.flash -> Color(255, 255, 255, (100 + 150 * pulse).toInt().coerceIn(0, 255))
+                else -> Color(0, 0, 0, 100)
+            }
+            drawRect(color, origin, extent, style = Stroke(1.dp.toPx()))
+        }
+
+        fun actionCaptionColor(button: CommandButton, fallback: Color): Color {
+            val usable = button.usable || button.category == SpecialActionCategory.infoOnlyStockpile
+            return when {
+                button.category == SpecialActionCategory.rally -> Color.White
+                button.category == SpecialActionCategory.upgrade ||
+                        button.category == SpecialActionCategory.action ->
+                    if (usable) Color(39, 202, 189) else Color(19, 101, 94)
+                button.category == SpecialActionCategory.queueUnit && button.techLevel > 1 ->
+                    if (usable) Color(235, 240, 30) else Color(117, 120, 15)
+                button.category == SpecialActionCategory.infoOnly ||
+                        button.category == SpecialActionCategory.infoOnlyNoBox ||
+                        button.category == SpecialActionCategory.infoOnlyStockpile ->
+                    Color(255, 255, 255, 155)
+                !usable -> Color(0, 100, 0)
+                else -> fallback
+            }
+        }
+
         fun label(
             value: String,
             position: Offset,
@@ -602,31 +883,6 @@ internal fun CommandSurface(
                 maxLines = 2, overflow = TextOverflow.Ellipsis
             )
         }
-        label(
-            snapshot.title,
-            Offset(6.dp.toPx(), 4.dp.toPx()),
-            size.width - 12.dp.toPx(),
-            20.dp.toPx(),
-            13,
-            colors.primary
-        )
-        label(
-            "${snapshot.count}  HP ${(snapshot.health * 100).toInt()}%",
-            Offset(6.dp.toPx(), 25.dp.toPx()),
-            size.width,
-            16.dp.toPx()
-        )
-        drawRect(Color.DarkGray, Offset(6.dp.toPx(), 45.dp.toPx()), Size(size.width - 12.dp.toPx(), 4.dp.toPx()))
-        drawRect(
-            Color(0xff66dc92),
-            Offset(6.dp.toPx(), 45.dp.toPx()),
-            Size((size.width - 12.dp.toPx()) * snapshot.health, 4.dp.toPx())
-        )
-        drawRect(
-            Color(0xff57cfff),
-            Offset(6.dp.toPx(), 53.dp.toPx()),
-            Size((size.width - 12.dp.toPx()) * snapshot.shield, 3.dp.toPx())
-        )
         clipRect(0f, geometry.top, size.width, size.height) {
             geometry.rects.forEachIndexed { i, r ->
                 val y = geometry.top + r.y - geometry.offset
@@ -650,7 +906,12 @@ internal fun CommandSurface(
                             origin + Offset(extent.width / 2f, extent.height / 2f)
                         )
                     }) {
-                        panel(origin, extent, if (!button.dimmed) colors.primary else colors.outline, button.queued > 0)
+                        actionBackground(origin, extent, button, activeFeedback)
+                        if (button.queued > 0) {
+                            // The Aero queue badge keeps its accent outline so a queued count stays
+                            // readable against the native translucent fill.
+                            drawRect(colors.primary.copy(alpha = 0.75f), origin, extent, style = Stroke(1.dp.toPx()))
+                        }
                         if (button.glyph != null) {
                             drawHudActionGlyph(button.glyph, origin, extent)
                         } else button.image?.let { image ->
@@ -683,14 +944,29 @@ internal fun CommandSurface(
                             )
                         }
                         if (activeFeedback) drawRect(colors.primary.copy(alpha = feedback), origin, extent)
+                        actionBorder(origin, extent, button)
                         val captionHeight = minOf(30.dp.toPx(), extent.height - 4.dp.toPx())
                         label(
                             button.label,
                             origin + Offset(6.dp.toPx(), extent.height - captionHeight),
                             extent.width - 12.dp.toPx(),
                             captionHeight,
-                            color = if (!button.dimmed) colors.onSurface else colors.onSurfaceVariant
+                            color = actionCaptionColor(
+                                button,
+                                if (!button.dimmed) colors.onSurface else colors.onSurfaceVariant,
+                            )
                         )
+                        if (button.hotkey.isNotBlank()) {
+                            val reserved = if (button.queued > 0) 34.dp.toPx() else 0f
+                            val layout = text.measure(
+                                AnnotatedString(button.hotkey),
+                                style = TextStyle(color = Color(0xff8cf59a), fontSize = 10.sp),
+                                maxLines = 1
+                            )
+                            val right = origin.x + extent.width - 4.dp.toPx() - reserved
+                            val left = (right - layout.size.width).coerceAtLeast(origin.x + 2.dp.toPx())
+                            drawText(layout, topLeft = Offset(left, origin.y + 3.dp.toPx()))
+                        }
                         if (button.queued > 0) {
                             val badge = origin + Offset(extent.width - 34.dp.toPx(), 4.dp.toPx())
                             drawRect(colors.primary, badge, Size(28.dp.toPx(), 19.dp.toPx()))
@@ -733,7 +1009,6 @@ internal fun GameScreen.AeroCommandConsole() {
     var commands by remember { mutableStateOf(emptyList<SpecialAction>(), referentialEqualityPolicy()) }
     val target = selectedUnits.firstOrNull()
     val touch = io.github.rwpp.appKoin.get<io.github.rwpp.AppContext>().isAndroid()
-    val sandboxEditorSnapshot = remember { mutableStateOf<SandboxUnitDataSnapshot?>(null) }
     val productionSelection = remember { HudProductionSelection() }
     val queueAction = commands.firstOrNull {
         productionSelection.identity == "${System.identityHashCode(target)}:${it.actionIdString}"
@@ -745,10 +1020,6 @@ internal fun GameScreen.AeroCommandConsole() {
     val displayedImages = remember { HashMap<String, ImageBitmap>() }
     val imageTarget = remember { arrayOfNulls<com.corrodinggames.rts.game.units.Unit>(1) }
     val buttonFrameBuilder = remember { CommandButtonFrameBuilder() }
-    val sandboxSelectionIds = remember { arrayOf<List<Long>>(emptyList()) }
-    val sandboxSelectionGeneration = remember { intArrayOf(0) }
-    val sandboxSampleState = remember { longArrayOf(Long.MIN_VALUE) }
-    val sandboxSamplePending = remember { booleanArrayOf(false) }
     val standbyTitle = remember { readI18n("rwpp.hud.standby") }
     val cachedFrameTitle = remember { arrayOf(standbyTitle) }
     val cachedTitlePrimary = remember { arrayOfNulls<com.corrodinggames.rts.game.units.Unit>(1) }
@@ -776,55 +1047,7 @@ internal fun GameScreen.AeroCommandConsole() {
         if (actionsChanged) commands = nextCommands
         val commandActions = if (actionsChanged) nextCommands else commands
 
-        // Sandbox selection data can change during a battle, but sampling it is deliberately
-        // throttled and happens only in a true local sandbox with editable units selected.
-        val nowNanos = System.nanoTime()
-        val sandboxSelectionAllowed = sandboxUnitDataUiAllowed(engine) &&
-                selection.isNotEmpty() && selection.none { it is com.corrodinggames.rts.game.units.EditorUnit }
-        if (!sandboxSelectionAllowed) {
-            if (sandboxSelectionIds[0].isNotEmpty()) sandboxSelectionGeneration[0]++
-            sandboxSelectionIds[0] = emptyList()
-            sandboxSampleState[0] = Long.MIN_VALUE
-            sandboxSamplePending[0] = false
-            if (sandboxEditorSnapshot.value != null) sandboxEditorSnapshot.value = null
-        } else {
-            if (selectionChanged || sandboxSelectionIds[0].isEmpty()) {
-                val nextSelectionIds = ArrayList<Long>(selection.size)
-                for (unit in selection) {
-                    if (!nextSelectionIds.contains(unit.id)) nextSelectionIds.add(unit.id)
-                }
-                val sandboxSelectionChanged = sandboxSelectionIds[0] != nextSelectionIds
-                if (sandboxSelectionChanged) {
-                    sandboxSelectionIds[0] = nextSelectionIds
-                    sandboxSelectionGeneration[0]++
-                    sandboxSamplePending[0] = false
-                    sandboxEditorSnapshot.value = null
-                }
-            }
-            val currentSelectionIds = sandboxSelectionIds[0]
-            if (!sandboxSamplePending[0] && (currentSelectionIds.isNotEmpty()) &&
-                (selectionChanged || sandboxEditorSnapshot.value == null ||
-                        sandboxSampleState[0] == Long.MIN_VALUE || nowNanos - sandboxSampleState[0] >= 200_000_000L)
-            ) {
-                sandboxSampleState[0] = nowNanos
-                sandboxSamplePending[0] = true
-                val requestIds = currentSelectionIds
-                val requestGeneration = sandboxSelectionGeneration[0]
-                requestSandboxUnitDataSnapshot(requestIds) { nextSnapshot ->
-                    if (sandboxSnapshotRequestIsCurrent(
-                            requestIds,
-                            requestGeneration,
-                            sandboxSelectionIds[0],
-                            sandboxSelectionGeneration[0],
-                        )
-                    ) {
-                        sandboxSamplePending[0] = false
-                        if (sandboxEditorSnapshot.value != nextSnapshot) sandboxEditorSnapshot.value = nextSnapshot
-                    }
-                }
-            }
-        }
-
+        // Sandbox unit editing is its own HUD component; the console only draws command buttons.
         val primaryType = primary?.unitTypeInterface
         val title =
             if (primary === cachedTitlePrimary[0] && primaryType === cachedTitleType[0]) cachedFrameTitle[0] else {
@@ -870,7 +1093,6 @@ internal fun GameScreen.AeroCommandConsole() {
                 clickSound = io.github.rwpp.sound.Sounds.cancel
             )
             if (showSandboxControls) SandboxForceBuildToggle()
-            sandboxEditorSnapshot.value?.let { SandboxUnitEditorControls(it) }
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 CommandSurface(model, isEditMode, Modifier.fillMaxSize(), visibility)
                 val action = queueAction
@@ -1107,14 +1329,13 @@ internal fun CommandTooltipLayer() {
             Modifier.align(Alignment.TopCenter).padding(top = 8.dp)
                 .width(310.dp)
                 .height(if (current != null || alpha > 0f) (with(androidx.compose.ui.platform.LocalDensity.current) { content.size.height.toDp() } + 46.dp) else 0.dp)
-                .graphicsLayer { this.alpha = alpha; translationY = (1f - alpha) * -8.dp.toPx() }
-                .pointerInput(Unit) { detectTapGestures { CommandHover.current.value = null } }) {
+                .graphicsLayer { this.alpha = alpha; translationY = (1f - alpha) * -8.dp.toPx() }) {
             val cut = 10.dp.toPx()
             val path = Path().apply {
                 moveTo(cut, 0f); lineTo(size.width, 0f); lineTo(size.width, size.height - cut)
                 lineTo(size.width - cut, size.height); lineTo(0f, size.height); lineTo(0f, cut); close()
             }
-            drawPath(path, colors.surfaceContainerLowest.copy(alpha = 0.94f))
+            drawPath(path, colors.surfaceContainerLowest.copy(alpha = hudPanelAlpha(0.94f)))
             drawPath(path, colors.primary.copy(alpha = 0.7f), style = Stroke(1.dp.toPx()))
             drawText(
                 text, tooltip?.title.orEmpty(), topLeft = Offset(12.dp.toPx(), 8.dp.toPx()),

@@ -33,6 +33,9 @@ internal object HudFrameClock {
 
 internal actual fun registerHudFrame(callback: Runnable): AutoCloseable = HudFrameClock.register(callback)
 
+/** The desktop frame callback already runs on the game thread that samples the engine. */
+internal actual fun flushPendingHudFrame() = Unit
+
 internal actual fun requestWorldPresentationFrame() {
     DesktopComposeRuntime.requestFrame()
 }

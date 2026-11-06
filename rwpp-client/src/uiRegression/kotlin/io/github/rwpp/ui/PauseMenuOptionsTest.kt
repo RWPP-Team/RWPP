@@ -28,6 +28,14 @@ class PauseMenuOptionsTest {
     }
 
     @Test
+    fun saveAndLoadAreOfferedOnlyForSinglePlayerWithSaves() {
+        assertTrue(pauseMenuOptions(false, true, false, false, false, false).saveLoad)
+        assertTrue(pauseMenuOptions(false, false, false, false, false, false).saveLoad)
+        assertFalse(pauseMenuOptions(false, false, false, false, true, false).saveLoad, "Replays cannot write saves")
+        assertFalse(pauseMenuOptions(true, true, false, false, false, false).saveLoad, "Networked games own no saves")
+    }
+
+    @Test
     fun onlyCurrentProductionIconAndPopupContentsKeepTheQuantityPanelOpen() {
         val popup = Rect(200f, 100f, 490f, 300f)
         assertFalse(queueDismissesForPoint(Offset(600f, 180f), popup, "tank", "tank"))

@@ -47,7 +47,7 @@ private val hotkeyActionTranslationKeys = mapOf(
     "rwpp low health" to "rwpp.tactical.lowHealth",
     "rwpp auto load" to "rwpp.tactical.autoLoad",
     "rwpp building planning" to "rwpp.planning.toggle",
-    "rwpp blueprint selection" to "rwpp.planning.selectBlueprint",
+    "rwpp reclaim selection" to "rwpp.planning.reclaim",
 )
 
 /** Resolve engine action names through product-owned translations while keeping unknown actions intact. */

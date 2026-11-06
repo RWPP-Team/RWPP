@@ -311,7 +311,14 @@ class BattleRoomScreen : Screen {
                                 modifier = Modifier.width(if (compact) 84.dp else 120.dp)
                                     .height(if (compact) 40.dp else 48.dp),
                                 clickSound = Sounds.closePopup,
-                                onClick = { room.disconnect(); navigator.pop() },
+                                onClick = {
+                                    room.disconnect()
+                                    // A restored Android composition may hold the room as the
+                                    // root, where pop() has nowhere to go.
+                                    if (!navigator.pop()) {
+                                        navigator.replaceAll(navigator.koinScope.get<MainMenuScreen>())
+                                    }
+                                },
                             )
                         }
                         if (!compact) AeroDivider()

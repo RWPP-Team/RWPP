@@ -57,6 +57,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import io.github.rwpp.api.game.audio.GameSound
 import io.github.rwpp.sound.Sounds
+import io.github.rwpp.ui.hudPanelAlpha
 import kotlin.random.Random
 
 object AeroSciFiTheme {
@@ -157,8 +158,8 @@ fun AeroPanel(
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f),
-                        MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.95f)
+                        MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = hudPanelAlpha(0.85f)),
+                        MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = hudPanelAlpha(0.95f))
                     )
                 )
             )

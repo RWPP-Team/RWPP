@@ -40,6 +40,7 @@ import io.github.rwpp.AppContext
 import io.github.rwpp.api.coroutines.GameMainDispatcher
 import io.github.rwpp.api.coroutines.GameScope
 import io.github.rwpp.api.event.GlobalEventChannel
+import io.github.rwpp.api.event.events.FrameEndEvent
 import io.github.rwpp.api.game.Game
 import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.api.logging.logger
@@ -56,6 +57,7 @@ import io.github.rwpp.game.hud.normalizeHudComponents
 import io.github.rwpp.game.room.nativePauseMenuOptions
 import io.github.rwpp.graphics.releaseAeroRangeResources
 import io.github.rwpp.hud.HudComponentState
+import io.github.rwpp.hud.HudComponentMode
 import io.github.rwpp.hud.HudComponentTemplate
 import io.github.rwpp.hud.HudEditor
 import io.github.rwpp.hud.HudViewport
@@ -69,6 +71,8 @@ import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.koin.core.annotation.Single
 import com.corrodinggames.rts.game.units.Unit as GameUnit
+
+private const val SANDBOX_HUD_ID = "sandbox_editor"
 
 @Single
 class GameScreen : Screen {
@@ -89,9 +93,6 @@ class GameScreen : Screen {
                         )
                     )
                 }
-                if (it.none { data -> data.id == "building_planner" }) {
-                    it.add(HudComponentData("building_planner", 0f, 0f, relativeX = 0.02f, relativeY = 0.14f))
-                }
                 normalizeHudComponents(it)
                 dataListInstance.hudComponentDataList = it
             }
@@ -108,9 +109,6 @@ class GameScreen : Screen {
         }
 
     val availableTemplates: MutableMap<String, HudComponentTemplate> = mutableStateMapOf(
-        "building_planner" to HudComponentTemplate(
-            readI18n("rwpp.planning.title"), 260f, 220f, compactHeight = true,
-        ) { BuildingPlanningControls() },
         "quick_selection" to HudComponentTemplate(
             readI18n("rwpp.hud.quickSelect.title"),
             300f,
@@ -118,12 +116,15 @@ class GameScreen : Screen {
         ) { AeroQuickSelectionPanel() },
         "unit_groups" to HudComponentTemplate(readI18n("rwpp.hud.groups.title"), 360f, 56f) { AeroGroupsPanel() },
         "observer_statistics" to HudComponentTemplate(
-            readI18n("rwpp.observer.statistics"), 268f, 480f, compactHeight = true
+            readI18n("rwpp.observer.statistics"), 268f, 480f, compactHeight = true,
+            mode = HudComponentMode.OBSERVER,
         ) { AeroObserverStatistics(visible = !showPauseMenu && (hideOriginalHud || isEditMode)) },
         "telemetry" to HudComponentTemplate(
             readI18n("rwpp.hud.template.telemetry"),
-            235f,
-            38f,
+            // Mod resource rows share this readout. The height cap must leave room for them,
+            // otherwise the compact template clips every row below the credit line.
+            420f,
+            260f,
             compactHeight = true,
             compactWidth = true
         ) { AeroGameTelemetry() },
@@ -148,7 +149,14 @@ class GameScreen : Screen {
             fillHeight = true
         ) {
             AeroCommandConsole()
-        }
+        },
+        SANDBOX_HUD_ID to HudComponentTemplate(
+            readI18n("rwpp.hud.component.sandboxEditor"),
+            340f,
+            120f,
+            compactHeight = true,
+            mode = HudComponentMode.SANDBOX,
+        ) { SandboxEditorHud() }
     ).apply {
         if (appKoin.get<AppContext>().isAndroid()) {
             put(
@@ -224,15 +232,42 @@ class GameScreen : Screen {
                 GameScope.launch { io.github.rwpp.game.hotkeys.NativeTacticalActions.reset() }
             }
         }
+        var hudMode by remember { mutableStateOf(HudComponentMode.ALWAYS) }
+        var sandboxHudSeeded by remember { mutableStateOf(false) }
         OnGameUpdate {
             showPerformance = hotkeySettings.showPerformanceUsage
-            interfaceHidden = GameEngine.getInstance().cameraScrollActive
+            val engine = GameEngine.getInstance()
+            interfaceHidden = engine.cameraScrollActive
             NativeHudVisibility.update()
             @Suppress("UNCHECKED_CAST")
-            val engineUnits = GameEngine.getInstance().interfaceEngine.selectedUnits as List<GameUnit>
+            val engineUnits = engine.interfaceEngine.selectedUnits as List<GameUnit>
             if (!isSelectionUnchanged(selectedUnits, engineUnits)) {
                 selectedUnits = engineUnits.toList()
                 CommandHover.current.value = null
+            }
+            // Only the components that belong to the running session are offered in the editor,
+            // so the list cannot mix observer, sandbox and ordinary battle modules.
+            val nextMode = when {
+                io.github.rwpp.game.sandbox.sandboxUnitDataUiAllowed(engine) -> HudComponentMode.SANDBOX
+                engine.replayEngine.isPlayingReplay || io.github.rwpp.game.hud.isAeroLiveObserver(engine) ->
+                    HudComponentMode.OBSERVER
+                else -> HudComponentMode.ALWAYS
+            }
+            if (nextMode != hudMode) hudMode = nextMode
+            if (hudMode == HudComponentMode.SANDBOX && !sandboxHudSeeded) {
+                sandboxHudSeeded = true
+                if (dataList.none { it.id == SANDBOX_HUD_ID }) {
+                    dataList.add(
+                        io.github.rwpp.config.HudComponentData(
+                            SANDBOX_HUD_ID, 0f, 0f, relativeX = 0.02f, relativeY = 0.62f
+                        )
+                    )
+                }
+            }
+        }
+        val activeTemplates = remember(hudMode) {
+            availableTemplates.filterValues {
+                it.mode == HudComponentMode.ALWAYS || it.mode == hudMode
             }
         }
 
@@ -258,6 +293,14 @@ class GameScreen : Screen {
             if (!game.state.multiplayer) {
                 game.gameRoom.pauseOrResumeGame(showPauseMenu)
             }
+        }
+
+        // Android renders the game on its own thread while the HUD is drawn by a Compose layer
+        // in the window. Sampling the pending display-frame batch here, once the native update
+        // has finished, lets the HUD paint that state in the frame about to be presented instead
+        // of trailing it by one frame.
+        GlobalEventChannel.filter(FrameEndEvent::class).OnDispose {
+            subscribeAlways { flushPendingHudFrame() }
         }
 
         GlobalEventChannel.filter(KeyboardEvent::class).OnDispose {
@@ -290,7 +333,7 @@ class GameScreen : Screen {
                 { isEditMode = it; if (!it) appKoin.get<io.github.rwpp.api.config.ConfigIO>().saveAllConfig() },
                 { dataList.add(it) },
                 { dataList.remove(it.data) },
-                availableTemplates,
+                activeTemplates,
                 onSaveConfig = { appKoin.get<io.github.rwpp.api.config.ConfigIO>().saveAllConfig() },
             )
 
@@ -314,6 +357,7 @@ class GameScreen : Screen {
         }
 
         DeveloperPerformanceOverlay(showPerformance && !showPauseMenu && !interfaceHidden)
+        BuildingPlanningFrame(visible = !showPauseMenu && !isEditMode && !interfaceHidden)
 
         // showImportantScreenMessage and friends are painted by the Aero HUD while the native one is hidden.
         AeroScreenMessage(visible = hideOriginalHud && !showPauseMenu && !isEditMode && !interfaceHidden)
@@ -325,6 +369,7 @@ class GameScreen : Screen {
         ) {
             PauseMenuOverlay(
                 onSave = { saveDialog = false },
+                onLoad = { saveDialog = true },
                 onResume = {
                     showPauseMenu = false
                 },
@@ -364,6 +409,7 @@ class GameScreen : Screen {
         modifier: Modifier = Modifier,
         onResume: () -> Unit = {},
         onSave: () -> Unit = {},
+        onLoad: () -> Unit = {},
         onSettings: () -> Unit = {},
         onEditMode: () -> Unit = {},
         onExit: () -> Unit = {}
@@ -576,11 +622,19 @@ class GameScreen : Screen {
                             GameEngine.getInstance().cameraScrollActive = true; onResume()
                         })
 
-                        AeroButton(
-                            text = readI18n("rwpp.ingame.saveGame"),
-                            subText = readI18n("rwpp.common.save").uppercase(),
-                            onClick = onSave
-                        )
+                        if (options.saveLoad) {
+                            AeroButton(
+                                text = readI18n("rwpp.ingame.saveGame"),
+                                subText = readI18n("rwpp.common.save").uppercase(),
+                                onClick = onSave
+                            )
+                            AeroButton(
+                                text = readI18n("rwpp.ingame.loadGame"),
+                                subText = readI18n("rwpp.common.load").uppercase(),
+                                clickSound = Sounds.openPopup,
+                                onClick = onLoad
+                            )
+                        }
 
                         AeroButton(
                             text = readI18n("rwpp.menu.settings"),

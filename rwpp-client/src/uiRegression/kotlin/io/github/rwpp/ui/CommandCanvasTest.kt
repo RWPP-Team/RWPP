@@ -56,11 +56,11 @@ class CommandCanvasTest : DesktopComposeGraphicsTest() {
             assertTrue(
                 scene.sendPointerEvent(
                     PointerEventType.Press,
-                    Offset(20f, 90f),
+                    Offset(20f, 20f),
                     button = PointerButton.Primary
                 ).anyChangeConsumed
             )
-            scene.sendPointerEvent(PointerEventType.Release, Offset(20f, 90f), button = PointerButton.Primary)
+            scene.sendPointerEvent(PointerEventType.Release, Offset(20f, 20f), button = PointerButton.Primary)
         } finally {
             scene.close(); recomposer.close(); surface.close()
         }
@@ -156,31 +156,31 @@ class CommandCanvasTest : DesktopComposeGraphicsTest() {
         try {
             scene.setContent { CommandSurface(model, modifier = Modifier.fillMaxSize()) }
             repeat(4) { render() }
-            tap(Offset(20f, 90f))
+            tap(Offset(20f, 20f))
             assertEquals(0, builds)
             assertEquals("Tank", CommandHover.current.value?.title)
             repeat(3) {
                 time += 2_000_000_000L; render() // No double-tap timing window.
-                press(Offset(20f, 90f))
+                press(Offset(20f, 20f))
                 assertEquals(
                     "Tank",
                     CommandHover.current.value?.title,
                     "Pressing the selected production must keep upper information"
                 )
-                release(Offset(20f, 90f))
+                release(Offset(20f, 20f))
             }
             assertEquals(3, builds)
-            tap(Offset(160f, 90f))
+            tap(Offset(160f, 20f))
             assertEquals(3, builds, "A different type is selected without building immediately")
             assertEquals("Builder", selection.identity)
-            tap(Offset(20f, 260f)) // Real blank canvas area inside the console.
+            tap(Offset(20f, 70f)) // Row gap: real blank canvas area inside the console.
             assertFalse(HudQueuePopupTouch.active)
             assertNull(selection.identity)
-            tap(Offset(160f, 90f))
+            tap(Offset(160f, 20f))
             assertEquals(3, builds, "Dismissal resets selection synchronously before the next click")
-            tap(Offset(160f, 90f))
+            tap(Offset(160f, 20f))
             assertEquals(4, builds)
-            tap(Offset(20f, 20f))
+            tap(Offset(20f, 2f)) // Header strip above the action rows.
             assertNull(selection.identity)
             assertEquals(
                 "Factory",
@@ -256,19 +256,30 @@ class CommandCanvasTest : DesktopComposeGraphicsTest() {
             )
             repeat(3) { render() }
             CommandHover.current.value = null
-            scene.sendPointerEvent(PointerEventType.Move, Offset(20f, 90f))
-            assertNull(CommandHover.current.value, "Hover must not open the information panel")
+            scene.sendPointerEvent(PointerEventType.Move, Offset(20f, 20f))
+            assertEquals(
+                "Build",
+                CommandHover.current.value?.title,
+                "Hovering an action must open the information panel without a click"
+            )
+            scene.sendPointerEvent(PointerEventType.Move, Offset(240f, 400f))
+            assertEquals(
+                "Factory",
+                CommandHover.current.value?.title,
+                "Hovering the console must show the selected unit information"
+            )
+            scene.sendPointerEvent(PointerEventType.Move, Offset(20f, 20f))
             assertTrue(
                 scene.sendPointerEvent(
                     PointerEventType.Press,
-                    Offset(20f, 90f),
+                    Offset(20f, 20f),
                     button = PointerButton.Primary
                 ).anyChangeConsumed
             )
-            scene.sendPointerEvent(PointerEventType.Release, Offset(20f, 90f), button = PointerButton.Primary)
+            scene.sendPointerEvent(PointerEventType.Release, Offset(20f, 20f), button = PointerButton.Primary)
             assertEquals(1, clicked)
-            scene.sendPointerEvent(PointerEventType.Press, Offset(20f, 90f), button = PointerButton.Secondary)
-            scene.sendPointerEvent(PointerEventType.Release, Offset(20f, 90f), button = PointerButton.Secondary)
+            scene.sendPointerEvent(PointerEventType.Press, Offset(20f, 20f), button = PointerButton.Secondary)
+            scene.sendPointerEvent(PointerEventType.Release, Offset(20f, 20f), button = PointerButton.Secondary)
             assertEquals(0, clicked, "Secondary button reaches the remove/cancel callback")
             incoming.set(
                 CommandFrame(
@@ -279,8 +290,8 @@ class CommandCanvasTest : DesktopComposeGraphicsTest() {
             )
             repeat(3) { render() }
             CommandHover.current.value = null
-            scene.sendPointerEvent(PointerEventType.Press, Offset(20f, 90f), button = PointerButton.Primary)
-            scene.sendPointerEvent(PointerEventType.Release, Offset(20f, 90f), button = PointerButton.Primary)
+            scene.sendPointerEvent(PointerEventType.Press, Offset(20f, 20f), button = PointerButton.Primary)
+            scene.sendPointerEvent(PointerEventType.Release, Offset(20f, 20f), button = PointerButton.Primary)
             assertEquals(1, clicked)
             assertNull(CommandHover.current.value, "Unit type selection must not show action information")
 
@@ -310,29 +321,29 @@ class CommandCanvasTest : DesktopComposeGraphicsTest() {
                     activate = { selected = index })
             }))
             repeat(3) { render() }
-            scene.sendPointerEvent(PointerEventType.Move, Offset(20f, 100f))
+            scene.sendPointerEvent(PointerEventType.Move, Offset(20f, 40f))
             assertTrue(
                 scene.sendPointerEvent(
                     PointerEventType.Scroll,
-                    Offset(20f, 100f),
+                    Offset(20f, 40f),
                     scrollDelta = Offset(0f, 5f)
                 ).anyChangeConsumed
             )
             repeat(3) { render() }
-            scene.sendPointerEvent(PointerEventType.Press, Offset(20f, 100f), button = PointerButton.Primary)
-            scene.sendPointerEvent(PointerEventType.Release, Offset(20f, 100f), button = PointerButton.Primary)
+            scene.sendPointerEvent(PointerEventType.Press, Offset(20f, 40f), button = PointerButton.Primary)
+            scene.sendPointerEvent(PointerEventType.Release, Offset(20f, 40f), button = PointerButton.Primary)
             assertTrue(selected >= 4, "Wheel must reach later actions; got $selected")
-            scene.sendPointerEvent(PointerEventType.Scroll, Offset(20f, 100f), scrollDelta = Offset(0f, -500f))
+            scene.sendPointerEvent(PointerEventType.Scroll, Offset(20f, 40f), scrollDelta = Offset(0f, -500f))
             repeat(3) { render() }
-            scene.sendPointerEvent(PointerEventType.Press, Offset(20f, 100f), button = PointerButton.Primary)
-            scene.sendPointerEvent(PointerEventType.Release, Offset(20f, 100f), button = PointerButton.Primary)
+            scene.sendPointerEvent(PointerEventType.Press, Offset(20f, 40f), button = PointerButton.Primary)
+            scene.sendPointerEvent(PointerEventType.Release, Offset(20f, 40f), button = PointerButton.Primary)
             assertEquals(0, selected, "Wheel must return to the first action")
             scene.sendPointerEvent(PointerEventType.Press, Offset(20f, 260f), button = PointerButton.Primary)
-            scene.sendPointerEvent(PointerEventType.Move, Offset(20f, 100f))
-            scene.sendPointerEvent(PointerEventType.Release, Offset(20f, 100f), button = PointerButton.Primary)
+            scene.sendPointerEvent(PointerEventType.Move, Offset(20f, 40f))
+            scene.sendPointerEvent(PointerEventType.Release, Offset(20f, 40f), button = PointerButton.Primary)
             repeat(3) { render() }
-            scene.sendPointerEvent(PointerEventType.Press, Offset(20f, 100f), button = PointerButton.Primary)
-            scene.sendPointerEvent(PointerEventType.Release, Offset(20f, 100f), button = PointerButton.Primary)
+            scene.sendPointerEvent(PointerEventType.Press, Offset(20f, 40f), button = PointerButton.Primary)
+            scene.sendPointerEvent(PointerEventType.Release, Offset(20f, 40f), button = PointerButton.Primary)
             assertTrue(selected >= 4, "Dragging upward must reveal later actions; got $selected")
 
         } finally {
@@ -387,7 +398,7 @@ class CommandCanvasTest : DesktopComposeGraphicsTest() {
             scene.setContent { CommandSurface(model, modifier = Modifier.fillMaxSize()) }
             repeat(4) { render() }
 
-            press(Offset(180f, 90f)); release(Offset(180f, 90f))
+            press(Offset(180f, 40f)); release(Offset(180f, 40f))
             assertEquals(1, selected, "Right-column production remains clickable beside the reserved gutter")
 
             press(Offset(254f, 240f)); release(Offset(254f, 240f))

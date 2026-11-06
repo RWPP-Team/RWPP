@@ -106,10 +106,18 @@ fun App() {
         } else {
             scope.get<MainMenuScreen>()
         }
-        ScreenNavigator(initialScreen, scope)
+        // Android recreates this composition when the game surface closes, so a return to the
+        // battle room can build the room as the root. Keep the menu underneath it, otherwise
+        // the room has nothing to pop to and its exit button does nothing.
+        if (initialScreen is BattleRoomScreen) {
+            ScreenNavigator(scope.get<MainMenuScreen>(), scope).apply { push(initialScreen) }
+        } else {
+            ScreenNavigator(initialScreen, scope)
+        }
     }
-    LaunchedEffect(navigator) {
-        UI.globalNavigator = navigator
+    DisposableEffect(navigator) {
+        UI.publishNavigator(navigator)
+        onDispose { UI.publishNavigator(null) }
     }
     val appUiScope = rememberCoroutineScope()
     var networkLoadingSnapshot by remember { mutableStateOf<NativeNetworkLoadingSnapshot?>(null) }
@@ -147,7 +155,13 @@ fun App() {
     GlobalEventChannel.filter(RoomReturnedEvent::class).OnDispose {
         subscribeAlways {
             appUiScope.launch {
-                if (navigator.current !is BattleRoomScreen) navigator.push<BattleRoomScreen>()
+                if (navigator.current !is BattleRoomScreen) {
+                    // The gameplay screens are gone once the native engine returns to the room,
+                    // so rebuild the stack as menu -> room instead of stacking on a dead game.
+                    val room = navigator.koinScope.get<BattleRoomScreen>()
+                    navigator.replaceAll(navigator.koinScope.get<MainMenuScreen>())
+                    navigator.push(room)
+                }
                 closeGameWindowForRoomReturn()
             }
         }

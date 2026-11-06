@@ -101,7 +101,7 @@ internal fun GameScreen.AeroReplayControls(visible: Boolean = true) {
     val shape = remember { RoundedCornerShape(10.dp) }
     Column(
         modifier = Modifier.width(236.dp).clip(shape)
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f))
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = hudPanelAlpha(0.94f)))
             .border(1.dp, accent.copy(alpha = 0.65f), shape)
             .padding(7.dp),
         verticalArrangement = Arrangement.spacedBy(5.dp)

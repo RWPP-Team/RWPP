@@ -57,6 +57,25 @@ internal class AeroWorldEffectsSampler(
         return selectedViewValue ?: emptyList()
     }
 
+    /**
+     * Native Unit.drawOverlay draws the transport slot grid whenever both display
+     * accessors are non-negative. Aero cancels drawOverlay entirely, so the same
+     * values have to be sampled here and carried into the replacement bars.
+     */
+    private fun transportSlots(unit: GameUnit, eligible: Boolean): Pair<Int, Int> {
+        if (!eligible || unit.dead || unit.transportedBy != null) return -1 to -1
+        return try {
+            val used = unit.usedTransportSlotsForDisplay
+            val capacity = unit.transportSlotsForDisplay
+            if (used >= 0 && capacity > 0) {
+                val bounded = capacity.coerceAtMost(MAX_TRANSPORT_SLOTS)
+                used.coerceIn(0, bounded) to bounded
+            } else -1 to -1
+        } catch (_: Throwable) {
+            -1 to -1
+        }
+    }
+
     fun sampleFrame(
         currentSnapshot: WorldVisuals,
         settings: Settings,
@@ -119,15 +138,20 @@ internal class AeroWorldEffectsSampler(
                 val selected = settings.aeroSelection && unit.selected
                 val radius = unit.radius
                 val scaledDown = unit.drawnScaledDown
+                val (transportUsed, transportCapacity) = transportSlots(
+                    unit, settings.aeroSelection && visual.transportCapacity > 0
+                )
                 val next = if (visual.center == center && visual.hp == hp && visual.trail == trail &&
                     visual.shield == shield && visual.selected == selected && visual.barRadius == radius &&
-                    visual.barScaledDown == scaledDown
+                    visual.barScaledDown == scaledDown && visual.transportUsed == transportUsed &&
+                    visual.transportCapacity == transportCapacity
                 ) {
                     lastAnimatedByUnit[unit] ?: (unit to visual)
                 } else {
                     unit to visual.copy(
                         center = center, hp = hp, trail = trail, shield = shield,
-                        selected = selected, barRadius = radius, barScaledDown = scaledDown
+                        selected = selected, barRadius = radius, barScaledDown = scaledDown,
+                        transportUsed = transportUsed, transportCapacity = transportCapacity
                     )
                 }
                 lastAnimatedByUnit[unit] = next
@@ -197,8 +221,13 @@ internal class AeroWorldEffectsSampler(
             val shieldVisible =
                 aeroShieldVisible(settings.aeroSelection, unit.selected, isHovered, unit.shield, unit.maxShield)
             val ownerColor = Color(unit.team.color)
+            val (transportUsed, transportCapacity) = transportSlots(
+                unit, settings.aeroSelection && inView &&
+                    (unit.selected || isHovered || engine.settings.showHp)
+            )
             if (inView && (settings.aeroSelection &&
-                        (unit.selected || health || shieldVisible || construction >= 0f || secondary >= 0f) || isHovered || glowHighlight)
+                        (unit.selected || health || shieldVisible || construction >= 0f || secondary >= 0f ||
+                            transportCapacity > 0) || isHovered || glowHighlight)
             ) {
                 val identity = System.identityHashCode(unit)
                 live += identity
@@ -220,7 +249,9 @@ internal class AeroWorldEffectsSampler(
                     glowHighlight = glowHighlight,
                     barRadius = unit.radius,
                     barScaledDown = unit.drawnScaledDown,
-                    barMini = unit.getAttachmentSlot()?.showMiniHp == true
+                    barMini = unit.getAttachmentSlot()?.showMiniHp == true,
+                    transportUsed = transportUsed,
+                    transportCapacity = transportCapacity
                 )
                 trackedVisuals += unit to visual
             }
@@ -324,21 +355,41 @@ internal class AeroWorldEffectsSampler(
             }
         }
 
-        // Placement has no queued waypoint yet. Highlight the native preview, using its own pointer coordinates.
+        // The native green grid owns placement geometry. Tile snapping, footprint expansion
+        // and resource-pool adjustment have already been applied when it is drawn, so the
+        // Aero build effect must use those bounds instead of the raw pointer position.
         val action = ui.activeSpecialAction
         if (settings.aeroOrderEffects && settings.aeroBuildEffects && action?.actionType == ActionType.placeBuilding) {
             val source = ui.specialActionSourceUnit ?: selectedUnits.firstOrNull()
             val type = action.unitType
             if (source != null && type != null && ui.canPlayerControlUnit(source)) {
-                val to = Offset(
-                    ui.placingPointerX / engine.zoomScale + engine.cameraRenderX,
-                    ui.placingPointerY / engine.zoomScale + engine.cameraRenderY
-                )
                 val radius = GameUnit.getPlaceholderOrDefault(type).radius.coerceAtLeast(8f)
-                orders += AeroOrder(
-                    Offset(source.x, source.y), to, false, kind = AeroOrderKind.BUILD,
-                    team = source.team.teamId, preview = true, radius = radius
-                )
+                val cells = NativePlacementGrid.snapshot()
+                if (cells.isEmpty()) {
+                    val to = Offset(
+                        ui.placingPointerX / engine.zoomScale + engine.cameraRenderX,
+                        ui.placingPointerY / engine.zoomScale + engine.cameraRenderY
+                    )
+                    orders += AeroOrder(
+                        Offset(source.x, source.y), to, false, kind = AeroOrderKind.BUILD,
+                        team = source.team.teamId, preview = true, radius = radius
+                    )
+                } else {
+                    // Match the queued-build chain: the first line starts at the builder
+                    // and every later square continues from the previous one, in the order
+                    // the native placement drag reports them.
+                    placementChain(Offset(source.x, source.y), cells).forEachIndexed { index, link ->
+                        val cell = cells[index]
+                        orders += AeroOrder(
+                            link.first, link.second, false, kind = AeroOrderKind.BUILD,
+                            team = source.team.teamId, preview = true, radius = radius,
+                            step = index,
+                            grid = AeroPlacementGrid(
+                                cell.left, cell.top, cell.right, cell.bottom, cell.stepX, cell.stepY
+                            )
+                        )
+                    }
+                }
                 if (!settings.aeroEnemyRangesOnly || source.team.isEnemy(aeroPresentationTeam(engine))) {
                     val circle = AeroRangeCircle(
                         Offset(source.x, source.y), source.getBuildRange(type),
@@ -376,3 +427,6 @@ internal class AeroWorldEffectsSampler(
         return snapshot
     }
 }
+
+/** A transport with an unreasonable slot count must not stall the HUD frame. */
+private const val MAX_TRANSPORT_SLOTS = 64

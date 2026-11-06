@@ -81,6 +81,9 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
         isUndecorated = true
         opacity = 0.0f
         setSize(1, 1)
+        // The game owns the display in immersive fullscreen; a topmost window stays above it
+        // instead of pushing the game out of the foreground.
+        isAlwaysOnTop = true
         // This offscreen host has no visible AWT window. Keep a native peer alive so AWT
         // cannot retire and replace the EDT while the scene and its GL dispatcher still exist.
         addNotify()
@@ -346,6 +349,17 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
     @OptIn(InternalComposeUiApi::class)
     fun shouldUpdate() = frameRecomposer.hasPendingWork() || scene.hasInvalidations()
 
+    /**
+     * Gameplay owns the native window, so system IME hotkeys are suppressed there. A focused
+     * Compose text field owns its own hidden AWT IME window instead; the gate must stay open
+     * for the whole text session, otherwise Chinese input loses its composition events.
+     */
+    fun syncSystemShortcutGate(): Boolean {
+        val gameplay = io.github.rwpp.ui.navigatorHoldsGameScreen()
+        DesktopSystemShortcutGate.update(gameplay && !imeDialog.inputMethodsEnabled)
+        return gameplay
+    }
+
     private fun calculateLogicalOffset(x: Float, y: Float): Offset {
         val relX = x - drawX
         val relY = y - drawY
@@ -362,6 +376,7 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
 
     @OptIn(InternalComposeUiApi::class)
     override fun close() {
+        DesktopSystemShortcutGate.restore()
         scene.close()
         frameRecomposer.close()
         renderScope.cancel()
@@ -466,16 +481,19 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
         val composeKeyEvent = desktopComposeKeyEvent(composeKey, type, c, isCtrl, isAlt, isShift)
 
         val consumed = scene.sendKeyEvent(composeKeyEvent)
-        if (!consumed) KeyboardEvent(composeKeyEvent).broadcastIn()
-        // Releases must reach the game to clear keys held while an overlay opened.
-        if (type == KeyEventType.KeyDown && (consumed || menuOwnsInput() || composeKey == Key.Escape)) {
+        val blocked = menuOwnsInput()
+        // A blocked screen keeps the key away from both the native listener and the
+        // RWPP game hotkey bus; releases still reach the game to clear held keys.
+        if (!consumed && !blocked) KeyboardEvent(composeKeyEvent).broadcastIn()
+        if (type == KeyEventType.KeyDown && (consumed || blocked || composeKey == Key.Escape)) {
             _input.consumeEvent()
         }
         needRender = true
     }
 
     private fun menuOwnsInput(): Boolean =
-        io.github.rwpp.appKoin.get<io.github.rwpp.api.game.Game>().state.state == io.github.rwpp.api.State.Menu ||
+        io.github.rwpp.ui.gameInputBlockedByNavigator() ||
+                io.github.rwpp.appKoin.get<io.github.rwpp.api.game.Game>().state.state == io.github.rwpp.api.State.Menu ||
                 io.github.rwpp.appKoin.get<io.github.rwpp.ui.GameScreen>().showPauseMenu ||
                 io.github.rwpp.appKoin.get<io.github.rwpp.ui.GameScreen>().isEditMode ||
                 io.github.rwpp.ui.isShowSendMessageDialog
@@ -551,7 +569,9 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
         }
     }
 
-    override fun mouseClicked(p0: Int, p1: Int, p2: Int, p3: Int) {}
+    override fun mouseClicked(p0: Int, p1: Int, p2: Int, p3: Int) {
+        if (menuOwnsInput()) _input.consumeEvent()
+    }
     override fun inputEnded() {}
     override fun inputStarted() {}
     override fun isAcceptingInput(): Boolean = true
@@ -608,6 +628,8 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
             focusTraversalKeysEnabled = false
         }
         private var focusGeneration = 0L
+
+        @Volatile
         var inputMethodsEnabled = false
 
         init {

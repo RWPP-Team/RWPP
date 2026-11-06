@@ -114,10 +114,17 @@ internal inline fun <T> withAeroPresentationTeam(engine: GameEngine, draw: () ->
     // Native updates synchronize on this lock, including Android's separate render thread.
     return synchronized(engine.gameUpdateLock) {
         val original = engine.playerTeam
-        engine.playerTeam = aeroPresentationTeam(engine)
+        val viewer = aeroPresentationTeam(engine)
+        engine.playerTeam = viewer
+        // Native terrain fog and unit visibility read playerTeam.fogGrid directly.
+        // Present the combined ally-group grid for the duration of the draw only.
+        val combinedFog = AeroViewerFog.grid(engine)
+        val originalFog = viewer?.fogGrid
+        if (viewer != null && combinedFog != null) viewer.fogGrid = combinedFog
         try {
             draw()
         } finally {
+            if (viewer != null && combinedFog != null) viewer.fogGrid = originalFog
             engine.playerTeam = original
         }
     }
@@ -126,6 +133,7 @@ internal inline fun <T> withAeroPresentationTeam(engine: GameEngine, draw: () ->
 /** Invalidate native fog-rendered caches without changing the live simulation identity. */
 internal fun setAeroReplayPerspective(engine: GameEngine, team: Team?) {
     if (aeroPresentationTeam(engine) === team) return
+    AeroViewerFog.invalidate()
     engine.interfaceEngine.clearUnitSelection()
     if (io.github.rwpp.game.hud.isAeroLiveObserver(engine)) {
         AeroLivePerspective.select(engine, team)
