@@ -29,17 +29,4 @@ dependencies {
 
 ModPacket 和编解码位于 `io.github.rwpp.api.net.packets`，两端共用模组分发。
 API 不依赖 Netty 或 Java-KCP。客户端 JDK 收发由 client 提供，服务端 Netty 收发由 server 提供。
-联机默认优先 KCP，握手无回应时回退 TCP。详见 [网络说明](../docs/NETWORK.md)。
-
-## 构建
-
-独立扩展：`:rwpp-api:rwppJvmExtensionJar` 或 `:rwpp-api:rwppAndroidExtensionJar`。
-产物在 `rwpp-api/build/extensions/`；Android JAR 同时包含类元数据和 DEX。
-API 与客户端整合 ZIP 的构建见[根目录说明](../README.md#build)。
-
-```powershell
-.\gradlew.bat :rwpp-api:jvmTest
-.\gradlew.bat :rwpp-api:publishJvmPublicationToMavenLocal :rwpp-api:publishKotlinMultiplatformPublicationToMavenLocal
-```
-
-模块依赖与宿主接入见 [项目结构](../docs/PROJECT-STRUCTURE.md)。
+联机默认优先 KCP，握手无回应时回退 TCP。

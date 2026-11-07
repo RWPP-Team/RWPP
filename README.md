@@ -1,71 +1,57 @@
-<div align="center">
-<h1> RWPP </h1>
-<div align="center">
-  <strong>multiplatform client&server for Rusted Warfare</strong>
-</div>
-<br />
-<div align="center">
- <img src = "https://github.com/Minxyzgo/RWPP/blob/main/rwpp-core/src/commonMain/composeResources/drawable/logo.png" width = "100px"/>
-</div>
-<br />
+<h1 align="center">RWPP</h1>
 
-----
-[![Kotlin](https://img.shields.io/badge/kotlin-2.4.20-blue.svg?logo=kotlin)](http://kotlinlang.org)
-[![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-1.13.0--beta01-brightgreen)](https://www.jetbrains.com/lp/compose-multiplatform/)
-![Android](https://img.shields.io/badge/Android-green)
-![Desktop](https://img.shields.io/badge/Desktop-tomato)
-[![License](https://img.shields.io/github/license/Minxyzgo/RWPP)]()
-[![Issues](https://img.shields.io/github/issues/Minxyzgo/RWPP)]()
+<p align="center">Multiplatform client and headless server for Rusted Warfare.</p>
+
+<div align="center"><img alt="RWPP" src="./rwpp-client/src/commonMain/composeResources/drawable/logo.png" width="100"></div>
+
+<div align="center">
+  <a href="https://kotlinlang.org"><img alt="Kotlin 2.4.20" src="https://img.shields.io/badge/kotlin-2.4.20-blue.svg?logo=kotlin"></a>
+  <a href="https://www.jetbrains.com/lp/compose-multiplatform/"><img alt="Compose Multiplatform 1.13.0-beta01" src="https://img.shields.io/badge/Compose%20Multiplatform-1.13.0--beta01-brightgreen"></a>
+  <img alt="Android" src="https://img.shields.io/badge/Android-green">
+  <img alt="Desktop" src="https://img.shields.io/badge/Desktop-tomato">
+  <a href="./LICENSE.md"><img alt="License" src="https://img.shields.io/github/license/Minxyzgo/RWPP"></a>
 </div>
 
-<h1 align="center"> Screenshot </h1>
+<p align="center">🇺🇸 English | 🇨🇳 <a href="./README.zh.md">简体中文</a></p>
 
-![screenshot](/.github/img.png)
+## Contents
 
-<h1 align="center"> Implemented </h1>
+[Introduction](#introduction) · [Installation](#installation) · [Usage](#usage) · [Extensions](#extensions) · [Credits](#credits) · [License](#license)
 
- - __Ban Units__
- - __IME support__ (Windows Chinese submission is under verification)
- - __Blacklists__
- - __List filter__
- - __More room options__ (Such as lock room and team look)
- - __External Resource__
- - __New UI__
+## Introduction
 
-<h1 align="center"> Download </h1>
+RWPP is the client and the headless server for Rusted Warfare. Both run as extensions of [RWML](https://github.com/RWPP-Team/RWML), which loads modifications on desktop and Android.
 
-You can download RWPP release version in the releases.
+| Module | Role |
+| --- | --- |
+| `rwpp-api` | Game, event, network, command and configuration interfaces shared by both sides |
+| `rwpp-client` | Interface, input, audio, graphics and the JVM network backend |
+| `rwpp-server` | Headless server with a console and extension loading |
 
-<h1 align="center"> Run </h1>
+The client adds unit bans, IME input, blacklists, room list filters, additional room options, external resources and a new interface. The server runs without a display device and uses the same API.
 
-独立服务端的构建、资源目录和后台启动方式见 [rwpp-server/README.md](rwpp-server/README.md)。
-共享层、可选客户端能力及两端宿主的职责见 [项目结构](docs/PROJECT-STRUCTURE.md)。
+## Installation
 
-客户端由 RWML 加载。导入对应平台的整合 ZIP，或分别安装 `rwpp-api`、`rwpp-client` 两个扩展 JAR。
-client 依赖 API，并独立声明 UI Framework；两个扩展保持各自的描述符和入口。
+RWPP is loaded by RWML. Install the [latest release](https://github.com/Minxyzgo/RWPP/releases/latest) and import the archive for the target platform through the launcher. The archive provides `io.github.rwpp.api` and `io.github.rwpp`. The two JAR files can also be imported separately.
 
-## Build
+Both extensions must come from the same release. The client declares a dependency on the API and registers its own interface framework.
 
-使用 JDK 25；Android 构建还需 SDK 36。
+## Usage
 
-```powershell
-.\gradlew.bat extensionPack                         # JVM
-.\gradlew.bat extensionPack -PextensionPlatform=android
-```
+Restart the game after enabling the extensions. The client takes over the launcher and draws its interface above the game. Room options, the action panel and the information HUD follow the rules of the original game.
 
-ZIP 位于 `build/distributions/`，包含两个独立 JAR 和 RWML 整合包清单。
-也可直接执行 `rwppJvmExtensionPack` / `rwppAndroidExtensionPack`。
+The server accepts KCP and TCP on the same port. The client prefers KCP and falls back to TCP when the handshake receives no reply. Console commands and startup options are listed in [rwpp-server/README.md](rwpp-server/README.md).
 
-单独构建：`:rwpp-api:rwppJvmExtensionJar`、`:rwpp-client:rwppJvmExtensionJar`；Android 将 `Jvm` 换为 `Android`。
-对应 JAR 位于各模块的 `build/extensions/`。
-运行 `verifyJvmExtensionPack` / `verifyAndroidExtensionPack` 可检查导入、依赖、界面声明和共享类边界。
+## Extensions
 
-<h1 align="center"> Contribute </h1>
+An extension depends on `rwml-core` and the mapped game library. Extensions that need shared game services also depend on `rwpp-api`. The host provides these libraries at runtime, so all three are compile-only dependencies. [rwpp-api/README.md](rwpp-api/README.md) describes the event channel, the command registry and the configuration services.
 
-If you find any bugs or have any suggestions, please create an issue.
-
-<h1 align="center"> Thanks </h1>
+## Credits
 
 [RW-HPS](https://github.com/deng-rui/RW-HPS)
 
 Sounds by [JDSherbert](https://jdsherbert.itch.io)
+
+## License
+
+The project is distributed under the terms in [LICENSE.md](LICENSE.md).
