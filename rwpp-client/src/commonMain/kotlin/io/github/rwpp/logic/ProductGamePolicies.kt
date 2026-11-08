@@ -74,15 +74,17 @@ class ProductGamePolicies(
                     if (io.github.rwpp.ui.ChatMute.filters(chat, players)) chat.cancel()
                 }
             }
+        // allPathsReady() runs only while a locally created command waits in
+        // networkPendingCommands, before that command is serialised. The sorted order therefore
+        // travels inside the command packet; receivers never re-sort it. CommandControllerCommand
+        // is shared with the native HUD, so the policy must not touch received commands.
         GlobalEventChannel.filter(CommandPathsReadyEvent::class).subscribeAlways(owner) { event ->
             val command = event.command
-            if (settings.enhancedReinforceTroops && command.actionId.id != "-1") {
-                val units = commandUnits.get(command) as? FastArrayList
-                if (units != null) {
-                    val sorted = units.sortedBy { (it as? FactoryInterface)?.queuedItems?.size ?: 0 }
-                    commandUnits.set(command, FastArrayList(sorted))
-                }
-            }
+            if (!settings.enhancedReinforceTroops || command.actionId.id == "-1") return@subscribeAlways
+            val units = commandUnits.get(command) as? FastArrayList ?: return@subscribeAlways
+            if (units.size < 2) return@subscribeAlways
+            val sorted = units.sortedBy { (it as? FactoryInterface)?.queuedItems?.size ?: 0 }
+            commandUnits.set(command, FastArrayList(sorted))
         }
         GlobalEventChannel.filter(ChatMessageEvent::class)
             .subscribeAlways(owner, priority = EventPriority.MONITOR) { chat ->

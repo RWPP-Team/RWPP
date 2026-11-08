@@ -23,20 +23,20 @@ import kotlin.coroutines.EmptyCoroutineContext
 internal actual fun isHudSecondaryPress(event: PointerEvent): Boolean = event.buttons.isSecondaryPressed
 
 /**
- * Use one display-frame callback for all Compose game callbacks, then hand one coalesced batch to
- * the dispatcher owner. This keeps live engine objects on their native owner while ensuring the
- * Android main looper never waits for gameUpdateLock on every HUD component's frame callback.
+ * Native world draws drive HUD sampling without a second display-clock gate. The display clock
+ * only queues a coalesced fallback when native drawing stops (menus, paused/hidden surfaces).
  */
 internal object HudFrameClock {
     private val callbacks = CopyOnWriteArrayList<Runnable>()
     private val handler = Handler(Looper.getMainLooper())
     private val frameQueued = AtomicBoolean(false)
+    private val schedule = NativeHudFrameSchedule()
     private var framePosted = false // Choreographer scheduling is confined to the main looper.
 
     private val gameFrame = Runnable {
         // A native frame end may already have run this batch; only the first claimant runs it.
         if (!frameQueued.compareAndSet(true, false)) return@Runnable
-        runBatch()
+        if (schedule.needsDisplayFallback(System.nanoTime())) runBatch()
     }
 
     private fun runBatch() {
@@ -50,13 +50,13 @@ internal object HudFrameClock {
     }
 
     /**
-     * The display frame only queues the batch; the game thread owns engine access. Running the
-     * pending batch at the end of the native frame keeps the sampled state one frame fresher
-     * than waiting for the next frame's queue drain, which is what made the overlay trail the
-     * world while the camera moved.
+     * Called after native world drawing, on its owner thread. Do not require a pending display
+     * callback: a 120 Hz game must still produce 120 HUD snapshots when the window callback is
+     * slower or delayed. Queued fallbacks cannot replay an older batch on the next update.
      */
     fun flushPending() {
-        if (!frameQueued.compareAndSet(true, false)) return
+        schedule.onNativeFrame(System.nanoTime())
+        frameQueued.set(false)
         runBatch()
     }
 
@@ -65,7 +65,7 @@ internal object HudFrameClock {
             framePosted = false
             if (callbacks.isEmpty()) return
 
-            if (frameQueued.compareAndSet(false, true)) {
+            if (schedule.needsDisplayFallback(System.nanoTime()) && frameQueued.compareAndSet(false, true)) {
                 try {
                     GameMainDispatcher.dispatch(EmptyCoroutineContext, gameFrame)
                 } catch (failure: Throwable) {
@@ -115,4 +115,4 @@ internal actual fun flushPendingHudFrame() = HudFrameClock.flushPending()
  * makes the world overlay paint the camera captured by the native frame that was just presented,
  * instead of waiting for the next state invalidation.
  */
-internal actual fun requestWorldPresentationFrame() = AndroidHudSurface.requestDraw()
+internal actual fun requestWorldPresentationFrame() = Unit // WorldCanvas draws in the native buffer.

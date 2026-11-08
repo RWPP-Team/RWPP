@@ -7,9 +7,13 @@
 
 package io.github.rwpp.ui
 
-import android.os.Handler
 import android.os.Looper
+import android.os.Build
 import android.view.View
+import android.view.ViewGroup
+import androidx.compose.runtime.snapshots.Snapshot
+import androidx.core.os.HandlerCompat
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -18,21 +22,40 @@ import java.util.concurrent.atomic.AtomicReference
  * its draw pass again to show the overlay on the same picture instead of one frame later.
  */
 internal object AndroidHudSurface {
-    private val handler = Handler(Looper.getMainLooper())
+    // A normal Handler can sit behind ViewRoot's vsync synchronization barrier until after
+    // traversal, adding a whole frame even at 60 Hz. This notification must reach draw first.
+    private val handler = HandlerCompat.createAsync(Looper.getMainLooper())
     private val target = AtomicReference<View?>(null)
+    private val drawQueued = AtomicBoolean(false)
+    private val draw = Runnable {
+        drawQueued.set(false)
+        val view = target.get() ?: return@Runnable
+        if (!view.isAttachedToWindow) return@Runnable
+        // Publish native-thread snapshot writes before the owner records its display list.
+        Snapshot.sendApplyNotifications()
+        // ComposeView is a container. Invalidating it alone can reuse AndroidComposeView's old
+        // display list, leaving world effects at the previous camera until Compose wakes up.
+        val owner = (view as? ViewGroup)?.getChildAt(0)
+        owner?.invalidate()
+        view.invalidate()
+    }
 
     fun attach(view: View) {
         target.set(view)
+        // Vote for the active display cadence, including 60 Hz. Do not force a faster display
+        // mode merely because a passive HUD is attached above the game's SurfaceView.
+        if (Build.VERSION.SDK_INT >= 35) {
+            view.setRequestedFrameRate(view.display?.refreshRate ?: View.REQUESTED_FRAME_RATE_CATEGORY_NO_PREFERENCE)
+        }
     }
 
     fun detach(view: View) {
-        target.compareAndSet(view, null)
+        if (target.compareAndSet(view, null) && Build.VERSION.SDK_INT >= 35) {
+            view.setRequestedFrameRate(View.REQUESTED_FRAME_RATE_CATEGORY_NO_PREFERENCE)
+        }
     }
 
     fun requestDraw() {
-        val view = target.get() ?: return
-        handler.post {
-            if (target.get() === view && view.isAttachedToWindow) view.invalidate()
-        }
+        if (target.get() != null && drawQueued.compareAndSet(false, true)) handler.post(draw)
     }
 }

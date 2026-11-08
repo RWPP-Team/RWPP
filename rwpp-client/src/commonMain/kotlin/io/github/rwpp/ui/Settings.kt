@@ -323,9 +323,22 @@ class SettingsScreen(
                                             AeroSettingToggle(
                                                 label = readI18n("menus.settings.option.immersiveFullScreen"),
                                                 defaultValue = configIO.getGameConfig<Boolean>("slick2dFullScreen"),
+                                                subLabel = readI18n("rwpp.settings.immersiveFullScreenHint"),
                                                 onCheckedChange = {
                                                     settings.isFullscreen = it
                                                     configIO.setGameConfig("slick2dFullScreen", it)
+                                                    // applyResolution resolves borderless first
+                                                    // (`if (borderless) fullscreen = true`). Keep the
+                                                    // runtime field in step so a stale value cannot
+                                                    // override the switch before the next start.
+                                                    configIO.setGameConfig("slick2dBorderless", it)
+                                                    // The native display mode is chosen at startup, so
+                                                    // persist immediately instead of relying on the
+                                                    // exit-time save.
+                                                    runCatching {
+                                                        com.corrodinggames.rts.gameFramework.GameEngine
+                                                            .getInstance().settings.save()
+                                                    }
                                                 }
                                             )
                                         }
@@ -340,7 +353,6 @@ class SettingsScreen(
                                             SettingsSwitchRW("useMinimapAllyColors")
                                             SettingsSwitchRW("showWarLogOnScreen")
                                             SettingsSwitchRW("smartSelection_v2", labelKey = "smartSelection")
-                                            SettingsSwitchRW("enableMouseCapture")
                                             SettingsSwitchRW("quickRally")
                                             SettingsSwitchRW("doubleClickToAttackMove")
                                             AeroSettingToggle(

@@ -40,7 +40,6 @@ import io.github.rwpp.AppContext
 import io.github.rwpp.api.coroutines.GameMainDispatcher
 import io.github.rwpp.api.coroutines.GameScope
 import io.github.rwpp.api.event.GlobalEventChannel
-import io.github.rwpp.api.event.events.FrameEndEvent
 import io.github.rwpp.api.game.Game
 import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.api.logging.logger
@@ -55,7 +54,6 @@ import io.github.rwpp.game.hotkeys.SelectionCameraFollowController
 import io.github.rwpp.game.hud.AeroDamageSignals
 import io.github.rwpp.game.hud.normalizeHudComponents
 import io.github.rwpp.game.room.nativePauseMenuOptions
-import io.github.rwpp.graphics.releaseAeroRangeResources
 import io.github.rwpp.hud.HudComponentState
 import io.github.rwpp.hud.HudComponentMode
 import io.github.rwpp.hud.HudComponentTemplate
@@ -82,16 +80,19 @@ class GameScreen : Screen {
             .hudComponentDataList
             .toMutableStateList()
             .also {
-                if (appKoin.get<AppContext>()
-                        .isAndroid() && it.none { data -> data.id == "touch_selection_controls" }
-                ) {
-                    it.add(
-                        HudComponentData(
-                            "touch_selection_controls", 0f, 0f,
-                            relativeX = 0.02f,
-                            relativeY = 0.88f,
+                // Add the touch panel once. Re-checking for its absence recreated it after the
+                // user removed it from the HUD editor on every new game screen.
+                if (appKoin.get<AppContext>().isAndroid() && !dataListInstance.touchControlsInitialized) {
+                    if (it.none { data -> data.id == "touch_selection_controls" }) {
+                        it.add(
+                            HudComponentData(
+                                "touch_selection_controls", 0f, 0f,
+                                relativeX = 0.02f,
+                                relativeY = 0.88f,
+                            )
                         )
-                    )
+                    }
+                    dataListInstance.touchControlsInitialized = true
                 }
                 normalizeHudComponents(it)
                 dataListInstance.hudComponentDataList = it
@@ -219,7 +220,12 @@ class GameScreen : Screen {
         var showPerformance by remember { mutableStateOf(hotkeySettings.showPerformanceUsage) }
         val hotkeysBlocked =
             rememberUpdatedState(showPauseMenu || isEditMode || saveDialog != null || UI.showPlayerList)
-        SideEffect { GameUiPauseState.blocked = showPauseMenu || isEditMode || saveDialog != null }
+        // A destroyed gameplay screen must not leave the engine paused; the flag also decides
+        // whether the native mouse may be released while a Compose screen owns the window.
+        DisposableEffect(showPauseMenu, isEditMode, saveDialog) {
+            GameUiPauseState.blocked = showPauseMenu || isEditMode || saveDialog != null
+            onDispose { GameUiPauseState.blocked = false }
+        }
         DisposableEffect(hotkeySettings) {
             // Poll native input on the dispatcher owner without allocating a coroutine from the
             // display-frame callback. The settings/state snapshots remain live across recomposes.
@@ -282,7 +288,6 @@ class GameScreen : Screen {
                 NativeHudVisibility.aeroRallyPoints = false
                 AeroDamageSignals.enabled = false
                 AeroDamageSignals.clear()
-                releaseAeroRangeResources()
                 CommandPointer.inPanel = false
             }
         }
@@ -293,14 +298,6 @@ class GameScreen : Screen {
             if (!game.state.multiplayer) {
                 game.gameRoom.pauseOrResumeGame(showPauseMenu)
             }
-        }
-
-        // Android renders the game on its own thread while the HUD is drawn by a Compose layer
-        // in the window. Sampling the pending display-frame batch here, once the native update
-        // has finished, lets the HUD paint that state in the frame about to be presented instead
-        // of trailing it by one frame.
-        GlobalEventChannel.filter(FrameEndEvent::class).OnDispose {
-            subscribeAlways { flushPendingHudFrame() }
         }
 
         GlobalEventChannel.filter(KeyboardEvent::class).OnDispose {
@@ -358,6 +355,7 @@ class GameScreen : Screen {
 
         DeveloperPerformanceOverlay(showPerformance && !showPauseMenu && !interfaceHidden)
         BuildingPlanningFrame(visible = !showPauseMenu && !isEditMode && !interfaceHidden)
+        BlueprintPlacementToolbar(visible = !showPauseMenu && !isEditMode && !interfaceHidden)
 
         // showImportantScreenMessage and friends are painted by the Aero HUD while the native one is hidden.
         AeroScreenMessage(visible = hideOriginalHud && !showPauseMenu && !isEditMode && !interfaceHidden)

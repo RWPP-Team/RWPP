@@ -35,7 +35,9 @@ object WorldGraphicsDrawMixin {
     fun drawWorld(self: Any, canvas: Any?, frameDelta: Float) {
         withAeroPresentationTeam(self as GameEngine) {
             WorldGraphicsEnhancements.withEnhancedWorldDraw(self, canvas, frameDelta)
+            io.github.rwpp.ui.flushPendingHudFrame()
             NativeWorldPresentation.capture(self)
+            io.github.rwpp.ui.drawNativeWorldCanvases(self)
         }
     }
 }

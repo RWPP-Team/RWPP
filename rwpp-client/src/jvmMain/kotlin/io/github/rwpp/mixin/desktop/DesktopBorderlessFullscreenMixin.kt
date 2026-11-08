@@ -23,6 +23,9 @@ object DesktopBorderlessFullscreenMixin {
     @AsmInject(method = "applyResolution()V", target = InjectionPoint.HEAD, require = 1)
     fun useBorderlessFullscreen(callback: CallbackInfo, self: Any) {
         val settings = runCatching { GameEngine.getInstance()?.settings }.getOrNull() ?: return
-        if (settings.slick2dFullScreen) settings.slick2dBorderless = true
+        // applyResolution treats borderless as fullscreen (`if (borderless) fullscreen = true`),
+        // so a stale true value keeps the game fullscreen after the immersive toggle is cleared.
+        // The extension owns this field because the Compose settings screen is the only writer.
+        settings.slick2dBorderless = settings.slick2dFullScreen
     }
 }

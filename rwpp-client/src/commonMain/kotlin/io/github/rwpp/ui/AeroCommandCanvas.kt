@@ -68,6 +68,7 @@ import kotlin.math.roundToInt
 internal data class CommandButton(
     val label: String, val heightScale: Float = 1f, val columns: Int = -1,
     val enabled: Boolean = true, val progress: Float = 0f, val queued: Int = 0,
+    val cooldown: Float = 0f,
     val image: ImageBitmap? = null, val info: () -> Pair<String, String> = { label to "" },
     val activate: (Boolean) -> Unit = {}, val showInfo: Boolean = true,
     val glyph: HudActionGlyph? = null,
@@ -101,7 +102,7 @@ internal fun sameCommandVisuals(a: CommandFrame, b: CommandFrame): Boolean =
         val x = a.buttons[index];
         val y = b.buttons[index]
         x.label == y.label && x.heightScale == y.heightScale && x.columns == y.columns &&
-                x.enabled == y.enabled && x.progress == y.progress && x.queued == y.queued && x.image === y.image &&
+                x.enabled == y.enabled && x.progress == y.progress && x.cooldown == y.cooldown && x.queued == y.queued && x.image === y.image &&
                 x.showInfo == y.showInfo && x.glyph == y.glyph && x.canAdd == y.canAdd &&
                 x.identity == y.identity && x.clickSound === y.clickSound && x.dimmed == y.dimmed &&
                 x.hotkey == y.hotkey && x.category == y.category && x.techLevel == y.techLevel &&
@@ -305,7 +306,9 @@ private class CommandButtonFrameBuilder {
             )
             val enabled = available || queuePanel && queued > 0 ||
                     action.actionType == ActionType.placeBuilding && unlocked
-            val progress = hudActionProgressForSelection(action, selection).coerceIn(0f, 1f)
+            val nativeProgress = hudActionProgressForSelection(action, selection)
+            val progress = nativeProgress.coerceIn(0f, 1f)
+            val cooldown = hudActionCooldownForSelection(action, nativeProgress)
             val showInfo = action.actionType != ActionType.infoOnly
             val clickSound = if (queuePanel) null else io.github.rwpp.sound.Sounds.select
             val dimmed = !available || action.isDimmedInActionBar
@@ -327,7 +330,7 @@ private class CommandButtonFrameBuilder {
                         sameCommandButtonVisuals(
                             old, label, action.buttonWidthScale, action.buttonColumnSpan, enabled, progress, queued,
                             image, showInfo, glyph, available, clickSound, identity, dimmed, hotkey,
-                            category, techLevel, usable, flash, active, demoBlocked,
+                            category, techLevel, usable, flash, active, demoBlocked, cooldown,
                         ),
                     )
                 ) old else CommandButton(
@@ -336,6 +339,7 @@ private class CommandButtonFrameBuilder {
                     columns = action.buttonColumnSpan,
                     enabled = enabled,
                     progress = progress,
+                    cooldown = cooldown,
                     queued = queued,
                     image = image,
                     info = actionCallbacks.info,
@@ -449,8 +453,9 @@ private fun sameCommandButtonVisuals(
     flash: Boolean,
     active: Boolean,
     demoBlocked: Boolean,
+    cooldown: Float,
 ): Boolean = button.label == label && button.heightScale == heightScale && button.columns == columns &&
-        button.enabled == enabled && button.progress == progress && button.queued == queued && button.image === image &&
+        button.enabled == enabled && button.progress == progress && button.cooldown == cooldown && button.queued == queued && button.image === image &&
         button.showInfo == showInfo && button.glyph == glyph && button.canAdd == canAdd &&
         button.clickSound === clickSound && button.identity == identity && button.dimmed == dimmed &&
         button.hotkey == hotkey && button.category == category && button.techLevel == techLevel &&
@@ -827,6 +832,7 @@ internal fun CommandSurface(
             val usable = button.usable || button.category == SpecialActionCategory.infoOnlyStockpile
             var fill = when {
                 button.demoBlocked -> Color(180, 100, 100, 100)
+                button.cooldown > 0f -> Color(100, 100, 100, 70)
                 usable -> Color(100, 100, 100, 70)
                 else -> Color(170, 100, 100, 50)
             }
@@ -907,6 +913,14 @@ internal fun CommandSurface(
                         )
                     }) {
                         actionBackground(origin, extent, button, activeFeedback)
+                        if (button.cooldown > 0f) {
+                            val remainingWidth = extent.width * button.cooldown.coerceIn(0f, 1f)
+                            // The native remaining-time ratio decreases to zero. Keep the red fill
+                            // confined to that width instead of tinting the whole disabled button.
+                            drawRect(Color(170, 35, 35, 115), origin, Size(remainingWidth, extent.height))
+                            drawLine(Color(235, 100, 100, 190), origin + Offset(remainingWidth, 0f),
+                                origin + Offset(remainingWidth, extent.height), 1.dp.toPx())
+                        }
                         if (button.queued > 0) {
                             // The Aero queue badge keeps its accent outline so a queued count stays
                             // readable against the native translucent fill.

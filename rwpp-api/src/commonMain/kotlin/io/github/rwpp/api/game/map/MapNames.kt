@@ -39,7 +39,9 @@ object MapNames {
         // A name that is only the virtual tag keeps the raw file name rather than an empty label.
         if (prettyName.isEmpty()) return path.substringAfterLast('/').substringAfterLast('\\')
         return prettyName.replaceFirstChar {
-            if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString()
+            // The map name is part of the room setup. A default locale (for example Turkish)
+            // changes the capitalised form on one client only.
+            if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString()
         }
     }
 }

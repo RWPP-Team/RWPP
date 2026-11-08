@@ -42,6 +42,15 @@ internal fun hudActionProgressForSelection(action: SpecialAction, units: List<Ga
     return progress
 }
 
+/** Production progress has native priority; cooldown applies only when no production bar exists. */
+internal fun hudActionCooldownForSelection(action: SpecialAction, productionProgress: Float): Float {
+    if (productionProgress >= 0f) return 0f
+    val value = runCatching {
+        (GameEngine.getInstance().interfaceEngine.battleInterface as NativeBattleAccess).rwppActionBlockFraction(action)
+    }.getOrDefault(0f)
+    return if (value.isFinite()) value.coerceIn(0f, 1f) else 0f
+}
+
 /** Native getDisplayNameWithCount scans every selected unit using one owner's implementation. */
 internal fun hudActionLabelForUnit(action: SpecialAction, owner: GameUnit?, count: Int): String {
     val name = owner?.let(action::getDisplayNameForUnit) ?: action.displayName

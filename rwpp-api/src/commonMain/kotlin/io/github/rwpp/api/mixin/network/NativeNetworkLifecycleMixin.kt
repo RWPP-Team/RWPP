@@ -93,4 +93,12 @@ object NativeNetworkLifecycleMixin {
     fun awaitClientMapLoad(result: Boolean): Boolean =
         result || NativeNetworkLifecycleCallbacks.isClientMapLoadPending()
 
+    /**
+     * Frame hooks on the game engine can be skipped while the native view reports no update.
+     * The network update always runs for a live client, so the ready ack is retried here too.
+     */
+    @AsmInject(method = "update(F)V", target = InjectionPoint.TAIL, require = 1)
+    fun acknowledgeClientReady(target: Any, delta: Float) =
+        NativeNetworkLifecycleCallbacks.acknowledgeClientReady(target)
+
 }

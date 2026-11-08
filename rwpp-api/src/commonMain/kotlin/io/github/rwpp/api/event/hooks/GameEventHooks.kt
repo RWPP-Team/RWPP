@@ -134,7 +134,9 @@ internal object UnitMetadataEventCallbacks {
                 }.get(it) as? String
             }
         }
-        val event = ModCheckEvent(requiredMods)
+        // The native mismatch map is a HashMap. Its iteration order becomes the download and
+        // enable order on every client, so normalise it before the names leave this hook.
+        val event = ModCheckEvent(requiredMods.distinct().sorted())
         if (hasNativeEventListeners(ModCheckEvent::class)) broadcastNativeEvent(event)
         return event.isCancelled
     }

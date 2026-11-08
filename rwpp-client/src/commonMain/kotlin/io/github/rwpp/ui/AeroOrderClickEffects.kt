@@ -60,7 +60,7 @@ internal fun GameScreen.AeroOrderClickEffects() {
             }
         }
     }
-    Canvas(Modifier.fillMaxSize()) {
+    WorldCanvas(Modifier.fillMaxSize()) {
         frame.events.forEach {
             val point = Offset(
                 (it.x - frame.camera.x) * frame.zoom * size.width / frame.width,

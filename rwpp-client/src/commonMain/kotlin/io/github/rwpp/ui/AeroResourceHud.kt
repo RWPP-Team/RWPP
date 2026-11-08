@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import com.corrodinggames.rts.gameFramework.render.BitmapOrTexture
 import io.github.rwpp.game.hud.AeroResourceHudLine
 import io.github.rwpp.game.hud.AeroResourceHudSegment
+import io.github.rwpp.graphics.AeroAllyText
 import io.github.rwpp.graphics.hudImageFromPixels
 import io.github.rwpp.graphics.prepareHudTexture
 import io.github.rwpp.graphics.readHudTexturePixels
@@ -92,7 +93,8 @@ private fun AeroCustomResourceSegment(line: AeroResourceHudLine, segment: AeroRe
     Text(
         text = segment.text,
         color = if (line.secondaryTeam) {
-            MaterialTheme.colorScheme.onSurface
+            // Native draws the controlled teammate's block with resourceTextPaintAlt (yellow).
+            AeroAllyText
         } else {
             segment.displayColor?.let(::Color) ?: MaterialTheme.colorScheme.primary
         },

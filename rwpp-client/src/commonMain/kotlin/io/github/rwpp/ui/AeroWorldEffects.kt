@@ -88,12 +88,23 @@ internal fun AeroWorldEffectSurface(
                 Offset(0f, with(density) { 1.dp.toPx() }), with(density) { 2.dp.toPx() })
         )
     }
-    Canvas(modifier.fillMaxSize()) {
+    WorldCanvas(modifier.fillMaxSize()) {
         // Observe the native render-phase snapshot in draw, so HUD re-layout/recomposition
         // cannot pin world-space effects to an old update-phase camera while panning.
         val frame = presentation?.value ?: snapshot
+        if (!frame.width.isFinite() || frame.width <= 0f ||
+            !frame.height.isFinite() || frame.height <= 0f ||
+            !frame.zoom.isFinite() || frame.zoom <= 0f ||
+            !frame.camera.x.isFinite() || !frame.camera.y.isFinite()
+        ) return@WorldCanvas
         val sx = size.width / frame.width;
         val sy = size.height / frame.height
+        // A modded preview unit can report an unlimited build or attack range. Projecting that
+        // value produces geometry far outside the Skia path range, which the GPU tessellates
+        // into a solid team-coloured arc or wedge. Every overlay rectangle, radius and offset
+        // therefore has to stay inside a bounded multiple of the viewport.
+        val maxScreenExtent = max(size.width, size.height) * 4f
+        fun finite(value: Float) = value.isFinite() && abs(value) <= maxScreenExtent
         fun project(point: Offset) = Offset(
             (point.x - frame.camera.x) * frame.zoom * sx,
             (point.y - frame.camera.y) * frame.zoom * sy
@@ -104,9 +115,13 @@ internal fun AeroWorldEffectSurface(
         )
         frame.orders.forEach { order ->
             val to = project(order.to)
+            if (!to.x.isFinite() || !to.y.isFinite()) return@forEach
             val margin = max(32.dp.toPx(), order.radius * frame.zoom * max(sx, sy))
+                .takeIf { it.isFinite() }?.coerceAtMost(maxScreenExtent) ?: 32.dp.toPx()
             val viewport = Rect(-margin, -margin, size.width + margin, size.height + margin)
-            val segment = clipAeroSegment(project(order.from), to, viewport) ?: return@forEach
+            val rawFrom = project(order.from)
+            if (!rawFrom.x.isFinite() || !rawFrom.y.isFinite()) return@forEach
+            val segment = clipAeroSegment(rawFrom, to, viewport) ?: return@forEach
             val from = segment.first
             val delta = segment.second - from;
             val length = delta.getDistance()
@@ -160,10 +175,13 @@ internal fun AeroWorldEffectSurface(
                         // keeping one Aero outline per tile.
                         val topLeft = project(Offset(grid.left, grid.top))
                         val bottomRight = project(Offset(grid.right, grid.bottom))
+                        if (!finite(topLeft.x) || !finite(topLeft.y) ||
+                            !finite(bottomRight.x) || !finite(bottomRight.y)
+                        ) return@forEach
                         val origin = Offset(min(topLeft.x, bottomRight.x), min(topLeft.y, bottomRight.y))
                         val extent = Size(
-                            abs(bottomRight.x - topLeft.x),
-                            abs(bottomRight.y - topLeft.y)
+                            abs(bottomRight.x - topLeft.x).coerceAtMost(maxScreenExtent),
+                            abs(bottomRight.y - topLeft.y).coerceAtMost(maxScreenExtent)
                         )
                         drawRect(color.copy(alpha = 0.08f), origin, extent)
                         drawRect(
@@ -203,7 +221,9 @@ internal fun AeroWorldEffectSurface(
                             Size(extent.width * order.progress, 2.dp.toPx())
                         )
                     } else {
-                        val r = (order.radius * frame.zoom * min(sx, sy)).coerceAtLeast(8.dp.toPx())
+                        val rawRadius = order.radius * frame.zoom * min(sx, sy)
+                        if (!rawRadius.isFinite()) return@forEach
+                        val r = rawRadius.coerceIn(8.dp.toPx(), maxScreenExtent)
                         val extent = Size(r * 2f, r * 2f)
                         drawRect(color.copy(alpha = 0.08f), to - Offset(r, r), extent)
                         drawRect(
@@ -273,11 +293,17 @@ internal fun AeroWorldEffectSurface(
         }
         frame.selected.forEach { unit ->
             val p = project(unit.center)
+            if (!p.x.isFinite() || !p.y.isFinite()) return@forEach
             val r = (unit.radius * frame.zoom * min(sx, sy)).coerceAtLeast(8.dp.toPx())
+            if (!r.isFinite() || r > maxScreenExtent) return@forEach
             val bounds = nativeUnitHealthBarBounds(
                 p, unit.barRadius, frame.zoom, sx, sy,
                 unit.barScaledDown, unit.barMini
             )
+            if (!bounds.left.isFinite() || !bounds.top.isFinite() ||
+                !bounds.right.isFinite() || !bounds.bottom.isFinite() ||
+                !bounds.width.isFinite() || !bounds.height.isFinite()
+            ) return@forEach
             val selectionOutside = p.x + r < 0 || p.x - r > size.width || p.y + r < 0 || p.y - r > size.height
             val barOutside = bounds.right < 0 || bounds.left > size.width || bounds.top > size.height ||
                     bounds.bottom + 20f * max(1f, frame.zoom) * sy < 0
@@ -289,10 +315,13 @@ internal fun AeroWorldEffectSurface(
             )) {
                 val corner = p + Offset(x * r, y * r)
                 val width = if (unit.glowHighlight) 2.dp.toPx() else 1.5.dp.toPx()
-                drawLine(unit.color, corner, corner - Offset(x * arm, 0f), width)
-                drawLine(unit.color, corner, corner - Offset(0f, y * arm), width)
+                // Native paints a selected unit of another team with the ally colour.
+                drawLine(unit.selectionColor, corner, corner - Offset(x * arm, 0f), width)
+                drawLine(unit.selectionColor, corner, corner - Offset(0f, y * arm), width)
             }
-            val w = bounds.width
+            // A modded unit can report an unbounded radius. Clamp the health-bar width so a
+            // single sample can never turn the overlay into a screen-sized filled rectangle.
+            val w = if (bounds.width.isFinite()) bounds.width.coerceIn(0f, size.width * 4f) else 0f
             val origin = bounds.topLeft
             val barScale = if (!unit.barScaledDown && frame.zoom < 1f) 1f else frame.zoom
             val rowScale = barScale * sy
@@ -348,5 +377,5 @@ internal fun AeroWorldEffectSurface(
     }
 }
 
-/** Request a frame from the platform HUD scheduler after camera or viewport changes. */
+/** Request presentation of the latest native frame on the platform HUD surface. */
 internal expect fun requestWorldPresentationFrame()

@@ -15,8 +15,11 @@ import com.corrodinggames.rts.gameFramework.network.NetworkEngine
 import io.github.rwpp.api.State
 import io.github.rwpp.api.appKoin
 import io.github.rwpp.api.event.GameEventPublisher
+import io.github.rwpp.api.event.events.MapLoadEvent
+import io.github.rwpp.api.event.events.MapLoadPhase
 import io.github.rwpp.api.event.events.TransportConnectedEvent
 import io.github.rwpp.api.event.hooks.broadcastNativeEvent
+import io.github.rwpp.api.event.hooks.hasNativeEventListeners
 import io.github.rwpp.api.game.Game
 import io.github.rwpp.api.game.NetworkGameLoadingState
 import io.github.rwpp.api.game.map.MapNames
@@ -280,8 +283,15 @@ internal object NativeGameLifecycle {
     }
 
     fun onNetworkDisconnected(network: NetworkEngine, reason: String): Boolean {
+        // A truncated or failed map transfer ends the socket while the client still waits for the
+        // map. Report it before the loading state is cleared, otherwise the client returns to the
+        // menu without any explanation.
+        val interruptedMapLoad = NetworkGameLoadingState.isLoadingMap || clientStartReadyAck.isPending()
         clientStartReadyAck.clear()
         NetworkGameLoadingState.finishMapLoad()
+        if (interruptedMapLoad && network.networked && !network.isServer) {
+            reportInterruptedMapTransfer(reason)
+        }
         val endedSession = synchronized(lifecycleLock) {
             sessionActive.also { sessionActive = false }
         }
@@ -400,6 +410,29 @@ internal object NativeGameLifecycle {
         }
     }
 
+    /**
+     * Packet 120 carries the map inline. When a server fails mid-transfer the socket closes while
+     * the client still waits for the map, and the native client only logs the read failure. Publish
+     * the same failure event as a local map-load error so the client can tell the player.
+     */
+    private fun reportInterruptedMapTransfer(reason: String) {
+        if (!hasNativeEventListeners(MapLoadEvent::class)) return
+        val engine = runCatching { GameEngine.getInstance() }.getOrNull() ?: return
+        runCatching {
+            broadcastNativeEvent(
+                MapLoadEvent(
+                    engine = engine,
+                    path = engine.currentMapPath,
+                    type = com.corrodinggames.rts.gameFramework.GameEngineMapType.normal,
+                    loadAi = false,
+                    keepTeams = false,
+                    phase = MapLoadPhase.FAILED,
+                    error = IOException("Map transfer interrupted: $reason"),
+                ),
+            )
+        }
+    }
+
     fun onReplayLoading() {
         synchronized(lifecycleLock) {
             replayLoadInProgress = true
@@ -489,16 +522,17 @@ internal object NativeGameLifecycle {
                 gameStarted = network.gameStarted,
                 engineMapLoaded = engine.map?.mapLoaded == true,
                 gameLoopActive = engine.gameLoopActive,
-                gameStatePlaying = appKoin.get<Game>().state.state == State.Playing,
             )
         ) return
 
         val failure = runCatching { network.sendClientReadyState() }.exceptionOrNull()
         if (failure == null) {
             clientStartReadyAck.markSent()
+            // The loading overlay must clear on the first successful send; later resends only
+            // confirm the ready flag to the host.
             NetworkGameLoadingState.finishMapLoad()
         } else if (!clientStartReadyAck.markAttemptFailed()) {
-            logger().warn("Could not send the post-load client-ready packet after three attempts", failure)
+            logger().warn("Could not send the post-load client-ready packet", failure)
             NetworkGameLoadingState.finishMapLoad()
         }
     }

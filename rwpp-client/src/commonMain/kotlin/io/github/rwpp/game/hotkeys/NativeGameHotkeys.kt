@@ -96,7 +96,7 @@ internal object NativeGameHotkeys {
         BuildingPlanningController.onGameUpdate(blocked)
         val engine = GameEngine.getInstance()
         if (!blocked && followSelectionButton.isPressed) toggleFollowSelection(engine)
-        SelectionCameraFollowController.updateOnGameThread(engine, blocked)
+        SelectionCameraFollowController.updateOnGameThread(engine, blocked || BuildingPlanningController.ownsIndependentPlanningInput())
         if (blocked) return
         if (sameTypeButton.isPressed) selectSameType(engine)
         if (lowHealthButton.isPressed) NativeTacticalActions.selectLowHealth(engine)

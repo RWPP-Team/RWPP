@@ -16,7 +16,6 @@ internal interface NativeBuildingPlanningCommandAccess {
     fun rwppPlanningPendingUnitIds(): FastArrayList
 }
 
-
 @AsmMixin("com/corrodinggames/rts/gameFramework/CommandControllerCommand")
 @AddInterface("io/github/rwpp/mixin/building/NativeBuildingPlanningCommandAccess")
 abstract class NativeBuildingPlanningCommandAccessMixin {
@@ -39,7 +38,7 @@ abstract class NativeBattlePinchAccessMixin {
     abstract fun rwppPinchTimer(): Float
 }
 
-/** Replaces only native drag-box handling while a planner gesture owns the pointer. */
+/** Planning owns selection input before native drawing or selection can run. */
 @AsmMixin("com/corrodinggames/rts/gameFramework/gui/BattleInterface")
 object BuildingPlanningDragSelectionMixin {
     @AsmInject(
@@ -49,7 +48,13 @@ object BuildingPlanningDragSelectionMixin {
         require = 1,
     )
     fun routePlanningDrag(callback: CallbackInfo) {
-        if (BuildingPlanningController.handleNativeDragSelection()) callback.cancel()
+        val captured = BuildingPlanningController.handleNativeDragSelection()
+        BuildingPlanningController.drawIndependentBlueprintPreview()
+        if (BuildingPlanningController.ownsIndependentPlanningInput()) {
+            (com.corrodinggames.rts.gameFramework.GameEngine.getInstance().interfaceEngine as? io.github.rwpp.mixin.hud.NativeInterfaceAccess)
+                ?.rwppSetTapReleased(false)
+        }
+        if (captured) callback.cancel()
     }
 }
 
@@ -95,4 +100,19 @@ object BuildingPlanningSuppressCapturedMoveMixin {
     fun suppressCapturedPatrol(callback: CallbackInfo) {
         if (BuildingPlanningController.shouldSuppressNativeMoveOrder()) callback.cancel()
     }
+}
+
+/** Leave native buttons and action queues out of the private preview interaction. */
+@AsmMixin("com/corrodinggames/rts/gameFramework/gui/InterfaceEngine")
+object BuildingPlanningIndependentInputMixin {
+    @AsmInject(method = "handleUnitClick(Lcom/corrodinggames/rts/game/units/Unit;)V",
+        target = InjectionPoint.HEAD, cancellable = true, require = 1)
+    fun retainPlanningBuilders(callback: CallbackInfo) {
+        if (BuildingPlanningController.ownsIndependentPlanningInput()) callback.cancel()
+    }
+
+    @ModifyExpressionValue(method = "update(F)V", require = 1,
+        at = At(InjectionPoint.INVOKE, target = "com/corrodinggames/rts/gameFramework/GameEngine.hasTouchEvents()Z"))
+    fun previewDragDoesNotPanCamera(value: Boolean): Boolean =
+        value && !BuildingPlanningController.suppressNativeTouchPlacementPan()
 }

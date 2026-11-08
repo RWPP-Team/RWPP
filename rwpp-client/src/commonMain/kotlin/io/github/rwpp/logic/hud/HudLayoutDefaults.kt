@@ -12,6 +12,9 @@ import io.github.rwpp.config.HudComponentDataList
 
 /** Upgrade the previously empty layout once; preserve custom layouts and later explicit native-HUD choices. */
 internal fun initializeDefaultHud(layout: HudComponentDataList) {
+    // An existing layout belongs to a returning player. Never re-add the touch panel there, even
+    // though the one-time marker did not exist in older builds.
+    val returningPlayer = layout.defaultsInitialized
     if (!layout.defaultsInitialized && layout.hudComponentDataList.isEmpty()) {
         layout.hudComponentDataList.addAll(
             listOf(
@@ -45,4 +48,5 @@ internal fun initializeDefaultHud(layout: HudComponentDataList) {
         }
     }
     layout.observerStatisticsInitialized = true
+    if (returningPlayer) layout.touchControlsInitialized = true
 }

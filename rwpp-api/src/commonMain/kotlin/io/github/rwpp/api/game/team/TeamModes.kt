@@ -10,6 +10,7 @@ package io.github.rwpp.api.game.team
 import com.corrodinggames.rts.game.Team
 import com.corrodinggames.rts.gameFramework.GameEngine
 import io.github.rwpp.api.game.GameRoom
+import kotlin.random.Random
 
 object TeamModes {
     val modes: MutableList<TeamMode> = mutableListOf(
@@ -57,7 +58,11 @@ object RandomTeamMode : TeamMode("random-team") {
     override fun onPlayerJoin(gameRoom: GameRoom, player: Team) = Unit
 
     override fun onInit(gameRoom: GameRoom) {
-        val players = gameRoom.getPlayers().shuffled()
+        // Only the room authority assigns teams, and the seed comes from the synchronised room
+        // setup. The default Random used to reshuffle teams differently in each process and on
+        // every reconnect, so players returned to different teams after a resync.
+        if (!gameRoom.isHost && !gameRoom.isHostServer) return
+        val players = gameRoom.getPlayers().shuffled(Random(gameRoom.randomSeed.toLong()))
         val teamCount = when (players.size) {
             in 1..8 -> 2
             in 9..21 -> 3

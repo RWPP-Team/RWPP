@@ -71,6 +71,8 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
 
     private var textureId: Int = 0
     private var fboId: Int = 0
+    /** Depth/stencil storage owned by the offscreen target; Skia is told it has 8 stencil bits. */
+    private var stencilId: Int = 0
     private var needRender = true
     private lateinit var surface: Surface
     private lateinit var renderTarget: BackendRenderTarget
@@ -155,37 +157,88 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
     }
 
     private fun initOpenGLFrameBuffer(pWidth: Int, pHeight: Int) {
-        cleanupOpenGLResources()
+        ExternalGlState().use {
+            cleanupOpenGLResources()
 
-        textureId = GL11.glGenTextures()
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, textureId)
-        GL11.glTexImage2D(
-            GL11.GL_TEXTURE_2D,
-            0,
-            GL11.GL_RGBA8,
-            pWidth,
-            pHeight,
-            0,
-            GL11.GL_RGBA,
-            GL11.GL_UNSIGNED_BYTE,
-            null as ByteBuffer?
-        )
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR)
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR)
+            GL13.glActiveTexture(GL13.GL_TEXTURE0)
+            GL15.glBindBuffer(GL21.GL_PIXEL_UNPACK_BUFFER, 0)
 
-        fboId = GL30.glGenFramebuffers()
-        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, fboId)
-        GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, textureId, 0)
-        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0)
+            textureId = GL11.glGenTextures()
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, textureId)
+            GL11.glTexImage2D(
+                GL11.GL_TEXTURE_2D,
+                0,
+                GL11.GL_RGBA8,
+                pWidth,
+                pHeight,
+                0,
+                GL11.GL_RGBA,
+                GL11.GL_UNSIGNED_BYTE,
+                null as ByteBuffer?
+            )
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR)
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR)
 
-        renderTarget = BackendRenderTarget.makeGL(
-            pWidth, pHeight, 0, 8, fboId, FramebufferFormat.GR_GL_RGBA8
-        )
+            fboId = GL30.glGenFramebuffers()
+            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, fboId)
+            GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, textureId, 0)
 
-        surface = Surface.makeFromBackendRenderTarget(
-            directContext, renderTarget, SurfaceOrigin.BOTTOM_LEFT, SurfaceColorFormat.RGBA_8888, ColorSpace.sRGB
-        )!!
-        canvas = surface.canvas.asComposeCanvas()
+            // Skia is told the target has 8 stencil bits below. Some drivers expose implicit stencil
+            // storage for a colour-only FBO, others do not. Attaching a real depth/stencil renderbuffer
+            // keeps the declared and actual formats identical on every GPU; a missing attachment used
+            // to make stencil clip layers cover their whole bounding rectangle with a solid colour.
+            stencilId = GL30.glGenRenderbuffers()
+            GL30.glBindRenderbuffer(GL30.GL_RENDERBUFFER, stencilId)
+            GL30.glRenderbufferStorage(GL30.GL_RENDERBUFFER, GL30.GL_DEPTH24_STENCIL8, pWidth, pHeight)
+            GL30.glFramebufferRenderbuffer(
+                GL30.GL_FRAMEBUFFER, GL30.GL_DEPTH_STENCIL_ATTACHMENT, GL30.GL_RENDERBUFFER, stencilId
+            )
+            val status = GL30.glCheckFramebufferStatus(GL30.GL_FRAMEBUFFER)
+            val stencilBits = if (status == GL30.GL_FRAMEBUFFER_COMPLETE) {
+                8
+            } else {
+                // Do not claim stencil support that the driver refused. Skia then chooses a clip
+                // path that works without stencil instead of writing to a non-existent attachment.
+                GL30.glFramebufferRenderbuffer(
+                    GL30.GL_FRAMEBUFFER, GL30.GL_DEPTH_STENCIL_ATTACHMENT, GL30.GL_RENDERBUFFER, 0
+                )
+                GL30.glBindRenderbuffer(GL30.GL_RENDERBUFFER, 0)
+                GL30.glDeleteRenderbuffers(stencilId)
+                stencilId = 0
+                io.github.rwpp.api.logging.logger().warn(
+                    "Compose offscreen framebuffer has no stencil attachment: 0x${status.toString(16)}"
+                )
+                0
+            }
+
+            // glTexImage2D(null) leaves the texture contents undefined. Initialise every attachment
+            // once so a scissored or skipped frame can never expose uninitialised GPU memory.
+            GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS)
+            GL11.glDisable(GL11.GL_SCISSOR_TEST)
+            GL11.glColorMask(true, true, true, true)
+            GL11.glClearColor(0f, 0f, 0f, 0f)
+            GL11.glClearStencil(0)
+            GL11.glClearDepth(1.0)
+            // glClear obeys write masks too. Native rendering may have disabled stencil/depth
+            // writes; a fresh attachment must not retain undefined bits for Skia's clipping.
+            GL11.glStencilMask(-1)
+            GL11.glDepthMask(true)
+            GL11.glClear(GL11.GL_COLOR_BUFFER_BIT or GL11.GL_DEPTH_BUFFER_BIT or GL11.GL_STENCIL_BUFFER_BIT)
+            GL11.glPopAttrib()
+
+            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0)
+            GL30.glBindRenderbuffer(GL30.GL_RENDERBUFFER, 0)
+
+            renderTarget = BackendRenderTarget.makeGL(
+                pWidth, pHeight, 0, stencilBits, fboId, FramebufferFormat.GR_GL_RGBA8
+            )
+
+            directContext.resetGLAll()
+            surface = Surface.makeFromBackendRenderTarget(
+                directContext, renderTarget, SurfaceOrigin.BOTTOM_LEFT, SurfaceColorFormat.RGBA_8888, ColorSpace.sRGB
+            )!!
+            canvas = surface.canvas.asComposeCanvas()
+        }
     }
 
     private fun cleanupOpenGLResources() {
@@ -195,6 +248,10 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
         if (fboId != 0) {
             GL30.glDeleteFramebuffers(fboId)
             fboId = 0
+        }
+        if (stencilId != 0) {
+            GL30.glDeleteRenderbuffers(stencilId)
+            stencilId = 0
         }
         if (textureId != 0) {
             GL11.glDeleteTextures(textureId)
@@ -229,25 +286,31 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
         if (!needRender && !hasInvalidations && !shouldUpdate()) return
         needRender = false
 
-        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS)
-        GL11.glPushClientAttrib(-1)
+        ExternalGlState().use {
+            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, fboId)
+            GL11.glViewport(0, 0, framebufferWidth, framebufferHeight)
 
-        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, fboId)
-        GL11.glViewport(0, 0, framebufferWidth, framebufferHeight)
+            // Slick and the world post-processing pass leave their own GL state behind. Skia manages
+            // its program and texture bindings, but not the inherited state below, so normalise it
+            // before the surface is cleared. A leftover scissor box or colour mask otherwise clears
+            // only part of the target and leaves the previous frame as a solid block.
+            GL20.glUseProgram(0)
+            GL13.glActiveTexture(GL13.GL_TEXTURE0)
+            GL11.glDisable(GL11.GL_SCISSOR_TEST)
+            GL11.glColorMask(true, true, true, true)
+            GL11.glDisable(32928) // GL_FRAMEBUFFER_SRGB
 
-        surface.canvas.clear(Color.TRANSPARENT)
+            // Layout and native icon rendering can touch this context between Skia draws. Invalidate
+            // Skia's binding cache immediately before it resumes ownership, including the first draw.
+            directContext.resetGLAll()
+            surface.canvas.clear(Color.TRANSPARENT)
 
-        scene.size = IntSize(framebufferWidth, framebufferHeight)
-        scene.draw(canvas)
+            scene.size = IntSize(framebufferWidth, framebufferHeight)
+            scene.draw(canvas)
 
-        directContext.flush()
-        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0)
-
+            directContext.flush()
+        }
         directContext.resetGLAll()
-        resetGLStateToFixedFunction()
-
-        GL11.glPopClientAttrib()
-        GL11.glPopAttrib()
     }
 
     fun drawToScreen() {
@@ -260,66 +323,65 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
         this.drawX = 0f
         this.drawY = 0f
 
-        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS)
-        GL11.glPushClientAttrib(-1)
+        ExternalGlState().use {
+            resetGLStateToFixedFunction()
 
-        GL11.glDisable(GL11.GL_SCISSOR_TEST)
-        GL11.glDisable(GL11.GL_STENCIL_TEST)
-        GL11.glDisable(GL11.GL_DEPTH_TEST)
-        GL11.glDisable(GL11.GL_CULL_FACE)
-        GL11.glDisable(GL11.GL_LIGHTING)
+            GL11.glDisable(GL11.GL_SCISSOR_TEST)
+            GL11.glDisable(GL11.GL_STENCIL_TEST)
+            GL11.glDisable(GL11.GL_DEPTH_TEST)
+            GL11.glDisable(GL11.GL_CULL_FACE)
+            GL11.glDisable(GL11.GL_LIGHTING)
+            GL11.glDisable(GL11.GL_ALPHA_TEST)
+            GL11.glDisable(GL11.GL_FOG)
+            GL11.glDisable(GL11.GL_COLOR_LOGIC_OP)
+            GL11.glDisable(GL11.GL_TEXTURE_GEN_S)
+            GL11.glDisable(GL11.GL_TEXTURE_GEN_T)
+            GL11.glDisable(GL11.GL_TEXTURE_GEN_R)
+            GL11.glDisable(GL11.GL_TEXTURE_GEN_Q)
+            GL11.glPolygonMode(GL11.GL_FRONT_AND_BACK, GL11.GL_FILL)
+            GL11.glTexEnvi(GL11.GL_TEXTURE_ENV, GL11.GL_TEXTURE_ENV_MODE, GL11.GL_MODULATE)
 
-        val physWinW = winW.toInt().coerceAtLeast(1)
-        val physWinH = winH.toInt().coerceAtLeast(1)
-        GL11.glViewport(viewportX, viewportY, physWinW, physWinH)
+            val physWinW = winW.toInt().coerceAtLeast(1)
+            val physWinH = winH.toInt().coerceAtLeast(1)
+            GL11.glViewport(viewportX, viewportY, physWinW, physWinH)
 
-        GL11.glEnable(GL11.GL_TEXTURE_2D)
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, textureId)
+            // The fullscreen composite uses fixed-function drawing. A GLSL program, a non-zero
+            // active texture unit, a non-additive blend equation or a colour mask left by the game's
+            // post-processing pass changes the result on different drivers.
+            GL20.glUseProgram(0)
+            GL13.glActiveTexture(GL13.GL_TEXTURE0)
+            GL14.glBlendEquation(GL14.GL_FUNC_ADD)
+            GL11.glColorMask(true, true, true, true)
 
-        GL11.glEnable(GL11.GL_BLEND)
-        GL11.glBlendFunc(GL11.GL_ONE, GL11.GL_ONE_MINUS_SRC_ALPHA)
-        GL11.glColor4f(1f, 1f, 1f, 1f)
+            GL11.glEnable(GL11.GL_TEXTURE_2D)
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, textureId)
 
-        GL11.glMatrixMode(GL11.GL_PROJECTION)
-        GL11.glPushMatrix()
-        GL11.glLoadIdentity()
-        GL11.glOrtho(0.0, winW.toDouble(), winH.toDouble(), 0.0, -1.0, 1.0)
+            GL11.glEnable(GL11.GL_BLEND)
+            GL11.glBlendFunc(GL11.GL_ONE, GL11.GL_ONE_MINUS_SRC_ALPHA)
+            GL11.glColor4f(1f, 1f, 1f, 1f)
 
-        GL11.glMatrixMode(GL11.GL_MODELVIEW)
-        GL11.glPushMatrix()
-        GL11.glLoadIdentity()
+            GL11.glMatrixMode(GL11.GL_PROJECTION)
+            GL11.glLoadIdentity()
+            GL11.glOrtho(0.0, winW.toDouble(), winH.toDouble(), 0.0, -1.0, 1.0)
 
-        GL11.glBegin(GL11.GL_QUADS)
-        GL11.glTexCoord2f(0f, 1f); GL11.glVertex2f(0f, 0f)
-        GL11.glTexCoord2f(1f, 1f); GL11.glVertex2f(winW, 0f)
-        GL11.glTexCoord2f(1f, 0f); GL11.glVertex2f(winW, winH)
-        GL11.glTexCoord2f(0f, 0f); GL11.glVertex2f(0f, winH)
-        GL11.glEnd()
+            GL11.glMatrixMode(GL11.GL_MODELVIEW)
+            GL11.glLoadIdentity()
 
-        GL11.glPopMatrix()
-        GL11.glMatrixMode(GL11.GL_PROJECTION)
-        GL11.glPopMatrix()
-        GL11.glMatrixMode(GL11.GL_MODELVIEW)
+            GL11.glBegin(GL11.GL_QUADS)
+            GL11.glTexCoord2f(0f, 1f); GL11.glVertex2f(0f, 0f)
+            GL11.glTexCoord2f(1f, 1f); GL11.glVertex2f(winW, 0f)
+            GL11.glTexCoord2f(1f, 0f); GL11.glVertex2f(winW, winH)
+            GL11.glTexCoord2f(0f, 0f); GL11.glVertex2f(0f, winH)
+            GL11.glEnd()
 
-        resetGLStateToFixedFunction()
-
-        GL11.glPopClientAttrib()
-        GL11.glPopAttrib()
+        }
     }
 
     private fun resetGLStateToFixedFunction() {
-        runCatching {
-            GL33.glBindSampler(0, 0)
-        }
-
         GL20.glUseProgram(0)
         GL30.glBindVertexArray(0)
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, 0)
         GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, 0)
-
-        for (i in 0..15) {
-            GL20.glDisableVertexAttribArray(i)
-        }
 
         GL11.glPixelStorei(GL11.GL_UNPACK_ROW_LENGTH, 0)
         GL11.glPixelStorei(GL11.GL_UNPACK_SKIP_PIXELS, 0)
@@ -333,6 +395,7 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
         GL11.glDisable(GL11.GL_DEPTH_TEST)
 
         for (i in 0..7) {
+            if (GLContext.getCapabilities().OpenGL33) GL33.glBindSampler(i, 0)
             GL13.glActiveTexture(GL13.GL_TEXTURE0 + i)
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0)
             GL11.glDisable(GL11.GL_TEXTURE_2D)
@@ -389,8 +452,11 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
 
     @OptIn(InternalComposeUiApi::class)
     override fun mouseMoved(oldx: Int, oldy: Int, newx: Int, newy: Int) {
-        sendPointerEvent(PointerEventType.Move, newx.toFloat(), newy.toFloat())
-        if (menuOwnsInput()) _input.consumeEvent()
+        val result = sendPointerEvent(PointerEventType.Move, newx.toFloat(), newy.toFloat())
+        // The native listener owns mouseX/mouseY, and the game draws its own cursor from them
+        // while the mouse is captured. Only a consumed Compose move may suppress that update;
+        // menu screens used to swallow every move, which froze the captured cursor.
+        if (result.anyChangeConsumed) _input.consumeEvent()
     }
 
     @OptIn(InternalComposeUiApi::class)
@@ -402,7 +468,7 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
         }
         val result = sendPointerEvent(PointerEventType.Move, newx.toFloat(), newy.toFloat(), slickButton = button)
         if (!io.github.rwpp.game.building.BuildingPlanningController.hasDesktopMouseCapture() &&
-            (result.anyChangeConsumed || menuOwnsInput())
+            result.anyChangeConsumed
         ) _input.consumeEvent()
     }
 

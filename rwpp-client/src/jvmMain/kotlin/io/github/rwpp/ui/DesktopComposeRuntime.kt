@@ -130,6 +130,11 @@ internal object DesktopComposeRuntime {
         // current context instead of transferring that context to AWT every game frame.
         scene.drawToScreen()
         // Fixed-function Compose compositing invalidates Slick's cached shader/texture bindings.
+        // Match the native cache reset below: the scoped renderer restored the incoming program,
+        // which may be nonzero, while currentShader=null means the native path assumes program 0.
+        org.lwjgl.opengl.GL20.glUseProgram(0)
+        org.lwjgl.opengl.GL13.glActiveTexture(org.lwjgl.opengl.GL13.GL_TEXTURE0)
+        org.lwjgl.opengl.GL13.glClientActiveTexture(org.lwjgl.opengl.GL13.GL_TEXTURE0)
         com.corrodinggames.rts.java.JavaCanvas.currentShader = null
         com.corrodinggames.rts.java.JavaCanvas.lastBoundGraphics = null
         org.newdawn.slick.opengl.TextureImpl.unbind()

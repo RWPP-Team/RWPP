@@ -9,7 +9,7 @@ build. No local upload or manual download is needed.
 
 The R2 step requires the repository secrets `R2_ENDPOINT`, `R2_ACCESS_KEY_ID` and
 `R2_SECRET_ACCESS_KEY`. The optional repository variable `R2_BUCKET` defaults to `rwpp`.
-When the secrets are absent, the step is skipped and the release is still published.
+Missing R2 secrets fail the publish job explicitly; a successful release workflow must include R2 publication.
 Push the source commit before tagging a release, because CI builds from the tag and
 cannot see an uncommitted working tree.
 

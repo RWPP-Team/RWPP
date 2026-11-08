@@ -38,10 +38,14 @@ object ModTransferHost {
         readiness[player] = ready
     }
 
+    /** Protocol name for a mod. Many mods use a title that differs from their file name. */
+    fun displayName(mod: Mod): String =
+        mod.getTitle()?.takeIf(String::isNotBlank) ?: mod.name.orEmpty()
+
     fun install(owner: EventOwner, net: Net) {
         net.registerPacketListener(owner, ModPackets.MOD_REQUEST) { client, packet ->
             if (client == null || !activeTransfers.add(client)) return@registerPacketListener true
-            val requested = packet.mods.split(',').filter(String::isNotBlank).toSet()
+            val requested = packet.mods.split(',').map(String::trim).filter(String::isNotBlank).distinct()
             GameScope.launch {
                 try {
                     val room = appKoin.get<Game>().gameRoom
@@ -49,9 +53,15 @@ object ModTransferHost {
                     runCatching {
                         val player = room.getPlayerByClient(client) ?: return@runCatching
                         setReady(player, false)
-                        val sources = GameEngine.getInstance().modManager.refreshModList().filterIsInstance<Mod>()
-                            .filter { it.isEnabled && (it.getTitle() ?: it.name.orEmpty()) in requested }
-                            .map { (it.getTitle() ?: it.name.orEmpty()) to (it.getSourcePath() ?: it.path.orEmpty()) }
+                        val enabled = GameEngine.getInstance().modManager.refreshModList().filterIsInstance<Mod>()
+                            .filter { it.isEnabled }
+                        // The client consumes the stream as a queue, so send in exactly the
+                        // requested order. A host-side file-system order used to reject valid
+                        // transfers as soon as more than one mod was involved.
+                        val sources = requested.mapNotNull { name ->
+                            enabled.firstOrNull { displayName(it) == name }
+                                ?.let { name to (it.getSourcePath() ?: it.path.orEmpty()) }
+                        }
                         transfers.withPermit {
                             withContext(Dispatchers.IO) {
                                 sources.forEachIndexed { index, (name, path) ->

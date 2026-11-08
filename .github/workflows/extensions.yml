@@ -123,5 +123,4 @@ jobs:
           clean: false
           persist-credentials: false
       - name: Publish the same archives to R2 and refresh the registry
-        if: env.R2_ACCESS_KEY_ID != ''
         run: python3 .ci/repo/scripts/publish-r2.py

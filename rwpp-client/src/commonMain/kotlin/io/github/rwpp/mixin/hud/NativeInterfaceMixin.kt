@@ -13,6 +13,7 @@ import kim.der.asm.api.annotation.Accessor
 import kim.der.asm.api.annotation.AddInterface
 import kim.der.asm.api.annotation.AsmMixin
 import kim.der.asm.api.annotation.Invoker
+import com.corrodinggames.rts.game.units.Unit as NativeUnit
 
 /** Native fields used to keep custom box gestures out of menus, minimap, and build placement. */
 internal interface NativeInterfaceAccess {
@@ -21,6 +22,12 @@ internal interface NativeInterfaceAccess {
     fun rwppPointerDownOverSidebar(): Boolean
     fun rwppPointerOverUiElement(): Boolean
     fun rwppActiveSpecialAction(): SpecialAction?
+    fun rwppSetActiveSpecialAction(value: SpecialAction?)
+    fun rwppSpecialActionSourceUnit(): NativeUnit?
+    fun rwppSetSpecialActionSourceUnit(value: NativeUnit?)
+    fun rwppSetTapReleased(value: Boolean)
+    fun rwppSetPlacingBuilding(value: Boolean)
+    fun rwppSetQueuePlacementMode(value: Boolean)
     fun rwppTapReleased(): Boolean
     fun rwppPointerDown(): Boolean
     fun rwppPointerDragging(): Boolean
@@ -44,6 +51,21 @@ abstract class NativeInterfaceAccessMixin {
 
     @Accessor("activeSpecialAction")
     abstract fun rwppActiveSpecialAction(): SpecialAction?
+
+    @Accessor("activeSpecialAction")
+    abstract fun rwppSetActiveSpecialAction(value: SpecialAction?)
+
+    @Accessor("specialActionSourceUnit")
+    abstract fun rwppSpecialActionSourceUnit(): NativeUnit?
+
+    @Accessor("specialActionSourceUnit")
+    abstract fun rwppSetSpecialActionSourceUnit(value: NativeUnit?)
+    @Accessor("tapReleased")
+    abstract fun rwppSetTapReleased(value: Boolean)
+    @Accessor("placingBuilding")
+    abstract fun rwppSetPlacingBuilding(value: Boolean)
+    @Accessor("queuePlacementMode")
+    abstract fun rwppSetQueuePlacementMode(value: Boolean)
     @Accessor("tapReleased")
     abstract fun rwppTapReleased(): Boolean
     @Accessor("pointerDown")

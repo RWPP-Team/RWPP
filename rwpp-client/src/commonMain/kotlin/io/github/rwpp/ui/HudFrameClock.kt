@@ -10,8 +10,8 @@ package io.github.rwpp.ui
 internal expect fun registerHudFrame(callback: Runnable): AutoCloseable
 
 /**
- * Runs a display-frame batch that is already waiting, on the game thread that just finished a
- * native frame. Platforms without a separate composition thread treat this as a no-op.
+ * Samples the HUD for the native world frame just drawn. Platforms whose HUD already runs in
+ * the native render loop treat this as a no-op.
  */
 internal expect fun flushPendingHudFrame()
 

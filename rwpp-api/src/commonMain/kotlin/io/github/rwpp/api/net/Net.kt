@@ -18,6 +18,7 @@ import okhttp3.*
 import org.koin.core.component.KoinComponent
 import java.io.*
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.reflect.full.createInstance
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -174,90 +175,148 @@ interface Net :
         })
     }
 
+    /** Room list cached from the last successful refresh, or null when nothing is cached. */
+    fun cachedRoomList(): List<RoomDescription>? = null
+
+    /** Stores a successful refresh so the next visit can show it before the network answers. */
+    fun storeRoomListCache(rooms: List<RoomDescription>) = Unit
+
+    /** Drops the cache; the multiplayer back button calls this. */
+    fun clearRoomListCache() = Unit
+
     @OptIn(ExperimentalCoroutinesApi::class)
     suspend fun CoroutineScope.getRoomListFromSourceUrl(url: List<String>): List<RoomDescription> =
         withContext(Dispatchers.IO) {
-            withTimeout(5000L.milliseconds) {
-                val channel = Channel<Response>()
-
-                url.forEach {
-                    val request = Request.Builder()
-                        .url(it)
-                        .addHeader("User-Agent", "rw android 176 zh")
-                        .addHeader("Language", "zh")
-                        .get()
-                        .build()
-
-                    client.newCall(request).enqueue(object : Callback {
-                        override fun onFailure(call: Call, e: IOException) {
-                        }
-
-                        override fun onResponse(call: Call, response: Response) {
-                            if (response.isSuccessful && channel.isEmpty) {
-                                val result = channel.trySend(response)
-                                if (result.isFailure) response.close()
-                            } else {
-                                response.close()
-                            }
-                        }
-                    })
+            val sources = url.filter { it.isNotBlank() }
+            if (sources.isEmpty()) return@withContext cachedRoomList() ?: emptyList()
+            var lastFailure: Throwable? = null
+            // The masters sit behind high-latency links, so one stalled handshake must not decide
+            // the whole refresh. Retry once before falling back to the cached list.
+            repeat(ROOM_LIST_ATTEMPTS) { attempt ->
+                val result = runCatching { fetchFirstRoomList(sources) }
+                result.getOrNull()?.let { rooms ->
+                    storeRoomListCache(rooms)
+                    return@withContext rooms
                 }
+                lastFailure = result.exceptionOrNull()
+                if (attempt + 1 < ROOM_LIST_ATTEMPTS) delay(ROOM_LIST_RETRY_DELAY_MS)
+            }
+            log.warn("Room list refresh failed, using the cached list when available", lastFailure)
+            // A timeout is not an error the player can act on. Keep showing the cached list, or an
+            // empty list, instead of surfacing a timeout message.
+            cachedRoomList() ?: emptyList()
+        }
 
-                val result = channel.receive()
+    /**
+     * Queries every configured source at once and keeps the first response that parses. A source
+     * that fails or returns a foreign payload must not cancel the remaining ones.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private suspend fun fetchFirstRoomList(sources: List<String>): List<RoomDescription>? =
+        withTimeoutOrNull(ROOM_LIST_TIMEOUT_MS) {
+            val results = Channel<List<RoomDescription>>(Channel.CONFLATED)
+            val finished = AtomicInteger()
 
-                val roomDescriptions = mutableListOf<RoomDescription>()
+            fun finishWithFailure(failure: Throwable) {
+                if (finished.incrementAndGet() >= sources.size && results.isEmpty) {
+                    results.close(failure)
+                }
+            }
 
-                result.body.source().use {
-                    val read = it.readUtf8Line()
-                    if (read?.contains("CORRODINGGAMES") != true) throw RuntimeException("Unknown header: $read")
-                    var i = 0
-                    while (true) {
-                        val r = it.readUtf8Line()?.split(",") ?: break
-                        val uuid = if (r[0].toIntOrNull() == 0) {
-                            r[0] + i++
-                        } else {
-                            r[0]
-                        }
-                        try {
-                            val desc = RoomDescription(
-                                uuid,
-                                r[1],
-                                r[2].toInt(),
-                                r[3],
-                                r[4],
-                                r[5].toLong(),
-                                r[6].toBooleanStrict(),
-                                r[7],
-                                r[8].toBooleanStrict(),
-                                r[9],
-                                r[10],
-                                r[11],
-                                r[12],
-                                r[13].toBooleanStrict(),
-                                r[14],
-                                r[15].toIntOrNull(),
-                                r[16].toIntOrNull(),
-                                r[17].toBooleanStrict(),
-                                r[18].ifBlank { r[0] },
-                                r[19].toBooleanStrict(),
-                                r[20],
-                                r[21].toInt(),
-                            )
+            for (source in sources) {
+                val request = Request.Builder()
+                    .url(source)
+                    .addHeader("User-Agent", "rw android 176 zh")
+                    .addHeader("Language", "zh")
+                    .get()
+                    .build()
 
-                            roomDescriptions.add(desc)
-                        } catch (e: Throwable) {
-                            throw RuntimeException("Parse error when reading: ${r.joinToString(",")}", e)
+                client.newCall(request).enqueue(object : Callback {
+                    override fun onFailure(call: Call, e: IOException) = finishWithFailure(e)
+
+                    override fun onResponse(call: Call, response: Response) {
+                        response.use {
+                            runCatching { parseRoomList(it) }
+                                .onSuccess { rooms ->
+                                    if (results.trySend(rooms).isFailure) {
+                                        finished.incrementAndGet()
+                                    }
+                                }
+                                .onFailure { failure -> finishWithFailure(failure) }
                         }
                     }
-                }
-
-                result.close()
-                channel.close()
-
-                roomDescriptions
+                })
             }
+
+            results.receive()
         }
+
+    /** Parses the master-server payload; a malformed row is skipped instead of the whole list. */
+    private fun parseRoomList(response: Response): List<RoomDescription> =
+        parseRoomListPayload(response.body.string())
 }
+
+/**
+ * Parses the master-server line format. A room name may embed a raw newline, which splits one
+ * record over two lines; such rows cannot be repaired without risking the next room, so they are
+ * skipped. The remaining rooms stay available instead of failing the whole refresh.
+ */
+internal fun parseRoomListPayload(payload: String): List<RoomDescription> {
+    val rows = payload.split('\n')
+    val header = rows.firstOrNull()?.trimEnd('\r')
+    if (header?.contains("CORRODINGGAMES") != true) throw IOException("Unknown header: $header")
+    val roomDescriptions = mutableListOf<RoomDescription>()
+    var i = 0
+    for (raw in rows.drop(1)) {
+        val line = raw.trimEnd('\r')
+        if (line.isBlank()) continue
+        val r = line.split(',')
+        if (r.size < 22) {
+            log.warn("Skipping short room entry: ${line.take(200)}")
+            continue
+        }
+        val uuid = if (r[0].toIntOrNull() == 0) {
+            r[0] + i++
+        } else {
+            r[0]
+        }
+        try {
+            roomDescriptions.add(
+                RoomDescription(
+                    uuid,
+                    r[1],
+                    r[2].toInt(),
+                    r[3],
+                    r[4],
+                    r[5].toLong(),
+                    r[6].toBooleanStrict(),
+                    r[7],
+                    r[8].toBooleanStrict(),
+                    r[9],
+                    r[10],
+                    r[11],
+                    r[12],
+                    r[13].toBooleanStrict(),
+                    r[14],
+                    r[15].toIntOrNull(),
+                    r[16].toIntOrNull(),
+                    r[17].toBooleanStrict(),
+                    r[18].ifBlank { r[0] },
+                    r[19].toBooleanStrict(),
+                    r[20],
+                    r[21].toInt(),
+                )
+            )
+        } catch (e: Throwable) {
+            log.warn("Skipping unreadable room entry: ${r.joinToString(",")}", e)
+        }
+    }
+    return roomDescriptions
+}
+
+private const val ROOM_LIST_TIMEOUT_MS = 15_000L
+private const val ROOM_LIST_ATTEMPTS = 2
+private const val ROOM_LIST_RETRY_DELAY_MS = 300L
 
 /** Registers a typed receiver and returns a handle that can be owned by an [io.github.rwml.api.ExtensionContext]. */
 fun <T : Packet> Net.registerPacketListener(

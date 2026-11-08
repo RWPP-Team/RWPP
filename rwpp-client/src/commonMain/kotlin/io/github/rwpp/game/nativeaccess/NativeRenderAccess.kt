@@ -16,6 +16,7 @@ import com.corrodinggames.rts.gameFramework.gui.MinimapHandlerNotificationType
 /** Native game fields and methods exposed to client game and HUD code through mixins. */
 internal interface NativeBattleAccess {
     fun rwppGroups(): ArrayList<*>
+    fun rwppActionBlockFraction(action: SpecialAction): Float
     fun rwppActionVisible(action: SpecialAction, units: ArrayList<OrderableUnit>): Boolean
 }
 

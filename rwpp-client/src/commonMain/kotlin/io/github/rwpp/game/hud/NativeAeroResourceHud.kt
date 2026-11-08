@@ -48,18 +48,20 @@ internal class NativeAeroResourceHudSampler(private val intervalMillis: Long = 2
 
         val ui = engine.interfaceEngine
         val player = aeroPresentationTeam(engine)
+        // An observed team is somebody else's economy, so the rows keep the native alt colour.
+        val observing = io.github.rwpp.graphics.aeroObservingTeam(engine)
         var firstTeam: Team? = null
         if (engine.replayEngine.isPlayingReplay() || player?.isSpectator() == true) {
             val selected: OrderableUnit? = ui.getFirstSelectedOrderableUnit()
             val team = selected?.team
             if (team != null) {
                 firstTeam = team
-                appendTeamRows(team, secondaryTeam = false)
+                appendTeamRows(team, secondaryTeam = observing)
             }
         } else if (player != null) {
             if (player != Team.grayTeam && !player.isSpectator()) {
                 firstTeam = player
-                appendTeamRows(player, secondaryTeam = false)
+                appendTeamRows(player, secondaryTeam = observing)
             }
             val selected = ui.getFirstControllableSelectedUnit()
             if (selected != null && selected.team != firstTeam && ui.canPlayerControlUnit(selected)) {

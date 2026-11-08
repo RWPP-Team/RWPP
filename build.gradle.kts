@@ -122,7 +122,7 @@ listOf("jvm", "android").forEach { platform ->
 
 allprojects {
     group = "io.github.rwpp"
-    version = "2.0.0-beta03"
+    version = "2.0.0-beta04"
 
 //    subprojects {
 //        tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {

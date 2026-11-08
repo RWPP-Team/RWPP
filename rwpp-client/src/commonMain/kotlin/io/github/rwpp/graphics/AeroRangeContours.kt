@@ -9,9 +9,14 @@ package io.github.rwpp.graphics
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.unit.dp
+import kotlin.math.max
 
 internal data class AeroRangeOwnership(val group: Int, val color: Color)
 
@@ -22,67 +27,11 @@ internal fun aeroRangeOwnership(
     useTeamColors: Boolean
 ): AeroRangeOwnership {
     if (!useTeamColors) return AeroRangeOwnership(playerId, playerColor)
-    val colorIndex = if (allyTeam >= 0) allyTeam % 10 else allyTeam
+    // lookupTeamColor indexes a fixed palette. A negative team id must not reach it as a
+    // negative index, and ids beyond the palette wrap in the same way as the native HUD.
+    val colorIndex = ((allyTeam % 10) + 10) % 10
     return AeroRangeOwnership(allyTeam, Color(com.corrodinggames.rts.game.Team.lookupTeamColor(colorIndex)))
 }
-
-/** Mask edge shader shared by the JVM Skia and Android RenderEffect implementations. */
-internal const val AERO_RANGE_MASK_SHADER = """
-    uniform shader content;
-    uniform float2 uWorldOrigin;
-    uniform float2 uWorldPerPixel;
-    uniform float4 uTint;
-    uniform float uPhase;
-    uniform float uDetailed;
-
-    half4 main(float2 p) {
-        float center = content.eval(p).a;
-        float inside = smoothstep(0.05, 0.95, center);
-        float fillAlpha = inside * 0.025;
-        if (uDetailed < 0.5) {
-            float left = content.eval(p - float2(1.5, 0.0)).a;
-            float right = content.eval(p + float2(1.5, 0.0)).a;
-            float up = content.eval(p - float2(0.0, 1.5)).a;
-            float down = content.eval(p + float2(0.0, 1.5)).a;
-            float neighborMax = max(max(left, right), max(up, down));
-            float neighborMin = min(min(left, right), min(up, down));
-            float edge = clamp(max(inside * (1.0 - neighborMin),
-                                   (1.0 - inside) * neighborMax), 0.0, 1.0);
-            float alpha = (fillAlpha + edge * 0.76 * (1.0 - fillAlpha)) * uTint.a;
-            return half4(uTint.rgb * alpha, alpha);
-        }
-
-        float2 d = float2(1.06, 1.06);
-        float upperLeft = content.eval(p + float2(-d.x, -d.y)).a;
-        float upperRight = content.eval(p + float2(d.x, -d.y)).a;
-        float lowerLeft = content.eval(p + float2(-d.x, d.y)).a;
-        float lowerRight = content.eval(p + d).a;
-        float left = content.eval(p - float2(1.5, 0.0)).a;
-        float right = content.eval(p + float2(1.5, 0.0)).a;
-        float up = content.eval(p - float2(0.0, 1.5)).a;
-        float down = content.eval(p + float2(0.0, 1.5)).a;
-        float neighborMax = max(max(max(left, right), max(up, down)),
-            max(max(upperLeft, upperRight), max(lowerLeft, lowerRight)));
-        float neighborMin = min(min(min(left, right), min(up, down)),
-            min(min(upperLeft, upperRight), min(lowerLeft, lowerRight)));
-        float farMax = max(max(content.eval(p - float2(3.5, 0.0)).a,
-                               content.eval(p + float2(3.5, 0.0)).a),
-                           max(content.eval(p - float2(0.0, 3.5)).a,
-                               content.eval(p + float2(0.0, 3.5)).a));
-        float innerEdge = inside * (1.0 - neighborMin);
-        float outerEdge = (1.0 - inside) * neighborMax;
-        float halo = (1.0 - inside) * farMax;
-        float edge = clamp(max(innerEdge, outerEdge), 0.0, 1.0);
-        float2 world = uWorldOrigin + p * uWorldPerPixel;
-        float wave = 0.5 + 0.5 * sin(world.x * 0.043 + world.y * 0.031 - uPhase * 6.2831853);
-        float edgeAlpha = edge * mix(0.68, 0.88, wave);
-        float haloAlpha = halo * 0.16;
-        float alpha = clamp(fillAlpha + edgeAlpha * (1.0 - fillAlpha) +
-                            haloAlpha * (1.0 - fillAlpha) * (1.0 - edgeAlpha), 0.0, 1.0) * uTint.a;
-        float3 rgb = mix(uTint.rgb, float3(0.78, 0.94, 1.0), edge * 0.34);
-        return half4(rgb * alpha, alpha);
-    }
-"""
 
 /** One circular range in world coordinates. Ranges of different kinds never merge. */
 internal data class AeroRangeCircle(
@@ -101,40 +50,27 @@ internal data class AeroRangeGroup(
     val circles: List<AeroRangeCircle>,
 )
 
-/** A small shader sampling margin is retained at the viewport edge for its soft outer glow. */
-internal fun aeroRangeMaskBounds(
-    group: AeroRangeGroup,
-    camera: Offset,
-    worldToScreen: Offset,
-    viewport: Size,
-): Rect? {
-    if (group.circles.isEmpty() || viewport.width <= 0f || viewport.height <= 0f) return null
-    var left = Float.POSITIVE_INFINITY
-    var top = Float.POSITIVE_INFINITY
-    var right = Float.NEGATIVE_INFINITY
-    var bottom = Float.NEGATIVE_INFINITY
-    group.circles.forEach { circle ->
-        val x = (circle.center.x - camera.x) * worldToScreen.x
-        val y = (circle.center.y - camera.y) * worldToScreen.y
-        val radiusX = circle.radius * worldToScreen.x
-        val radiusY = circle.radius * worldToScreen.y
-        left = minOf(left, x - radiusX)
-        top = minOf(top, y - radiusY)
-        right = maxOf(right, x + radiusX)
-        bottom = maxOf(bottom, y + radiusY)
-    }
-    val margin = 5f
-    left = maxOf(0f, left - margin)
-    top = maxOf(0f, top - margin)
-    right = minOf(viewport.width, right + margin)
-    bottom = minOf(viewport.height, bottom + margin)
-    return if (left < right && top < bottom) Rect(left, top, right, bottom) else null
-}
+/**
+ * The engine treats a build range above this value as unlimited
+ * (InterfaceEngine.handleBuildingPlacement and OrderableUnit.processBuildWaypoint).
+ * Such a range has no visible arc. Expanding it into screen-space geometry instead
+ * overflows the path tessellator and paints a solid team-coloured block over the canvas.
+ */
+internal const val AERO_RANGE_MAX_WORLD_RADIUS = 800_000f
 
 /**
- * Filters invalid circles and groups the remaining samples without constructing Boolean paths.
- * Platform renderers draw each group into one opaque mask, so overlaps do not accumulate alpha
- * and only the outside of the combined mask receives an outline.
+ * A projected radius may never exceed this multiple of the longer viewport edge.
+ * A radius beyond it has no visible arc inside the viewport, but its screen-space oval still has
+ * to be tessellated. GPU path tessellators have different coordinate and atlas limits, so such
+ * geometry is the source of the solid team-coloured blocks reported on some JVM machines.
+ * Reject it instead of handing an oversized path to the driver.
+ */
+internal const val AERO_RANGE_MAX_PROJECTED_RADIUS_FACTOR = 8f
+
+/**
+ * Filters invalid circles and groups the remaining samples. Every platform draws the
+ * groups as ordinary Compose vector geometry, so overlaps do not accumulate alpha and
+ * only the outside of the combined mask receives an outline.
  */
 internal class AeroRangeGroupBuilder {
     private val groups = LinkedHashMap<Pair<Int, String>, MutableList<AeroRangeCircle>>()
@@ -191,26 +127,83 @@ internal class AeroRangeTracker<T> {
     }
 }
 
-/** Draw a world-space mask group with a platform shader or a native mask fallback. */
-internal expect fun DrawScope.beginAeroRangeFrame(phase: Float)
-
-/** Release platform-owned range-mask resources when the overlay becomes inactive. */
-internal expect fun releaseAeroRangeResources()
-
-/** Draw a world-space mask group with a platform shader or a native mask fallback. */
-internal expect fun DrawScope.drawAeroRangeGroupMask(
+/**
+ * Range masks are drawn as ordinary Compose vector geometry on every platform.
+ *
+ * Both platform renderers originally composited the same mask shader into a native layer: the
+ * JVM used Skia saveLayer with an ImageFilter.makeRuntimeShader, Android used saveLayer or a
+ * RenderNode with a RuntimeShader RenderEffect. Compose keeps its own save/restore state on the
+ * same canvas, so a layer checkpoint could restore Compose's state instead of the layer and leak
+ * a team-tinted rectangle. The JVM implementation was already replaced with vector geometry in
+ * 2.0.0-beta03, before the desktop screenshots behind this fix were taken. The remaining desktop
+ * failure is the geometry itself: a valid placement preview adds a build or attack range whose
+ * radius can be unlimited, and expanding that radius into a screen-space path produces a huge
+ * oval that the GPU tessellates into a solid team-coloured arc, rectangle or wedge. The radius
+ * guards below reject that geometry on both the sampling and drawing paths; the single vector
+ * union removes every native layer, render node and shader from both platforms.
+ */
+internal fun DrawScope.drawAeroRangeGroupMask(
     group: AeroRangeGroup,
     camera: Offset,
     worldToScreen: Offset,
     worldPerPixel: Offset,
     phase: Float,
     detailed: Boolean,
-)
+) {
+    if (group.circles.isEmpty()) return
+    val viewportWidth = size.width
+    val viewportHeight = size.height
+    if (viewportWidth <= 0f || viewportHeight <= 0f) return
+    if (!worldToScreen.x.isFinite() || !worldToScreen.y.isFinite() ||
+        worldToScreen.x <= 0f || worldToScreen.y <= 0f
+    ) return
+    val maxProjectedRadius =
+        max(viewportWidth, viewportHeight) * AERO_RANGE_MAX_PROJECTED_RADIUS_FACTOR
+    var union: Path? = null
+    for (circle in group.circles) {
+        if (circle.radius > AERO_RANGE_MAX_WORLD_RADIUS) continue
+        val x = (circle.center.x - camera.x) * worldToScreen.x
+        val y = (circle.center.y - camera.y) * worldToScreen.y
+        val rx = circle.radius * worldToScreen.x
+        val ry = circle.radius * worldToScreen.y
+        if (!x.isFinite() || !y.isFinite() || !rx.isFinite() || !ry.isFinite() || rx <= 0f || ry <= 0f) continue
+        if (rx > maxProjectedRadius || ry > maxProjectedRadius) continue
+        val left = x - rx
+        val top = y - ry
+        val right = x + rx
+        val bottom = y + ry
+        if (!left.isFinite() || !top.isFinite() || !right.isFinite() || !bottom.isFinite()) continue
+        if (right < 0f || bottom < 0f || left > viewportWidth || top > viewportHeight) continue
+        // Never clamp the oval bounds to the viewport: squeezing each edge of the bounding box
+        // turns a partially visible circle into an ellipse. Off-screen parts are clipped by the
+        // canvas below, which keeps the visible arc circular.
+        val oval = Path().apply {
+            addOval(Rect(left, top, right, bottom))
+        }
+        val previous = union
+        union = if (previous == null) oval else Path().apply {
+            op(previous, oval, PathOperation.Union)
+        }
+    }
+    val merged = union ?: return
+    // One filled union keeps overlaps from darkening each other and keeps a single outline,
+    // matching the native mask composite that this replaced. The viewport clip is a plain canvas
+    // clip, not a layer, so no saveLayer checkpoint can leak a tinted rectangle.
+    clipRect(0f, 0f, viewportWidth, viewportHeight) {
+        drawPath(merged, group.color.copy(alpha = 0.025f))
+        val outlineAlpha = group.color.alpha * if (detailed) 0.8f else 0.76f
+        drawPath(
+            merged,
+            group.color.copy(alpha = outlineAlpha.coerceIn(0f, 1f)),
+            style = Stroke(width = if (detailed) 1.4.dp.toPx() else 1.dp.toPx()),
+        )
+    }
+}
 
 /**
- * Screen-space renderer entry point. Sampling is fresh each frame, so moving units never visibly
- * jump between throttled geometry rebuilds. The path union cost is replaced by a native opaque
- * mask pass followed by one tint/edge composite per team and range kind.
+ * Screen-space renderer entry point. Sampling is fresh each frame, so moving units never
+ * visibly jump between throttled geometry rebuilds. One vector union per team and range
+ * kind replaces the native opaque mask pass and its tint/edge composite.
  */
 internal fun DrawScope.drawAeroRangeContours(
     groups: List<AeroRangeGroup>,
@@ -225,12 +218,7 @@ internal fun DrawScope.drawAeroRangeContours(
         !worldWidth.isFinite() || worldWidth <= 0f || !worldHeight.isFinite() || worldHeight <= 0f ||
         size.width <= 0f || size.height <= 0f
     ) return
-
-    beginAeroRangeFrame(phase)
-    if (groups.isEmpty()) {
-        releaseAeroRangeResources()
-        return
-    }
+    if (groups.isEmpty()) return
 
     val worldToScreen = Offset(zoom * size.width / worldWidth, zoom * size.height / worldHeight)
     if (!worldToScreen.x.isFinite() || !worldToScreen.y.isFinite() ||
@@ -242,8 +230,11 @@ internal fun DrawScope.drawAeroRangeContours(
     }
 }
 
-private fun AeroRangeCircle.hasUsableBounds(): Boolean {
-    if (!center.x.isFinite() || !center.y.isFinite() || !radius.isFinite() || radius <= 0f) return false
+/** Reject unlimited radii before they reach either the update-phase or render-phase cache. */
+internal fun AeroRangeCircle.hasUsableBounds(): Boolean {
+    if (!center.x.isFinite() || !center.y.isFinite() || !radius.isFinite() ||
+        radius <= 0f || radius > AERO_RANGE_MAX_WORLD_RADIUS
+    ) return false
     return (center.x - radius).isFinite() && (center.x + radius).isFinite() &&
             (center.y - radius).isFinite() && (center.y + radius).isFinite()
 }

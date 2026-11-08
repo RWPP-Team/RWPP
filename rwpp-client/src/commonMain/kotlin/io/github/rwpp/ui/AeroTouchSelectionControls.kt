@@ -23,6 +23,7 @@ import io.github.rwpp.api.coroutines.GameScope
 import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.config.Settings
 import io.github.rwpp.game.building.BuildingPlanningController
+import io.github.rwpp.game.building.BuildingPlanningMode
 import io.github.rwpp.game.hotkeys.NativeGameHotkeys
 import io.github.rwpp.game.hotkeys.NativeTacticalActions
 import io.github.rwpp.game.hotkeys.SelectionCameraFollowController
@@ -38,10 +39,15 @@ internal fun GameScreen.AeroTouchSelectionControls() {
     if (!koinInject<AppContext>().isAndroid()) return
     val settings = koinInject<Settings>()
     var followStatus by remember { mutableStateOf(SelectionCameraFollowController.status) }
-    var planningStatus by remember { mutableStateOf(BuildingPlanningController.snapshot) }
+    // Keep only the two values this panel renders. Copying the whole planner snapshot each frame
+    // rebuilt the row continuously, even while nothing visible had changed.
+    var planningEnabled by remember { mutableStateOf(BuildingPlanningController.snapshot.enabled) }
+    var planningMode by remember { mutableStateOf(BuildingPlanningController.snapshot.mode) }
     OnGameUpdate {
         followStatus = SelectionCameraFollowController.status
-        planningStatus = BuildingPlanningController.snapshot
+        val planning = BuildingPlanningController.snapshot
+        if (planningEnabled != planning.enabled) planningEnabled = planning.enabled
+        if (planningMode != planning.mode) planningMode = planning.mode
     }
 
     AeroPanel {
@@ -92,7 +98,7 @@ internal fun GameScreen.AeroTouchSelectionControls() {
                 icon = rememberVectorPainter(Icons.Default.Build),
                 label = readI18n("rwpp.planning.toggleShort"),
                 description = readI18n("rwpp.planning.toggle"),
-                active = planningStatus.enabled,
+                active = planningEnabled,
                 onClick = { GameScope.launch { BuildingPlanningController.toggleMode() } },
             )
             TouchSelectionButton(

@@ -37,6 +37,7 @@ import io.github.rwpp.api.io.SizeUtils
 import io.github.rwpp.api.net.Net
 import io.github.rwpp.api.net.packets.ModPacket
 import io.github.rwpp.api.net.packets.ModPackets
+import io.github.rwpp.api.net.packets.ModTransferHost
 import io.github.rwpp.api.net.registerPacketListener
 import io.github.rwpp.api.server.ServerInfoResponder
 import io.github.rwpp.appKoin
@@ -79,29 +80,36 @@ object Logic : Initialization {
         val owner = EventOwner(RwppExtensionRuntime.extensionContext)
         GlobalEventChannel.filter(ModCheckEvent::class).subscribeAlways(owner) { event ->
             val room = appKoin.get<Game>().gameRoom
-            if (room.option.canTransferMod) {
-                val required = event.requiredMods.toList()
-                GameScope.launch {
-                    val net = appKoin.get<Net>()
-                    val allMods = GameEngine.getInstance().modManager.refreshModList().filterIsInstance<Mod>()
-                    val missingMods = required.toMutableList().apply { removeAll(allMods.map { it.name }) }
-                    if (missingMods.isEmpty()) {
-                        net.sendPacketToServer(ModPacket.RequestPacket())
-                        allMods.forEach { mod ->
-                            if ((mod.getTitle() ?: mod.name.orEmpty()) in required) mod.disabled = false
-                        }
-                        reloadMods()
-                        net.sendPacketToServer(ModPacket.ModReloadFinishPacket())
-                    } else {
-                        modQueue = LinkedList(missingMods)
-                        requiredMods = required
-                        net.sendPacketToServer(
-                            ModPacket.RequestPacket().apply { this.mods = missingMods.joinToString(",") })
-                        showDownloadingDialog()
-                        setDownloadingTitle(0)
+            if (!room.option.canTransferMod) return@subscribeAlways
+            val required = event.requiredMods
+            // Compare with the same name that the transfer protocol uses. The file name and the
+            // mod title differ for many mods; mixing the two used to report every mod as missing.
+            val allMods = GameEngine.getInstance().modManager.refreshModList().filterIsInstance<Mod>()
+            val available = allMods.map(ModTransferHost::displayName).toSet()
+            val missingMods = required.filter { it !in available }
+            // Only suppress the native mismatch report while a download is about to replace the
+            // local mod table. When every named mod is already present, the native report is the
+            // only check for a same-name mod with different contents. Cancelling it allowed a
+            // client to start and reconnect with a different unit table, which desynchronises
+            // every following frame and survives a resync save.
+            if (missingMods.isNotEmpty()) event.cancel()
+            GameScope.launch {
+                val net = appKoin.get<Net>()
+                if (missingMods.isEmpty()) {
+                    net.sendPacketToServer(ModPacket.RequestPacket())
+                    allMods.forEach { mod ->
+                        if (ModTransferHost.displayName(mod) in required) mod.disabled = false
                     }
+                    reloadMods()
+                    net.sendPacketToServer(ModPacket.ModReloadFinishPacket())
+                } else {
+                    modQueue = LinkedList(missingMods)
+                    requiredMods = required
+                    net.sendPacketToServer(
+                        ModPacket.RequestPacket().apply { this.mods = missingMods.joinToString(",") })
+                    showDownloadingDialog()
+                    setDownloadingTitle(0)
                 }
-                event.cancel()
             }
         }
         GlobalEventChannel.filter(DisconnectEvent::class).subscribeAlways(owner) {
@@ -139,9 +147,10 @@ object Logic : Initialization {
                     val queue = modQueue ?: return@withLock
                     if (room.isHost) return@withLock
                     runCatching {
-                        require(name == queue.peek()) { "Unexpected downloaded mod: $name" }
                         require(name.isNotBlank() && '/' !in name && '\\' !in name && ':' !in name) { "Invalid mod name" }
-                        queue.poll()
+                        // Consume by name, not by queue head. The host now sends in the requested
+                        // order, but a duplicate or delayed packet must not shift every later mod.
+                        require(queue.remove(name)) { "Unexpected downloaded mod: $name" }
                         setDownloadingTitle(index + 1)
                         withContext(Dispatchers.IO) {
                             File(modDir, "$name.rwmod").writeBytes(data)
@@ -151,11 +160,11 @@ object Logic : Initialization {
                         if (queue.isEmpty()) {
                             val required = requiredMods ?: return@runCatching
                             GameEngine.getInstance().modManager.refreshModList().filterIsInstance<Mod>().forEach {
-                                it.disabled = (it.getTitle() ?: it.name.orEmpty()) !in required
+                                it.disabled = ModTransferHost.displayName(it) !in required
                             }
                             reloadMods()
                             val available = GameEngine.getInstance().modManager.refreshModList().filterIsInstance<Mod>()
-                                .map { it.getTitle() ?: it.name.orEmpty() }
+                                .map(ModTransferHost::displayName)
                             require(required.all { it in available }) { "Required mods were not found" }
                             net.sendPacketToServer(ModPacket.ModReloadFinishPacket())
                             withContext(Dispatchers.Main) { UI.showDialog(null) }

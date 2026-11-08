@@ -23,6 +23,9 @@ abstract class NativeBattleAccessMixin {
     @Accessor("hotSelectionGroups")
     abstract fun rwppGroups(): ArrayList<*>
 
+    @Invoker("getSpecialActionBlockTime")
+    abstract fun rwppActionBlockFraction(action: SpecialAction): Float
+
     @Invoker("isSpecialActionVisibleCached")
     abstract fun rwppActionVisible(action: SpecialAction, units: ArrayList<OrderableUnit>): Boolean
 }

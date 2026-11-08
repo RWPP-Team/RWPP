@@ -205,8 +205,11 @@ internal class AeroWorldEffectsSampler(
         val orders = ArrayList<AeroOrder>()
         val circles = ArrayList<AeroRangeCircle>()
         val production = ArrayList<AeroProductionVisual>()
-        val replaying = engine.replayEngine.isPlayingReplay || isAeroLiveObserver(engine)
+        val observing = isAeroLiveObserver(engine)
+        val replay = engine.replayEngine.isPlayingReplay
+        val replaying = replay || observing
         val showAllOrders = replaying && showAllReplayOrders
+        val viewer = aeroPresentationTeam(engine)
         allVisible.forEach { unit ->
             val inView = unit.x + unit.radius >= engine.cameraRenderX && unit.y + unit.radius >= engine.cameraRenderY &&
                     unit.x - unit.radius <= engine.cameraRenderX + engine.screenWidth / engine.zoomScale &&
@@ -221,6 +224,14 @@ internal class AeroWorldEffectsSampler(
             val shieldVisible =
                 aeroShieldVisible(settings.aeroSelection, unit.selected, isHovered, unit.shield, unit.maxShield)
             val ownerColor = Color(unit.team.color)
+            val enemy = viewer != null && unit.team.isEnemy(viewer)
+            val selectionColor = aeroSelectionHighlightColor(
+                ownTeam = unit.team === engine.playerTeam,
+                enemy = enemy,
+                observing = observing,
+                replay = replay,
+                accent = accent,
+            )
             val (transportUsed, transportCapacity) = transportSlots(
                 unit, settings.aeroSelection && inView &&
                     (unit.selected || isHovered || engine.settings.showHp)
@@ -239,7 +250,7 @@ internal class AeroWorldEffectsSampler(
                     hp,
                     trail,
                     unitHealthRatio(unit.shield, unit.maxShield),
-                    if (unit.team.isEnemy(aeroPresentationTeam(engine))) Color(0xffff6565) else accent,
+                    if (enemy) AeroEnemyHighlight else accent,
                     selected = settings.aeroSelection && unit.selected,
                     hovered = isHovered,
                     healthVisible = settings.aeroSelection && health,
@@ -247,6 +258,7 @@ internal class AeroWorldEffectsSampler(
                     secondary = if (settings.aeroSelection) secondary else -1f,
                     shieldVisible = shieldVisible,
                     glowHighlight = glowHighlight,
+                    selectionColor = selectionColor,
                     barRadius = unit.radius,
                     barScaledDown = unit.drawnScaledDown,
                     barMini = unit.getAttachmentSlot()?.showMiniHp == true,
@@ -281,8 +293,10 @@ internal class AeroWorldEffectsSampler(
                             unit.team.teamId, unit.team.allyTeam, ownerColor, settings.aeroRangeUseTeamColors
                         )
                         val circle = AeroRangeCircle(Offset(unit.x, unit.y), radius, ownership.group, ownership.color)
-                        circles += circle
-                        trackedRanges.add(unit, circle)
+                        if (circle.hasUsableBounds()) {
+                            circles += circle
+                            trackedRanges.add(unit, circle)
+                        }
                     }
                 }
                 if (settings.aeroOrderEffects || settings.aeroRallyPointEffects && unit.selected || showAllOrders) {
@@ -395,8 +409,10 @@ internal class AeroWorldEffectsSampler(
                         Offset(source.x, source.y), source.getBuildRange(type),
                         source.team.teamId, Color(0xff72d8f5), "build"
                     )
-                    circles += circle
-                    trackedRanges.add(source, circle)
+                    if (circle.hasUsableBounds()) {
+                        circles += circle
+                        trackedRanges.add(source, circle)
+                    }
                 }
             }
         }

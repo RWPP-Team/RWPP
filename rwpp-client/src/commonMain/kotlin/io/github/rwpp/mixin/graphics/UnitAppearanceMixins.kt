@@ -10,12 +10,16 @@ package io.github.rwpp.mixin.graphics
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
+import com.corrodinggames.rts.game.Team
 import com.corrodinggames.rts.game.TeamColorMode
 import com.corrodinggames.rts.game.units.Unit
+import com.corrodinggames.rts.gameFramework.GameEngine
 import com.corrodinggames.rts.gameFramework.GameObject
 import com.corrodinggames.rts.gameFramework.render.BitmapOrTexture
+import io.github.rwpp.game.hud.isAeroLiveObserver
 import io.github.rwpp.graphics.UnitAppearanceRenderBridge
 import io.github.rwpp.logic.GameVisualSettings
+import io.github.rwpp.logic.hud.NativeHudVisibility
 import kim.der.asm.api.annotation.*
 
 /** Retains the native team-mask source for each cached texture variant without changing Team. */
@@ -46,11 +50,22 @@ object UnitAppearanceSelectionDrawScopeMixin {
         original: Operation<kotlin.Unit>,
     ) {
         val unit = gameObject as? Unit ?: return original.call(gameObject, deltaTime)
-        if (GameVisualSettings.get()?.unitAppearanceSelectionRingsEnabled != true) {
-            return original.call(gameObject, deltaTime)
-        }
-        UnitAppearanceRenderBridge.withUnit(unit, selection = true) {
-            original.call(gameObject, deltaTime)
+        val engine = GameEngine.getInstance()
+        // A live observer watches another player's units. Native compares against playerTeam,
+        // which the observer draw already replaced, so it would pick the friendly colour. The
+        // neutral viewer team makes Unit.drawSelection choose selectionPaintAlly instead.
+        val neutralize = !NativeHudVisibility.aeroSelection && isAeroLiveObserver(engine)
+        val previous = engine.playerTeam
+        if (neutralize) engine.playerTeam = Team.grayTeam
+        try {
+            if (GameVisualSettings.get()?.unitAppearanceSelectionRingsEnabled != true) {
+                return original.call(gameObject, deltaTime)
+            }
+            UnitAppearanceRenderBridge.withUnit(unit, selection = true) {
+                original.call(gameObject, deltaTime)
+            }
+        } finally {
+            if (neutralize) engine.playerTeam = previous
         }
     }
 }

@@ -9,7 +9,7 @@ Required environment:
     R2_ENDPOINT           https://<account>.r2.cloudflarestorage.com
     R2_ACCESS_KEY_ID      R2 S3 access key id
     R2_SECRET_ACCESS_KEY  R2 S3 secret access key
-    RELEASE_TAG           release tag, for example v2.0.0-beta03
+    RELEASE_TAG           release tag, for example v2.0.0-beta04
     GITHUB_REPOSITORY     owner/repo, used for the fallback address
 
 Optional environment:

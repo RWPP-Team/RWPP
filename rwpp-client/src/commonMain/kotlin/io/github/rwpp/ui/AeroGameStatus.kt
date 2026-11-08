@@ -27,7 +27,10 @@ import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.config.Settings
 import io.github.rwpp.game.hud.*
 import io.github.rwpp.game.replay.aeroPresentationTeam
+import io.github.rwpp.graphics.AeroAllyText
 import io.github.rwpp.graphics.NativeWorldAccess
+import io.github.rwpp.graphics.aeroObservingTeam
+import io.github.rwpp.graphics.aeroSecondaryResourceTeam
 import org.koin.compose.koinInject
 
 @Composable
@@ -37,6 +40,7 @@ internal fun GameScreen.AeroGameTelemetry() {
     var resources by remember { mutableStateOf(emptyList<AeroResourceHudLine>()) }
     var lastTelemetrySampleAt by remember { mutableLongStateOf(Long.MIN_VALUE) }
     val resourceSampler = remember { NativeAeroResourceHudSampler() }
+    val accent = MaterialTheme.colorScheme.primary
     OnGameUpdate {
         val engine = GameEngine.getInstance()
         val now = System.currentTimeMillis()
@@ -51,17 +55,32 @@ internal fun GameScreen.AeroGameTelemetry() {
             } else {
                 val seconds = engine.gameTimeMillis / 1000
                 val resource = com.corrodinggames.rts.game.units.custom.resources.CustomResource.CREDITS
-                val income = team.getResourceAmount(resource)
-                val expense = team.getNegativeResourceAmount(resource)
-                val rate = "(${if (income >= 0) "+" else ""}$income)" + if (expense != 0) "($expense)" else ""
                 val ping =
                     if (io.github.rwpp.appKoin.get<io.github.rwpp.api.game.Game>().state.multiplayer) team.ping else 0
                 val clock = "${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}"
                 val fps = if (engine.settings.showFps) (engine as NativeWorldAccess).rwppFramesPerSecond() else 0
                 val unitsCurrent = team.unitCaches.unitCapCount
                 val unitsMax = team.unitsMax
+                val ui = engine.interfaceEngine
+                val selectedControllable = runCatching { ui.getFirstControllableSelectedUnit() }.getOrNull()
+                val controllable = selectedControllable != null &&
+                        runCatching { ui.canPlayerControlUnit(selectedControllable) }.getOrDefault(false)
+                // Native paints the controlled teammate's block with resourceTextPaintAlt.
+                val secondary = aeroSecondaryResourceTeam(engine, team, selectedControllable, controllable)
+                val primaryColor = if (aeroObservingTeam(engine)) AeroAllyText else accent
                 val nextStatus = buildAnnotatedString {
-                    append("$${team.credits.toInt()} $rate\n")
+                    withStyle(SpanStyle(color = primaryColor)) {
+                        append(aeroCreditsText(team.credits.toInt(), team.getResourceAmount(resource),
+                            team.getNegativeResourceAmount(resource)))
+                    }
+                    if (secondary != null) {
+                        append('\n')
+                        withStyle(SpanStyle(color = AeroAllyText)) {
+                            append(aeroCreditsText(secondary.credits.toInt(), secondary.getResourceAmount(resource),
+                                secondary.getNegativeResourceAmount(resource)))
+                        }
+                    }
+                    append('\n')
                     if (engine.settings.showFps) {
                         append("$fps FPS  ·  ")
                         withStyle(SpanStyle(color = pingColor(ping))) { append(if (ping >= 0) "$ping ms" else "— ms") }
@@ -102,6 +121,15 @@ internal fun GameScreen.AeroGameTelemetry() {
 
 internal fun hudPerformanceLabel(showFps: Boolean, fps: Int, ping: Int): String =
     if (showFps) "$fps FPS  ·  ${ping.coerceAtLeast(0)} ms  ·  " else ""
+
+/** Same shape as the native credit entry: amount, then the income/expense deltas. */
+internal fun aeroCreditsText(credits: Int, income: Int, expense: Int): String = buildString {
+    append('$').append(credits).append(' ')
+    append('(')
+    if (income >= 0) append('+')
+    append(income).append(')')
+    if (expense != 0) append('(').append(expense).append(')')
+}
 
 internal fun pingColor(ping: Int): Color = when {
     ping < 0 -> Color(0xffb0bec5)

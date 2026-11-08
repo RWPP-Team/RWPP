@@ -5,40 +5,45 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class NetworkClientReadyAckTest {
-    @Test
-    fun waitsUntilLoadedClientCanRunThenSendsOnlyOnce() {
-        val ack = NetworkClientReadyAck()
-        ack.begin(isNetworkedClient = true)
-
-        assertFalse(ack.beginAttemptIfReady(true, false, false, false, false))
-        assertFalse(ack.beginAttemptIfReady(true, true, false, false, true))
-        assertFalse(ack.beginAttemptIfReady(true, true, true, false, true))
-        assertFalse(ack.beginAttemptIfReady(true, true, true, true, false))
-
-        ack.markMapLoaded()
-        assertTrue(ack.beginAttemptIfReady(true, true, true, true, true))
-        ack.markSent()
-        assertFalse(ack.beginAttemptIfReady(true, true, true, true, true))
+    /** Drains the confirmation cooldown that separates two sends. */
+    private fun NetworkClientReadyAck.attemptAfterCooldown(): Boolean {
+        repeat(200) {
+            if (beginAttemptIfReady(true, true, true, true)) return true
+        }
+        return false
     }
 
     @Test
-    fun eachNewNetworkStartGetsOneAckAndFailedLoadsClearThePendingAck() {
+    fun waitsUntilLoadedClientCanRunThenSends() {
+        val ack = NetworkClientReadyAck()
+        ack.begin(isNetworkedClient = true)
+
+        assertFalse(ack.beginAttemptIfReady(true, false, false, false))
+        assertFalse(ack.beginAttemptIfReady(true, true, false, false))
+        assertFalse(ack.beginAttemptIfReady(true, true, true, false))
+
+        ack.markMapLoaded()
+        assertTrue(ack.beginAttemptIfReady(true, true, true, true))
+    }
+
+    @Test
+    fun eachNewNetworkStartGetsItsOwnAckAndFailedLoadsClearThePendingAck() {
         val ack = NetworkClientReadyAck()
         ack.begin(isNetworkedClient = true)
         ack.markMapLoaded()
-        assertTrue(ack.beginAttemptIfReady(true, true, true, true, true))
+        assertTrue(ack.beginAttemptIfReady(true, true, true, true))
         ack.markSent()
 
         // Returning to the room and receiving packet 120 for another match starts a fresh cycle.
         ack.clear()
         ack.begin(isNetworkedClient = true)
         ack.markMapLoaded()
-        assertTrue(ack.beginAttemptIfReady(true, true, true, true, true))
+        assertTrue(ack.beginAttemptIfReady(true, true, true, true))
 
         ack.begin(isNetworkedClient = true)
         ack.markMapLoaded()
         ack.clear() // Native map-load failure or disconnect.
-        assertFalse(ack.beginAttemptIfReady(true, true, true, true, true))
+        assertFalse(ack.beginAttemptIfReady(true, true, true, true))
     }
 
     @Test
@@ -46,22 +51,40 @@ class NetworkClientReadyAckTest {
         val ack = NetworkClientReadyAck()
         ack.begin(isNetworkedClient = false)
 
-        assertFalse(ack.beginAttemptIfReady(false, true, true, true, true))
-        assertFalse(ack.beginAttemptIfReady(false, true, true, true, true))
+        assertFalse(ack.beginAttemptIfReady(false, true, true, true))
+        assertFalse(ack.beginAttemptIfReady(false, true, true, true))
     }
 
     @Test
-    fun failedNativeSendsAreRetriedOnlyThreeTimes() {
+    fun failedNativeSendsKeepRetryingWhileTheClientIsLoading() {
         val ack = NetworkClientReadyAck()
         ack.begin(isNetworkedClient = true)
         ack.markMapLoaded()
 
-        repeat(2) {
-            assertTrue(ack.beginAttemptIfReady(true, true, true, true, true))
+        // A disconnected or still-attaching client must not exhaust the handshake; the host keeps
+        // waiting until packet 112 reports gameLoopActive.
+        repeat(12) {
+            assertTrue(ack.attemptAfterCooldown())
             assertTrue(ack.markAttemptFailed())
         }
-        assertTrue(ack.beginAttemptIfReady(true, true, true, true, true))
-        assertFalse(ack.markAttemptFailed())
-        assertFalse(ack.beginAttemptIfReady(true, true, true, true, true))
+        assertTrue(ack.isPending())
+    }
+
+    @Test
+    fun confirmationResendsAreBoundedAndThenStop() {
+        val ack = NetworkClientReadyAck()
+        ack.begin(isNetworkedClient = true)
+        ack.markMapLoaded()
+
+        assertTrue(ack.beginAttemptIfReady(true, true, true, true))
+        ack.markSent()
+        assertTrue(ack.isPending())
+        assertTrue(ack.attemptAfterCooldown())
+        ack.markSent()
+        assertTrue(ack.attemptAfterCooldown())
+        ack.markSent()
+
+        assertFalse(ack.isPending())
+        assertFalse(ack.beginAttemptIfReady(true, true, true, true))
     }
 }

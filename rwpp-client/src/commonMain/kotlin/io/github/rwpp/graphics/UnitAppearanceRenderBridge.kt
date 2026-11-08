@@ -346,8 +346,12 @@ internal object UnitAppearanceRenderBridge {
     private fun relation(unit: Unit): UnitAppearanceRelation {
         val team = unit.team ?: return UnitAppearanceRelation.NEUTRAL
         if (team === Team.grayTeam) return UnitAppearanceRelation.NEUTRAL
-        val player = runCatching { com.corrodinggames.rts.gameFramework.GameEngine.getInstance().playerTeam }
+        val engine = runCatching { com.corrodinggames.rts.gameFramework.GameEngine.getInstance() }
             .getOrNull() ?: return UnitAppearanceRelation.ALLY
+        // A live observer draw already replaced playerTeam with the watched team; the watched
+        // units are still someone else's selection and keep the ally colour.
+        val player = if (runCatching { io.github.rwpp.game.hud.isAeroLiveObserver(engine) }
+                .getOrDefault(false)) Team.grayTeam else engine.playerTeam
         return when {
             team === player -> UnitAppearanceRelation.SELF
             player.isEnemy(team) -> UnitAppearanceRelation.ENEMY

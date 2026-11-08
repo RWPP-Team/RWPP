@@ -112,6 +112,34 @@ class AeroRangeContoursTest : DesktopComposeGraphicsTest() {
     }
 
     @Test
+    fun unlimitedAndOversizedRangesNeverPaintASolidScreenBlock() {
+        val color = Color(0xff0000ff)
+
+        // The engine reports some modded builders with an unlimited build range. A valid
+        // placement preview adds that group, so it must never become a screen-sized path.
+        val unlimited = buildAeroRangeGroups(
+            listOf(AeroRangeCircle(Offset(32f, 32f), 900_000f, 1, color, "build"))
+        )
+        assertTrue(unlimited.isEmpty(), "An unlimited build range has no visible arc")
+
+        val oversized = buildAeroRangeGroups(
+            listOf(AeroRangeCircle(Offset(32f, 32f), 100_000f, 1, color, "build"))
+        )
+        assertEquals(1, oversized.size, "A large finite range still reaches the renderer")
+        val oversizedPixels = renderMask(64, 64, oversized, detailed = false)
+        assertTrue(
+            oversizedPixels.all { it == 0 },
+            "A radius wider than the viewport must be skipped instead of filling the canvas"
+        )
+
+        val normal = buildAeroRangeGroups(
+            listOf(AeroRangeCircle(Offset(32f, 32f), 18f, 1, color, "build"))
+        )
+        val normalPixels = renderMask(64, 64, normal, detailed = false)
+        assertTrue(normalPixels.any { it ushr 24 > 0 }, "A normal build range must still render")
+    }
+
+    @Test
     fun maskShaderRendersOverlappingRangesOnceWithoutInternalOutline() {
         val width = 64
         val height = 64

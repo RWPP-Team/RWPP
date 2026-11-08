@@ -201,11 +201,10 @@ internal class AeroWorldPresentation {
             width = engine.screenWidth.coerceAtLeast(1f), height = engine.screenHeight.coerceAtLeast(1f),
             phase = (System.nanoTime() % 2_000_000_000L) / 2_000_000_000f
         )
-        val previous = frame.value
         frame.value = shown
-        if (previous == null || previous.camera != shown.camera || previous.zoom != shown.zoom ||
-            previous.width != shown.width || previous.height != shown.height
-        ) requestWorldPresentationFrame()
+        // Moving units and effects need the same wake-up as camera motion. State application on
+        // Android's separate UI thread must not wait for an unrelated window invalidation.
+        requestWorldPresentationFrame()
     }
 }
 

@@ -40,6 +40,14 @@ internal object NativeNetworkLifecycleCallbacks {
                 network.networked && !network.isServer
     }
 
+    /**
+     * NetworkEngine.update runs every frame on both platforms, so it also drives the ready
+     * handshake. A frame hook that returns early must never be the only trigger.
+     */
+    fun acknowledgeClientReady(target: Any) {
+        NativeGameLifecycle.acknowledgeClientReadyAfterMapLoad(GameEngine.getInstance())
+    }
+
     fun publishMultiplayerHostStarted(
         target: Any,
         started: Boolean,

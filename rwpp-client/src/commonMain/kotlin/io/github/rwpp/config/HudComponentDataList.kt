@@ -19,4 +19,6 @@ data class HudComponentDataList(
     var defaultsInitialized: Boolean = false,
     var selectionPanelsInitialized: Boolean = false,
     var observerStatisticsInitialized: Boolean = false,
+    /** Adds the touch selection panel once; a later removal must stay removed. */
+    var touchControlsInitialized: Boolean = false,
 ) : Config

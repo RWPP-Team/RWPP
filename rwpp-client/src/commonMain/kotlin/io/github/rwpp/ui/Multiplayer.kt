@@ -303,6 +303,11 @@ class MultiplayerScreen : Screen {
                         val roomList = selectedServerConfig
                         if (isShowingRoomList && roomList != null) {
                             if (roomList.customRoomListProvider == null) {
+                                // Show the last successful list immediately; the refresh below
+                                // replaces it without ever showing a timeout error.
+                                net.cachedRoomList()?.let { cached ->
+                                    if (cached.isNotEmpty()) currentViewList = cached
+                                }
                                 currentViewList = getRoomListFromSourceUrl(
                                     roomList.ip.split(";")
                                 )
@@ -446,7 +451,12 @@ class MultiplayerScreen : Screen {
                                 AeroButton(
                                     text = readI18n("rwpp.common.exit"),
                                     isDanger = true,
-                                    onClick = { navigator.pop() },
+                                    onClick = {
+                                        // The exit button is also the cache reset: the next visit
+                                        // must fetch a fresh list instead of the stored one.
+                                        net.clearRoomListCache()
+                                        navigator.pop()
+                                    },
                                     clickSound = Sounds.closePopup,
                                     modifier = Modifier.width(100.dp)
                                 )
@@ -563,18 +573,19 @@ class MultiplayerScreen : Screen {
                                         modifier = Modifier.fillMaxSize(),
                                         state = lazyListState
                                     ) {
-                                        if (throwable != null && isShowingRoomList) {
-                                            item {
-                                                SelectionContainer {
-                                                    Text(throwable?.stackTraceToString() ?: "", color = Color.Red)
+                                        if (isShowingRoomList) {
+                                            if (realList.isEmpty()) {
+                                                item {
+                                                    Text(
+                                                        readI18n("rwpp.multiplayer.roomListEmpty"),
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    )
                                                 }
+                                            } else {
+                                                RoomListAnimated(realList)
                                             }
                                         } else {
-                                            if (isShowingRoomList) {
-                                                RoomListAnimated(realList)
-                                            } else {
-                                                ServerList(reorderableLazyListState, allServerData)
-                                            }
+                                            ServerList(reorderableLazyListState, allServerData)
                                         }
                                     }
                                 }

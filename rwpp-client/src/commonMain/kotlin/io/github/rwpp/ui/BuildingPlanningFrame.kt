@@ -31,9 +31,11 @@ private val RECLAIM_FRAME = Color(0xffff6a3d)
 @Composable
 internal fun GameScreen.BuildingPlanningFrame(visible: Boolean) {
     if (!visible) return
-    var state by remember { mutableStateOf(BuildingPlanningController.snapshot) }
-    OnGameUpdate { state = BuildingPlanningController.snapshot }
-    val mode = state.mode
+    var mode by remember { mutableStateOf(BuildingPlanningController.snapshot.mode) }
+    OnGameUpdate {
+        val next = BuildingPlanningController.snapshot.mode
+        if (mode != next) mode = next
+    }
     if (mode == BuildingPlanningMode.OFF) return
     val color = if (mode == BuildingPlanningMode.RECLAIM_AREA) RECLAIM_FRAME else BLUEPRINT_FRAME
     Box(Modifier.fillMaxSize().border(3.dp, color.copy(alpha = 0.85f)))

@@ -191,6 +191,8 @@ internal data class SelectedVisual(
     val selected: Boolean = true, val hovered: Boolean = false, val healthVisible: Boolean = true,
     val construction: Float = -1f, val secondary: Float = -1f, val shieldVisible: Boolean = shield > 0f,
     val glowHighlight: Boolean = false,
+    /** Selection brackets follow the native ally/enemy relation, the health fill keeps [color]. */
+    val selectionColor: Color = color,
     val barRadius: Float = radius, val barScaledDown: Boolean = false, val barMini: Boolean = false,
     val transportUsed: Int = -1, val transportCapacity: Int = -1
 )

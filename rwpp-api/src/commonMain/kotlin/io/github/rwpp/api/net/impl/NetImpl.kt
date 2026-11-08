@@ -21,6 +21,7 @@ import okhttp3.OkHttpClient
 import org.koin.core.annotation.Single
 import java.io.ByteArrayInputStream
 import java.io.DataInputStream
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import com.corrodinggames.rts.gameFramework.network.Packet as GamePacket
@@ -42,13 +43,128 @@ class NetImpl : Net {
         .addNetworkInterceptor(Interceptor { chain ->
             chain.proceed(chain.request().newBuilder().removeHeader("Accept-Encoding").build())
         })
-        .readTimeout(5_000L, TimeUnit.MILLISECONDS)
+        // The official masters are far from some regions; the previous 5 s read deadline failed
+        // the whole room list on a single slow handshake.
+        .connectTimeout(10_000L, TimeUnit.MILLISECONDS)
+        .readTimeout(15_000L, TimeUnit.MILLISECONDS)
         .build()
 
     override val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     override val roomListProvider: MutableMap<String, suspend () -> List<RoomDescription>> = mutableMapOf()
     override val roomListHostProtocol:
             MutableMap<String, (maxPlayer: Int, enableMods: Boolean, isPublic: Boolean) -> String> = mutableMapOf()
+
+    private val roomListCacheLock = Any()
+    private var roomListCacheValue: List<RoomDescription>? = null
+    private var roomListCacheLoaded = false
+
+    override fun cachedRoomList(): List<RoomDescription>? = synchronized(roomListCacheLock) {
+        if (!roomListCacheLoaded) {
+            roomListCacheLoaded = true
+            roomListCacheValue = runCatching { readRoomListCache() }
+                .onFailure { log.warn("Could not read the room list cache", it) }
+                .getOrNull()
+        }
+        roomListCacheValue
+    }
+
+    override fun storeRoomListCache(rooms: List<RoomDescription>) {
+        synchronized(roomListCacheLock) {
+            roomListCacheValue = rooms
+            roomListCacheLoaded = true
+            runCatching { writeRoomListCache(rooms) }
+                .onFailure { log.warn("Could not persist the room list cache", it) }
+        }
+    }
+
+    override fun clearRoomListCache() {
+        synchronized(roomListCacheLock) {
+            roomListCacheValue = null
+            roomListCacheLoaded = true
+            runCatching { roomListCachePath.delete() }
+                .onFailure { log.warn("Could not delete the room list cache", it) }
+        }
+    }
+
+    private val roomListCachePath: File by lazy {
+        val preferences = runCatching { GameEngine.getInstance().settings.preferencesPath }.getOrNull()
+        val directory = preferences?.let { File(it).parentFile } ?: File(".")
+        File(directory, "rwpp-room-list.cache")
+    }
+
+    private fun readRoomListCache(): List<RoomDescription>? {
+        val file = roomListCachePath
+        if (!file.isFile) return null
+        val text = file.readText()
+        if (text.isBlank()) return null
+        return text.lineSequence()
+            .filter { it.isNotBlank() }
+            .mapNotNull(::decodeCachedRoom)
+            .toList()
+            .ifEmpty { null }
+    }
+
+    private fun writeRoomListCache(rooms: List<RoomDescription>) {
+        val file = roomListCachePath
+        file.parentFile?.mkdirs()
+        file.writeText(rooms.joinToString("\n", transform = ::encodeCachedRoom))
+    }
+
+    private fun encodeCachedRoom(room: RoomDescription): String = listOf(
+        room.uuid,
+        room.roomOwner,
+        room.gameVersion.toString(),
+        room.netWorkAddress,
+        room.localAddress,
+        room.port.toString(),
+        room.isOpen.toString(),
+        room.creator,
+        room.requiredPassword.toString(),
+        room.mapName,
+        room.mapType,
+        room.status,
+        room.version,
+        room.isLocal.toString(),
+        room.displayMapName,
+        (room.playerCurrentCount ?: -1).toString(),
+        (room.playerMaxCount ?: -1).toString(),
+        room.isUpperCase.toString(),
+        room.uuid2,
+        room.unknown.toString(),
+        room.mods,
+        room.roomId.toString(),
+    ).joinToString(ROOM_LIST_FIELD_SEPARATOR)
+
+    private fun decodeCachedRoom(line: String): RoomDescription? {
+        val fields = line.split(ROOM_LIST_FIELD_SEPARATOR)
+        if (fields.size < 22) return null
+        val current = fields[15].toIntOrNull()?.takeIf { it >= 0 }
+        val maximum = fields[16].toIntOrNull()?.takeIf { it >= 0 }
+        return RoomDescription(
+            uuid = fields[0],
+            roomOwner = fields[1],
+            gameVersion = fields[2].toIntOrNull() ?: return null,
+            netWorkAddress = fields[3],
+            localAddress = fields[4],
+            port = fields[5].toLongOrNull() ?: return null,
+            isOpen = fields[6].toBooleanStrictOrNull() ?: return null,
+            creator = fields[7],
+            requiredPassword = fields[8].toBooleanStrictOrNull() ?: return null,
+            mapName = fields[9],
+            mapType = fields[10],
+            status = fields[11],
+            version = fields[12],
+            isLocal = fields[13].toBooleanStrictOrNull() ?: return null,
+            displayMapName = fields[14],
+            playerCurrentCount = current,
+            playerMaxCount = maximum,
+            isUpperCase = fields[17].toBooleanStrictOrNull() ?: return null,
+            uuid2 = fields[18],
+            unknown = fields[19].toBooleanStrictOrNull() ?: return null,
+            mods = fields[20],
+            roomId = fields[21].toIntOrNull() ?: return null,
+        )
+    }
 
     override fun init() {
         io.github.rwpp.api.net.packets.ModTransferHost.install(
@@ -306,6 +422,7 @@ class NetImpl : Net {
 
     private companion object {
         const val LEGACY_MAX_PAYLOAD_BYTES = 1024 * 1024
+        const val ROOM_LIST_FIELD_SEPARATOR = "\u0001"
     }
 }
 
