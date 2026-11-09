@@ -8,7 +8,10 @@
 package io.github.rwpp.mixin.desktop
 
 import com.corrodinggames.rts.gameFramework.GameEngine
-import kim.der.asm.api.annotation.*
+import kim.der.asm.api.annotation.AsmInject
+import kim.der.asm.api.annotation.AsmMixin
+import kim.der.asm.api.annotation.CallbackInfo
+import kim.der.asm.api.annotation.InjectionPoint
 
 /**
  * SlickMainGame.applyResolution selects LWJGL exclusive fullscreen when only

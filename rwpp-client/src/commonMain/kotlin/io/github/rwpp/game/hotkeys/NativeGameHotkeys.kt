@@ -32,7 +32,7 @@ internal object NativeGameHotkeys {
 
     private val nativeKeyNames by lazy {
         // Read native key constants without initializing the controller or platform logger.
-        Class.forName("com.corrodinggames.rts.gameFramework.utility.SlickToAndroidKeycodes\$AndroidCodes")
+        Class.forName($$"com.corrodinggames.rts.gameFramework.utility.SlickToAndroidKeycodes$AndroidCodes")
             .fields.map {
                 it.name.replace("KEYCODE_", "").replace("KEY_", "")
                     .replace("NUMPAD_", "NUMPAD").replace("NUM_", "NUMPAD")
@@ -91,18 +91,28 @@ internal object NativeGameHotkeys {
     }
 
     fun update(settings: Settings, blocked: Boolean) {
-        apply(settings)
-        NativeBuilderGroupAssistance.update(settings, blocked)
-        BuildingPlanningController.onGameUpdate(blocked)
-        val engine = GameEngine.getInstance()
-        if (!blocked && followSelectionButton.isPressed) toggleFollowSelection(engine)
-        SelectionCameraFollowController.updateOnGameThread(engine, blocked || BuildingPlanningController.ownsIndependentPlanningInput())
-        if (blocked) return
-        if (sameTypeButton.isPressed) selectSameType(engine)
-        if (lowHealthButton.isPressed) NativeTacticalActions.selectLowHealth(engine)
-        if (autoLoadButton.isPressed) NativeTacticalActions.autoLoad(engine)
-        if (buildingPlanningButton.isPressed) BuildingPlanningController.toggleMode()
-        if (reclaimSelectionButton.isPressed) BuildingPlanningController.beginReclaimSelection()
+        val engine = GameEngine.getInstance() ?: return
+        synchronized(engine.gameUpdateLock) {
+            io.github.rwpp.game.hud.OverflowProductionQueue.update(engine, blocked)
+            if (io.github.rwpp.graphics.nativeWorldFrame(engine) == null) {
+                BuildingPlanningController.onGameUpdate(true)
+                return
+            }
+            apply(settings)
+            NativeBuilderGroupAssistance.update(settings, blocked)
+            BuildingPlanningController.onGameUpdate(blocked)
+            if (!blocked && followSelectionButton.isPressed) toggleFollowSelection(engine)
+            SelectionCameraFollowController.updateOnGameThread(
+                engine,
+                blocked || BuildingPlanningController.ownsIndependentPlanningInput()
+            )
+            if (blocked) return
+            if (sameTypeButton.isPressed) selectSameType(engine)
+            if (lowHealthButton.isPressed) NativeTacticalActions.selectLowHealth(engine)
+            if (autoLoadButton.isPressed) NativeTacticalActions.autoLoad(engine)
+            if (buildingPlanningButton.isPressed) BuildingPlanningController.toggleMode()
+            if (reclaimSelectionButton.isPressed) BuildingPlanningController.beginReclaimSelection()
+        }
     }
 
     /** Reuses the native command path for both keyboard and Android HUD controls. */
@@ -135,7 +145,7 @@ internal object NativeGameHotkeys {
         if (settings.hotkeyBindingsMigrationVersion >= 1) return
         val legacySameType = settings.hotkeyBindings["rwpp_same_type"]
         if (legacySameType != null && normalizedHotkeyBindings(legacySameType) == "CTRL+T") {
-            settings.hotkeyBindings = settings.hotkeyBindings + ("rwpp_same_type" to "T")
+            settings.hotkeyBindings += ("rwpp_same_type" to "T")
         }
         settings.hotkeyBindingsMigrationVersion = 1
     }
@@ -150,7 +160,7 @@ internal object NativeGameHotkeys {
         }
         val sameTypeBindings = settings.hotkeyBindings["rwpp_same_type"] ?: "T"
         val sameTypeUsesT = normalizedHotkeyBindings(sameTypeBindings).split(',').any { it == "T" }
-        val currentChatBindings = (0 until sendChat.inputBindings.size).map(sendChat::getBindingLabelAt)
+        val currentChatBindings = sendChat.inputBindings.indices.map(sendChat::getBindingLabelAt)
         if (sameTypeUsesT && currentChatBindings == listOf("ENTER", "T")) {
             sendChat.inputBindings.clear()
             sendChat.addKeyBinding("ENTER")

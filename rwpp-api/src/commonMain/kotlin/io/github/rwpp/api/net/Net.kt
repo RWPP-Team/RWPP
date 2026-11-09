@@ -8,9 +8,9 @@
 package io.github.rwpp.api.net
 
 import com.corrodinggames.rts.gameFramework.network.Connection
+import com.corrodinggames.rts.gameFramework.network.InputNetStream
 import io.github.rwpp.api.Initialization
 import io.github.rwpp.api.event.EventOwner
-import com.corrodinggames.rts.gameFramework.network.InputNetStream
 import io.github.rwpp.api.logging.logger
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
@@ -20,7 +20,6 @@ import java.io.*
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.reflect.full.createInstance
-import kotlin.time.Duration.Companion.milliseconds
 
 private val log = logger()
 

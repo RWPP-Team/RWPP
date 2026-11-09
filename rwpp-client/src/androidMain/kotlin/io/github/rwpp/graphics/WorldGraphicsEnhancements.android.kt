@@ -369,7 +369,7 @@ private object AndroidTerrainPost {
                     effect.setInputShader("u_texture", nearest(bitmap))
                     effect to bitmap
                 }
-                val bounds = unit.bodyScreenRect;
+                val bounds = unit.bodyScreenRect
                 val offset = worldProjectedOffset(unit.radius, unit.height)
                 target.set(
                     bounds.left + offset.first,
@@ -377,8 +377,8 @@ private object AndroidTerrainPost {
                     bounds.right + offset.first,
                     bounds.bottom + offset.second
                 )
-                val cx = target.centerX();
-                val cy = target.centerY();
+                val cx = target.centerX()
+                val cy = target.centerY()
                 val checkpoint = canvas.save()
                 try {
                     canvas.scale(1.04f, if (unit.isBuilding) 1f else 0.90f, cx, cy)

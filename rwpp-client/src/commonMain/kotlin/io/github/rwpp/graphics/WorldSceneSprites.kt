@@ -17,17 +17,17 @@ import com.corrodinggames.rts.gameFramework.render.BitmapOrTexture
 /** Native placement, altitude, recoil and turret transforms are shared by both material backends. */
 internal object WorldSceneSprites {
     fun visible(engine: GameEngine, draw: (OrderableUnit) -> Unit) {
-        // Retain the native fog gate for material drawing, including perspective transitions.
-        // Camera-motion optimization skips the separate signature prepass instead.
-        val objects = (engine as NativeWorldAccess).rwppVisibleObjects()
-        val items = objects.items()
-        for (i in objects.indices) {
-            val unit = items[i] as? OrderableUnit ?: continue
-            if (unit.dead || unit.transportedBy != null || unit.attachedToUnit != null || unit.isVirtualUnit || !unit.isVisibleToTeam(
-                    engine.playerTeam
-                )
-            ) continue
-            draw(unit)
+        synchronized(engine.gameUpdateLock) {
+            val world = nativeWorldFrame(engine) ?: return@synchronized
+            val objects = (engine as NativeWorldAccess).rwppVisibleObjects()
+            val items = objects.items()
+            for (i in objects.indices) {
+                val unit = items[i] as? OrderableUnit ?: continue
+                if (unit.team == null || unit.dead || unit.transportedBy != null || unit.attachedToUnit != null ||
+                    unit.isVirtualUnit || !nativeUnitVisible(world, unit)
+                ) continue
+                draw(unit)
+            }
         }
     }
 
@@ -36,7 +36,7 @@ internal object WorldSceneSprites {
         inspectUnit: (OrderableUnit) -> Unit = {},
         draw: (BitmapOrTexture, Rect, RectF, Float, Float, Float, Float, Boolean) -> Unit
     ) {
-        val source = Rect();
+        val source = Rect()
         val bounds = RectF()
         visible(engine) { unit ->
             inspectUnit(unit)

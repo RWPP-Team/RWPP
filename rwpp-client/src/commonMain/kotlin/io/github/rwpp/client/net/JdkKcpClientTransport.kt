@@ -20,7 +20,7 @@ class JdkKcpClientTransport internal constructor(
     private val messages: TransportMessages,
     private val backend: JdkTransportBackend,
 ) : ClientTransport {
-    private val lock = java.lang.Object()
+    private val lock = Object()
     private var socket: DatagramSocket? = null
     private var protocol: Kcp? = null
     private var sink: ClientSink? = null
@@ -169,9 +169,9 @@ class JdkKcpClientTransport internal constructor(
                     }
                     val destination = checkNotNull(sink)
                     try {
-                        checkNotNull(callbacks).execute(Runnable {
+                        checkNotNull(callbacks).execute {
                             if (!isLocallyClosed()) destination.message(payload)
-                        })
+                        }
                     } catch (_: RuntimeException) {
                         failure = messages.inboundQueueFull()
                         break
@@ -268,9 +268,9 @@ class JdkKcpClientTransport internal constructor(
         runCatching { resources.first?.close() }
         val destination = resources.second.first ?: return
         runCatching {
-            resources.second.second?.executeTerminal(Runnable {
+            resources.second.second?.executeTerminal {
                 if (!isLocallyClosed()) destination.failure(reason)
-            })
+            }
         }
     }
 

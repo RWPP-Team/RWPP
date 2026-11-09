@@ -25,7 +25,6 @@ import org.koin.compose.koinInject
 
 enum class ButtonState { Pressed, Idle }
 
-@OptIn(ExperimentalFoundationApi::class)
 fun Modifier.bounceClick(
     onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit

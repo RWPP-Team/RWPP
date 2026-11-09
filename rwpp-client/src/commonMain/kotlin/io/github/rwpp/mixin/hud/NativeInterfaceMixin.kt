@@ -60,18 +60,25 @@ abstract class NativeInterfaceAccessMixin {
 
     @Accessor("specialActionSourceUnit")
     abstract fun rwppSetSpecialActionSourceUnit(value: NativeUnit?)
+
     @Accessor("tapReleased")
     abstract fun rwppSetTapReleased(value: Boolean)
+
     @Accessor("placingBuilding")
     abstract fun rwppSetPlacingBuilding(value: Boolean)
+
     @Accessor("queuePlacementMode")
     abstract fun rwppSetQueuePlacementMode(value: Boolean)
+
     @Accessor("tapReleased")
     abstract fun rwppTapReleased(): Boolean
+
     @Accessor("pointerDown")
     abstract fun rwppPointerDown(): Boolean
+
     @Accessor("pointerDragging")
     abstract fun rwppPointerDragging(): Boolean
+
     @Accessor("pointerInSidebar")
     abstract fun rwppPointerInSidebar(): Boolean
 }

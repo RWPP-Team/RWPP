@@ -45,7 +45,7 @@ import io.github.rwpp.api.game.ai.AiManager
 import io.github.rwpp.api.game.map.GameMap
 import io.github.rwpp.api.game.mode.*
 import io.github.rwpp.api.game.sendChatMessageOrCommand
-import io.github.rwpp.api.game.team.TeamModes
+import io.github.rwpp.api.game.team.*
 import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.config.RoomPreset
 import io.github.rwpp.config.RoomPresetPlayer
@@ -144,7 +144,7 @@ class BattleRoomScreen : Screen {
             recyclingUnitVisible = false
             val recyclingMode = room.gameModes.activeModes.filterIsInstance<RecyclingRulesMode>().firstOrNull()
             val disabledRecyclingNames = recyclingMode?.disabledUnitNames.orEmpty()
-            selectedRecyclingUnits = game.getAllUnitTypes().filter { it.getInternalName() in disabledRecyclingNames }
+            selectedRecyclingUnits = game.getAllUnitTypes().filter { it.internalName in disabledRecyclingNames }
             showMapSelectView = false
             selectedPlayer = players.firstOrNull() ?: noPlayer
             updateAction()
@@ -835,11 +835,10 @@ class BattleRoomScreen : Screen {
         }
         var aiDifficulty by remember { mutableIntStateOf(room.aiDifficulty) }
 
-        val teamModes = remember { TeamModes.modes }
         var presets by remember { mutableStateOf(clientSettings.roomPresets) }
         var presetName by remember { mutableStateOf("") }
         var presetIndex by remember { mutableIntStateOf(-1) }
-        var pendingMap by remember { mutableStateOf<io.github.rwpp.api.game.map.GameMap?>(null) }
+        var pendingMap by remember { mutableStateOf<GameMap?>(null) }
         var pendingPreset by remember { mutableStateOf<RoomPreset?>(null) }
 
         AeroPanel(
@@ -902,7 +901,7 @@ class BattleRoomScreen : Screen {
                                             )
                                         },
                                         recyclingDisabled = disableRecycling,
-                                        recyclingDisabledUnits = selectedRecyclingUnits.map { it.getInternalName() },
+                                        recyclingDisabledUnits = selectedRecyclingUnits.map { it.internalName },
                                     )
                                     val previous = clientSettings.roomPresets
                                     val next = previous.filterNot { it.name.equals(name, ignoreCase = true) } + preset
@@ -946,7 +945,7 @@ class BattleRoomScreen : Screen {
                                             disableRecycling = preset.recyclingDisabled
                                             onRecyclingUnitsChanged(
                                                 game.getAllUnitTypes().filter {
-                                                    it.getInternalName() in preset.recyclingDisabledUnits
+                                                    it.internalName in preset.recyclingDisabledUnits
                                                 },
                                             )
                                             baseGameMode = baseGameModes.firstOrNull { it.id == preset.baseMode }
@@ -1072,6 +1071,34 @@ class BattleRoomScreen : Screen {
                                     modifier = Modifier.weight(1f)
                                 )
                             }
+                        }
+
+                        if (room.isHost || room.isHostServer) item {
+                            // The native layout operation only runs on the server. Proxy hosts
+                            // can use modes whose assignments are sent through room commands.
+                            val modes = TeamModes.modes.filter { room.isHost || it !is InternalTeamMode }
+                            val choices = listOf(null) + modes +
+                                    listOfNotNull(room.teamMode, teamMode).filter { it !in modes }.distinct()
+                            AeroDropdownMenu(
+                                label = readI18n("rwpp.multiplayer.room.teamMode"),
+                                items = choices.map { mode ->
+                                    val key = when (mode) {
+                                        null -> "manual"
+                                        InternalTeamMode2t -> "twoTeams"
+                                        InternalTeamMode3t -> "threeTeams"
+                                        InternalTeamModeFFA -> "ffa"
+                                        InternalTeamModeSpectators -> "spectators"
+                                        RandomTeamMode -> "random"
+                                        AllVsAI -> "allVsAi"
+                                        AllVs2 -> "allVsTwo"
+                                        is PresetTeamMode -> "preset"
+                                        else -> return@map mode.displayName
+                                    }
+                                    readI18n("rwpp.multiplayer.room.teamMode.$key")
+                                },
+                                selectedIndex = choices.indexOf(teamMode),
+                                onItemSelected = { teamMode = choices[it] },
+                            )
                         }
 
                         item {
@@ -1232,7 +1259,7 @@ class BattleRoomScreen : Screen {
                                         else room.gameModes.replace(GameSpeedMode(gameSpeed))
 
                                         val disabledUnitNames =
-                                            selectedRecyclingUnits.map { it.getInternalName() }.toSet()
+                                            selectedRecyclingUnits.map { it.internalName }.toSet()
                                         if (disableRecycling || disabledUnitNames.isNotEmpty()) {
                                             room.gameModes.replace(
                                                 RecyclingRulesMode(

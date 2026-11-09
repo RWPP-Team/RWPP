@@ -26,8 +26,18 @@ internal object HudFrameClock {
 
     fun tick() {
         val engine = com.corrodinggames.rts.gameFramework.GameEngine.getInstance()
-        if (engine == null) callbacks.forEach { it.run() }
-        else synchronized(engine.gameUpdateLock) { callbacks.forEach { it.run() } }
+        fun runBatch() {
+            callbacks.forEach { callback ->
+                try {
+                    callback.run()
+                } catch (failure: Throwable) {
+                    callbacks.remove(callback)
+                    warnHudFailure("HUD update", failure)
+                }
+            }
+        }
+        if (engine == null) runBatch()
+        else synchronized(engine.gameUpdateLock) { runBatch() }
     }
 }
 
@@ -37,5 +47,7 @@ internal actual fun registerHudFrame(callback: Runnable): AutoCloseable = HudFra
 internal actual fun flushPendingHudFrame() = Unit
 
 internal actual fun requestWorldPresentationFrame() {
-    DesktopComposeRuntime.requestFrame()
+    // Native world canvases are drawn on every game frame. Their camera/animation changes
+    // no longer invalidate the independent Compose control texture or borrow its GL context.
+    if (!nativeWorldCanvas) DesktopComposeRuntime.requestFrame()
 }

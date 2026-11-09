@@ -1,8 +1,9 @@
 package io.github.rwpp.ui
 
-import androidx.compose.ui.geometry.Offset
 import com.corrodinggames.rts.game.RWGameEngine
-import io.github.rwpp.graphics.*
+import io.github.rwpp.graphics.AeroWorldPresentation
+import io.github.rwpp.graphics.ImmutableFrameListCache
+import io.github.rwpp.graphics.NativeWorldPresentation
 import kotlin.test.*
 
 class AeroWorldPresentationTest {
@@ -34,32 +35,17 @@ class AeroWorldPresentationTest {
     }
 
     @Test
-    fun cameraTracksActualDrawFramesWhileHudSamplingIsStalled() {
+    fun obsoleteOrUninitializedEnginesCannotPresentStaleWorldVisuals() {
         val unsafe = sun.misc.Unsafe::class.java.getDeclaredField("theUnsafe").apply { isAccessible = true }
             .get(null) as sun.misc.Unsafe
-        val engine = unsafe.allocateInstance(RWGameEngine::class.java) as RWGameEngine
-        engine.zoomScale = 1f; engine.screenWidth = 800f; engine.screenHeight = 600f
-        val original = WorldVisuals(
-            camera = Offset.Zero,
-            orders = listOf(AeroOrder(Offset(100f, 100f), Offset(200f, 100f), false))
-        )
+        val obsolete = unsafe.allocateInstance(RWGameEngine::class.java) as RWGameEngine
         val presentation = AeroWorldPresentation()
-        presentation.publish(original, emptyList(), emptyList())
         val registration = NativeWorldPresentation.register(presentation)
         try {
-            engine.cameraRenderX = 100f; engine.cameraRenderY = 50f
-            NativeWorldPresentation.capture(engine)
-            assertEquals(Offset(100f, 50f), presentation.frame.value!!.camera)
-            // No second OnGameUpdate/publish: native camera moves during a slow HUD frame/drag.
-            engine.cameraRenderX = 180f; engine.cameraRenderY = 70f; engine.zoomScale = 1.5f
-            NativeWorldPresentation.capture(engine)
-            assertEquals(Offset(180f, 70f), presentation.frame.value!!.camera)
-            assertEquals(1.5f, presentation.frame.value!!.zoom)
-            assertEquals(800f, presentation.frame.value!!.width)
-            assertEquals(Offset.Zero, original.camera, "Published HUD metadata is not mutated")
-            presentation.publish(WorldVisuals(), emptyList(), emptyList())
-            NativeWorldPresentation.capture(engine)
-            assertNull(presentation.frame.value, "Disabled/empty effects must not keep invalidating native frames")
+            // No map, viewer or initialized engine lock: capture must reject this instance
+            // before touching its native objects, even while a disposed HUD callback survives.
+            NativeWorldPresentation.capture(obsolete)
+            assertNull(presentation.frame.value)
         } finally {
             registration.close()
         }

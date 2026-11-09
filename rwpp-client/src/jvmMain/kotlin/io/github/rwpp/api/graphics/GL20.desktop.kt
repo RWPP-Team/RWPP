@@ -247,12 +247,11 @@ actual object GL20 {
 
     actual fun glDrawElements(mode: Int, count: Int, type: Int, indices: Buffer?) {
         if (indices is ShortBuffer && type == GLConstants.GL_UNSIGNED_SHORT) {
-            val sb = indices
-            val position = sb.position()
-            val oldLimit = sb.limit()
-            sb.limit(position + count)
-            GL11.glDrawElements(mode, sb)
-            sb.limit(oldLimit)
+            val position = indices.position()
+            val oldLimit = indices.limit()
+            indices.limit(position + count)
+            GL11.glDrawElements(mode, indices)
+            indices.limit(oldLimit)
         } else if (indices is ByteBuffer && type == GLConstants.GL_UNSIGNED_SHORT) {
             val sb = indices.asShortBuffer()
             val position = sb.position()
@@ -261,12 +260,11 @@ actual object GL20 {
             GL11.glDrawElements(mode, sb)
             sb.limit(oldLimit)
         } else if (indices is ByteBuffer && type == GLConstants.GL_UNSIGNED_BYTE) {
-            val bb = indices
-            val position = bb.position()
-            val oldLimit = bb.limit()
-            bb.limit(position + count)
-            GL11.glDrawElements(mode, bb)
-            bb.limit(oldLimit)
+            val position = indices.position()
+            val oldLimit = indices.limit()
+            indices.limit(position + count)
+            GL11.glDrawElements(mode, indices)
+            indices.limit(oldLimit)
         } else throw RuntimeException(
             ("Can't use " + indices?.javaClass?.getName()
                     + " with this method. Use ShortBuffer or ByteBuffer instead. Blame LWJGL")

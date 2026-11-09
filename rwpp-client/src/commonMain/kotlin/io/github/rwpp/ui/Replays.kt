@@ -56,6 +56,8 @@ import io.github.rwpp.widget.v2.scrollbar.LazyColumnScrollbar
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import io.github.rwpp.AppContext
+import io.github.rwpp.game.map.validExportMapName
 import org.koin.compose.koinInject
 import org.koin.core.annotation.Single
 import java.time.LocalDate
@@ -781,6 +783,11 @@ private fun ReplayDetailsPanel(
     onDeleteSelected: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val map by key(replay) {
+        produceState<GameMap?>(null) {
+            if (replay != null) value = withContext(Dispatchers.IO) { replayMap(replay) }
+        }
+    }
     AeroPanel(modifier = if (compact) modifier.fillMaxWidth() else modifier.fillMaxSize()) {
         if (replay == null) {
             Box(
@@ -799,30 +806,30 @@ private fun ReplayDetailsPanel(
                 modifier = Modifier.fillMaxWidth().padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                ReplayInfo(replay, compact = true)
-                ReplayActions(replay, game, onShare, onRename, selectedCount, onDeleteSelected)
+                ReplayInfo(replay, map, compact = true)
+                ReplayActions(replay, map, game, onShare, onRename, selectedCount, onDeleteSelected)
             }
         } else {
             Column(
                 modifier = Modifier.fillMaxSize().padding(14.dp),
                 verticalArrangement = Arrangement.SpaceBetween,
             ) {
-                ReplayInfo(replay, compact = false)
-                ReplayActions(replay, game, onShare, onRename, selectedCount, onDeleteSelected)
+                ReplayInfo(replay, map, compact = false)
+                ReplayActions(replay, map, game, onShare, onRename, selectedCount, onDeleteSelected)
             }
         }
     }
 }
 
 @Composable
-private fun ReplayInfo(replay: ParsedReplayItem, compact: Boolean) {
+private fun ReplayInfo(replay: ParsedReplayItem, map: GameMap?, compact: Boolean) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         AeroHeader(
             title = replay.mapName,
             tag = if (compact) null else replay.versionStr,
         )
         AeroDivider()
-        AeroMapPreview(replay.map, true)
+        AeroMapPreview(map, true)
         Spacer(modifier = Modifier.height(6.dp))
         ReplayDetailRow(label = readI18n("rwpp.replay.mapName"), value = replay.mapName)
         AeroDivider()
@@ -841,12 +848,14 @@ private fun ReplayInfo(replay: ParsedReplayItem, compact: Boolean) {
 @Composable
 private fun ReplayActions(
     replay: ParsedReplayItem,
+    map: GameMap?,
     game: Game,
     onShare: (Replay) -> Unit,
     onRename: (Replay) -> Unit,
     selectedCount: Int,
     onDeleteSelected: () -> Unit,
 ) {
+    val context = koinInject<AppContext>()
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         AeroButton(
             text = readI18n("rwpp.replay.watch"),
@@ -855,6 +864,22 @@ private fun ReplayActions(
                 @Suppress("UNCHECKED_CAST")
                 game.watchReplay(replay.rawReplay)
             },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        AeroButton(
+            text = readI18n("rwpp.replay.exportMap"),
+            onClick = {
+                if (map != null) {
+                    val stem = map.mapName.substringAfterLast('/').removeSuffix(".tmx").take(90)
+                    val filename = if (validExportMapName(stem)) "$stem.tmx" else "replay-map.tmx"
+                    runCatching {
+                        context.shareFile(filename, map.enginePath, map::openInputStream) { result ->
+                            result.onFailure { UI.showWarning(readI18n("rwpp.replay.fileError", it.message.orEmpty())) }
+                        }
+                    }.onFailure { UI.showWarning(readI18n("rwpp.replay.fileError", it.message.orEmpty())) }
+                }
+            },
+            enabled = map != null,
             modifier = Modifier.fillMaxWidth(),
         )
         Row(
@@ -918,7 +943,6 @@ private fun ReplayDetailRow(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun ReplayCardItem(
     item: ParsedReplayItem,

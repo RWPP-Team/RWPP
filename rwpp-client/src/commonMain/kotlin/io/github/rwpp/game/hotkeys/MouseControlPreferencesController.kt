@@ -56,9 +56,7 @@ internal object MouseControlPreferencesController {
         val access = GameEngine.getInstance().interfaceEngine as? NativeInterfaceAccess ?: return null
         val button = confirmButton(access.rwppActiveSpecialAction()?.actionType?.name) ?: return null
         val game = runCatching { GameEngine.getInstance() }.getOrNull() ?: return null
-        if (!GameEngine.isDesktopOrMac() || !game.settings.mouseSupport || !access.rwppTapReleased() ||
-            access.rwppPointerDragging() || access.rwppPointerInSidebar()
-        ) return false
-        return game.isMouseButtonDown(MouseControlButtonRules.oppositeNativeButton(button))
+        return !(!GameEngine.isDesktopOrMac() || !game.settings.mouseSupport || !access.rwppTapReleased() ||
+                access.rwppPointerDragging() || access.rwppPointerInSidebar()) && game.isMouseButtonDown(MouseControlButtonRules.oppositeNativeButton(button))
     }
 }

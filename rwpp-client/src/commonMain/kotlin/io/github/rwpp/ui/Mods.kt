@@ -252,7 +252,7 @@ class ModsScreen : Screen {
         }
         AeroScaledContainer {
             AeroPanel(modifier = Modifier.fillMaxSize().padding(if (compact) 6.dp else 10.dp)) {
-                io.github.rwpp.widget.ResponsiveSelectionBody(
+                ResponsiveSelectionBody(
                     compact = compact,
                     modifier = Modifier.fillMaxSize().padding(if (compact) 6.dp else 12.dp),
                     compactContent = {

@@ -35,10 +35,10 @@ abstract class NativeSandboxEditorCommandAccessMixin {
 @AsmMixin("com/corrodinggames/rts/gameFramework/CommandControllerCommand")
 @AddInterface("io/github/rwpp/game/sandbox/NativeSandboxEditorPayloadAccess")
 abstract class NativeSandboxEditorPayloadAccessMixin {
-    @kim.der.asm.api.annotation.Accessor("units")
+    @Accessor("units")
     abstract fun rwppCommandUnits(): FastArrayList
 
-    @kim.der.asm.api.annotation.Accessor("unitIdsPending")
+    @Accessor("unitIdsPending")
     abstract fun rwppPendingUnitIds(): FastArrayList
 
     @Invoker("resolvePendingUnitIds")
@@ -134,8 +134,8 @@ object SandboxEditorForceBuildMixin {
         unit: GameUnit,
         lagHiding: Boolean,
         original: Operation<Boolean>,
-    ): Boolean = if (isSandboxEditorBuildPlacement(GameEngine.getInstance().interfaceEngine)) true
-    else original.call(action, unit, lagHiding)
+    ): Boolean =
+        isSandboxEditorBuildPlacement(GameEngine.getInstance().interfaceEngine) || original.call(action, unit, lagHiding)
 
     @WrapOperation(
         method = HANDLE_BUILDING_PLACEMENT,
@@ -162,8 +162,7 @@ object SandboxEditorForceBuildMixin {
         unit: OrderableUnit,
         placementId: Int,
         original: Operation<Boolean>,
-    ): Boolean = if (isSandboxEditorBuildPlacement(GameEngine.getInstance().interfaceEngine)) false
-    else original.call(team, unit, placementId)
+    ): Boolean = !isSandboxEditorBuildPlacement(GameEngine.getInstance().interfaceEngine) && original.call(team, unit, placementId)
 
     @WrapOperation(
         method = HANDLE_BUILDING_PLACEMENT,
@@ -172,7 +171,7 @@ object SandboxEditorForceBuildMixin {
         require = 1,
     )
     fun bypassEditorBuildRange(unit: OrderableUnit, original: Operation<Boolean>): Boolean =
-        if (isSandboxEditorBuildPlacement(GameEngine.getInstance().interfaceEngine)) true else original.call(unit)
+        isSandboxEditorBuildPlacement(GameEngine.getInstance().interfaceEngine) || original.call(unit)
 
     @WrapOperation(
         method = CHECK_PLACEMENT_METHOD,
@@ -184,8 +183,7 @@ object SandboxEditorForceBuildMixin {
         unit: OrderableUnit,
         team: Team,
         original: Operation<Boolean>,
-    ): Boolean = if (isSandboxEditorBuildPlacement(GameEngine.getInstance().interfaceEngine)) true
-    else original.call(unit, team)
+    ): Boolean = isSandboxEditorBuildPlacement(GameEngine.getInstance().interfaceEngine) || original.call(unit, team)
 
     @WrapOperation(
         method = CHECK_PLACEMENT_METHOD,
@@ -194,7 +192,7 @@ object SandboxEditorForceBuildMixin {
         require = 1,
     )
     fun allowEditorBuildRangeInPreview(unit: OrderableUnit, original: Operation<Boolean>): Boolean =
-        if (isSandboxEditorBuildPlacement(GameEngine.getInstance().interfaceEngine)) true else original.call(unit)
+        isSandboxEditorBuildPlacement(GameEngine.getInstance().interfaceEngine) || original.call(unit)
 
     @WrapOperation(
         method = CHECK_PLACEMENT_METHOD,
@@ -207,8 +205,7 @@ object SandboxEditorForceBuildMixin {
         unit: OrderableUnit,
         placementId: Int,
         original: Operation<Boolean>,
-    ): Boolean = if (isSandboxEditorBuildPlacement(GameEngine.getInstance().interfaceEngine)) false
-    else original.call(team, unit, placementId)
+    ): Boolean = !isSandboxEditorBuildPlacement(GameEngine.getInstance().interfaceEngine) && original.call(team, unit, placementId)
 
     @WrapOperation(
         method = HANDLE_BUILDING_PLACEMENT,
@@ -236,16 +233,16 @@ object SandboxEditorForceBuildMixin {
 @AsmMixin("com/corrodinggames/rts/gameFramework/gui/InterfaceEngine")
 @AddInterface("io/github/rwpp/game/sandbox/NativeSandboxTerrainInterfaceAccess")
 abstract class NativeSandboxTerrainInterfaceMixin {
-    @kim.der.asm.api.annotation.Accessor("debugEditorUnit")
+    @Accessor("debugEditorUnit")
     abstract fun rwppTerrainEditor(): EditorUnit?
 
-    @kim.der.asm.api.annotation.Accessor("debugEditorUnit")
+    @Accessor("debugEditorUnit")
     abstract fun rwppSetTerrainEditor(editor: EditorUnit)
 }
 
 @AsmMixin("com/corrodinggames/rts/game/units/EditorUnit")
 @AddInterface("io/github/rwpp/game/sandbox/NativeSandboxTerrainTabAccess")
 abstract class NativeSandboxTerrainTabMixin {
-    @kim.der.asm.api.annotation.Accessor("tab")
+    @Accessor("tab")
     abstract fun rwppSetTerrainTab(tab: com.corrodinggames.rts.game.units.EditorUnitTab)
 }

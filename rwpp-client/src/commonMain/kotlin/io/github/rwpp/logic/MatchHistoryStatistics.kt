@@ -97,11 +97,11 @@ internal fun countMatchHistoryRemainingUnits(
     units: Iterable<MatchHistoryUnitSnapshot>,
 ): Map<Int, MatchHistoryRemainingCounts> {
     val counts = mutableMapOf<Int, MatchHistoryRemainingCounts>()
-    for (unit in units) {
-        val teamId = unit.teamId ?: continue
-        if (!unit.isAlive || !unit.isComplete || unit.isPlaceholder || unit.isVirtual || unit.isAttached) continue
+    for ((teamId1, isAlive, isComplete, isBuilding, isPlaceholder, isVirtual, isAttached) in units) {
+        val teamId = teamId1 ?: continue
+        if (!isAlive || !isComplete || isPlaceholder || isVirtual || isAttached) continue
         val old = counts[teamId] ?: MatchHistoryRemainingCounts()
-        counts[teamId] = if (unit.isBuilding) {
+        counts[teamId] = if (isBuilding) {
             old.copy(buildings = old.buildings + 1)
         } else {
             old.copy(units = old.units + 1)
@@ -135,4 +135,4 @@ internal data class MatchHistoryPerformanceDisclosure(
 }
 
 private fun identitySet(): MutableSet<Any> =
-    Collections.newSetFromMap(IdentityHashMap<Any, Boolean>())
+    Collections.newSetFromMap(IdentityHashMap())

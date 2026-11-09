@@ -10,7 +10,10 @@ package io.github.rwpp.mixin.building
 import com.corrodinggames.rts.gameFramework.GameEngine
 import io.github.rwpp.graphics.NativePlacementGrid
 import io.github.rwpp.graphics.NativePlacementTile
-import kim.der.asm.api.annotation.*
+import kim.der.asm.api.annotation.AsmInject
+import kim.der.asm.api.annotation.AsmMixin
+import kim.der.asm.api.annotation.CallbackInfo
+import kim.der.asm.api.annotation.InjectionPoint
 
 /** InterfaceEngine.update is the frame boundary for the native placement preview. */
 @AsmMixin("com/corrodinggames/rts/gameFramework/gui/InterfaceEngine")

@@ -8,8 +8,10 @@
 package io.github.rwpp.ui
 
 
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -17,10 +19,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -51,16 +49,17 @@ import com.corrodinggames.rts.game.units.actions.SpecialActionCategory
 import com.corrodinggames.rts.gameFramework.GameEngine
 import com.corrodinggames.rts.gameFramework.InputControllerButton
 import com.corrodinggames.rts.gameFramework.gui.BattleInterface
-import io.github.rwpp.logic.hud.GameUiPauseState
-import io.github.rwpp.logic.hud.NativeHudVisibility
 import io.github.rwml.api.Platform
 import io.github.rwml.api.Rwml
 import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.game.hud.*
-import io.github.rwpp.game.sandbox.*
+import io.github.rwpp.game.sandbox.sandboxNativeEditorActionsAllowed
+import io.github.rwpp.game.sandbox.sandboxUnitDataUiAllowed
 import io.github.rwpp.generated.Res
 import io.github.rwpp.generated.group_30
 import io.github.rwpp.graphics.ActionImages
+import io.github.rwpp.logic.hud.GameUiPauseState
+import io.github.rwpp.logic.hud.NativeHudVisibility
 import io.github.rwpp.widget.v2.AeroIconButton
 import org.jetbrains.compose.resources.painterResource
 import kotlin.math.roundToInt
@@ -86,6 +85,7 @@ internal data class CommandButton(
     val flash: Boolean = false,
     val active: Boolean = false,
     val demoBlocked: Boolean = false,
+    val pendingProduction: Int = 0,
 )
 
 internal enum class HudActionGlyph { WAYPOINT, RALLY, UPGRADE }
@@ -99,7 +99,7 @@ internal data class CommandFrame(
 internal fun sameCommandVisuals(a: CommandFrame, b: CommandFrame): Boolean =
     a.title == b.title && a.health == b.health && a.shield == b.shield && a.count == b.count &&
             a.buttons.size == b.buttons.size && a.buttons.indices.all { index ->
-        val x = a.buttons[index];
+        val x = a.buttons[index]
         val y = b.buttons[index]
         x.label == y.label && x.heightScale == y.heightScale && x.columns == y.columns &&
                 x.enabled == y.enabled && x.progress == y.progress && x.cooldown == y.cooldown && x.queued == y.queued && x.image === y.image &&
@@ -107,7 +107,7 @@ internal fun sameCommandVisuals(a: CommandFrame, b: CommandFrame): Boolean =
                 x.identity == y.identity && x.clickSound === y.clickSound && x.dimmed == y.dimmed &&
                 x.hotkey == y.hotkey && x.category == y.category && x.techLevel == y.techLevel &&
                 x.usable == y.usable && x.flash == y.flash && x.active == y.active &&
-                x.demoBlocked == y.demoBlocked
+                x.demoBlocked == y.demoBlocked && x.pendingProduction == y.pendingProduction
     }
 
 internal data class CommandTooltip(val anchor: Rect, val title: String, val text: String)
@@ -144,7 +144,7 @@ internal class CommandGeometry {
     var scrollbarHitWidth = 0f
     val offset get() = scroll.coerceIn(0f, (contentHeight - (height - top)).coerceAtLeast(0f))
     fun hit(point: Offset): Int? {
-        if (point.y < top || point.y >= height) return null
+        if (point.y !in top..<height) return null
         val y = point.y - top + offset
         return rects.indexOfFirst { point.x >= it.x && point.x < it.x + it.width && y >= it.y && y < it.y + it.height }
             .takeIf { it >= 0 }
@@ -234,7 +234,7 @@ private class HudActionCallbacks(
             }
             cachedQueued = queued
             cachedPrice = price
-            cachedLabel = displayName + if (price > 0) "\n\$${price}" else ""
+            cachedLabel = displayName + if (price > 0) $$"\n$$${price}" else ""
             if (sampleDue) lastNameSampleAtNanos = nowNanos
         }
         return cachedLabel
@@ -294,7 +294,9 @@ private class CommandButtonFrameBuilder {
             for (unit in selection) {
                 if (unit is OrderableUnit) queued += hudActionCountForUnit(action, unit, true)
             }
-            val label = actionCallbacks.label(queued, action.priceValue, nowNanos)
+            val pending = OverflowProductionQueue.pendingCount(action, selection)
+            val nativeLabel = actionCallbacks.label(queued, action.priceValue, nowNanos)
+            val label = if (pending == 0) nativeLabel else "$nativeLabel · +$pending"
             val glyph = actionCallbacks.glyph
             val image = if (primary != null && glyph == null && identity in visibleIds) {
                 ActionImages.load(action, primary, visible = true)?.also { displayedImages[identity] = it }
@@ -304,7 +306,8 @@ private class CommandButtonFrameBuilder {
                 touch, action.actionType, action.hasPersistentTooltip(),
                 hudActionQueueEntry(action, selection),
             )
-            val enabled = available || queuePanel && queued > 0 ||
+            val canAdd = available || unlocked && OverflowProductionQueue.supports(action, selection)
+            val enabled = canAdd || pending > 0 || queuePanel && queued > 0 ||
                     action.actionType == ActionType.placeBuilding && unlocked
             val nativeProgress = hudActionProgressForSelection(action, selection)
             val progress = nativeProgress.coerceIn(0f, 1f)
@@ -329,8 +332,8 @@ private class CommandButtonFrameBuilder {
                         callbacksReplaced,
                         sameCommandButtonVisuals(
                             old, label, action.buttonWidthScale, action.buttonColumnSpan, enabled, progress, queued,
-                            image, showInfo, glyph, available, clickSound, identity, dimmed, hotkey,
-                            category, techLevel, usable, flash, active, demoBlocked, cooldown,
+                            image, showInfo, glyph, canAdd, clickSound, identity, dimmed, hotkey,
+                            category, techLevel, usable, flash, active, demoBlocked, cooldown, pending,
                         ),
                     )
                 ) old else CommandButton(
@@ -346,7 +349,7 @@ private class CommandButtonFrameBuilder {
                     activate = actionCallbacks.activate,
                     showInfo = showInfo,
                     glyph = glyph,
-                    canAdd = available,
+                    canAdd = canAdd,
                     identity = identity,
                     clickSound = clickSound,
                     dimmed = dimmed,
@@ -357,6 +360,7 @@ private class CommandButtonFrameBuilder {
                     flash = flash,
                     active = active,
                     demoBlocked = demoBlocked,
+                    pendingProduction = pending,
                 )
             )
         }
@@ -396,7 +400,9 @@ private class CommandButtonFrameBuilder {
                     if (!repeat) io.github.rwpp.sound.Sounds.openPopup
                     else if (available) io.github.rwpp.sound.Sounds.select else io.github.rwpp.sound.Sounds.cancel,
                 )
-                if (repeat && available) executeHudAction(action, selection, false)
+                if (repeat && (available || unlocked && OverflowProductionQueue.supports(action, selection))) {
+                    executeHudAction(action, selection, false)
+                }
             } else {
                 productionSelection.clear()
                 executeHudAction(action, selection, remove)
@@ -412,8 +418,8 @@ private fun hudActionAvailableNow(
     unlocked: Boolean,
 ): Boolean = action.actionType == ActionType.infoOnly ||
         unlocked && hudActionAvailable(action) {
-            engine.interfaceEngine.isSpecialActionAvailable(action, false)
-        }
+    engine.interfaceEngine.isSpecialActionAvailable(action, false)
+}
 
 /**
  * Native decides the queue panel from a per-unit count. Asking the button's own action about a
@@ -454,13 +460,14 @@ private fun sameCommandButtonVisuals(
     active: Boolean,
     demoBlocked: Boolean,
     cooldown: Float,
+    pendingProduction: Int,
 ): Boolean = button.label == label && button.heightScale == heightScale && button.columns == columns &&
         button.enabled == enabled && button.progress == progress && button.cooldown == cooldown && button.queued == queued && button.image === image &&
         button.showInfo == showInfo && button.glyph == glyph && button.canAdd == canAdd &&
         button.clickSound === clickSound && button.identity == identity && button.dimmed == dimmed &&
         button.hotkey == hotkey && button.category == category && button.techLevel == techLevel &&
         button.usable == usable && button.flash == flash && button.active == active &&
-        button.demoBlocked == demoBlocked
+        button.demoBlocked == demoBlocked && button.pendingProduction == pendingProduction
 
 private data class CommandHotkey(
     val label: String,
@@ -529,7 +536,6 @@ private fun activateCommandHotkeys(
 }
 
 /** One stable layout node. Selection changes alter pixels and hit targets, never a button-node tree. */
-@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 internal fun CommandSurface(
     frame: State<CommandFrame>, editing: Boolean = false, modifier: Modifier = Modifier,
@@ -616,7 +622,10 @@ internal fun CommandSurface(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = androidx.compose.animation.core.tween(1000, easing = androidx.compose.animation.core.LinearEasing),
+            animation = androidx.compose.animation.core.tween(
+                1000,
+                easing = androidx.compose.animation.core.LinearEasing
+            ),
             repeatMode = androidx.compose.animation.core.RepeatMode.Restart,
         ),
         label = "actionBorderPulse",
@@ -861,12 +870,15 @@ internal fun CommandSurface(
                 button.category == SpecialActionCategory.upgrade ||
                         button.category == SpecialActionCategory.action ->
                     if (usable) Color(39, 202, 189) else Color(19, 101, 94)
+
                 button.category == SpecialActionCategory.queueUnit && button.techLevel > 1 ->
                     if (usable) Color(235, 240, 30) else Color(117, 120, 15)
+
                 button.category == SpecialActionCategory.infoOnly ||
                         button.category == SpecialActionCategory.infoOnlyNoBox ||
                         button.category == SpecialActionCategory.infoOnlyStockpile ->
                     Color(255, 255, 255, 155)
+
                 !usable -> Color(0, 100, 0)
                 else -> fallback
             }
@@ -884,7 +896,7 @@ internal fun CommandSurface(
                 text, value, topLeft = position, size = Size(width.coerceAtLeast(1f), height.coerceAtLeast(1f)),
                 style = TextStyle(
                     color = color, fontSize = font.sp,
-                    shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = 0.85f), Offset(1f, 1f), 2f)
+                    shadow = Shadow(Color.Black.copy(alpha = 0.85f), Offset(1f, 1f), 2f)
                 ),
                 maxLines = 2, overflow = TextOverflow.Ellipsis
             )
@@ -918,8 +930,10 @@ internal fun CommandSurface(
                             // The native remaining-time ratio decreases to zero. Keep the red fill
                             // confined to that width instead of tinting the whole disabled button.
                             drawRect(Color(170, 35, 35, 115), origin, Size(remainingWidth, extent.height))
-                            drawLine(Color(235, 100, 100, 190), origin + Offset(remainingWidth, 0f),
-                                origin + Offset(remainingWidth, extent.height), 1.dp.toPx())
+                            drawLine(
+                                Color(235, 100, 100, 190), origin + Offset(remainingWidth, 0f),
+                                origin + Offset(remainingWidth, extent.height), 1.dp.toPx()
+                            )
                         }
                         if (button.queued > 0) {
                             // The Aero queue badge keeps its accent outline so a queued count stays
@@ -935,7 +949,7 @@ internal fun CommandSurface(
                                 (extent.width - 8.dp.toPx()).coerceAtLeast(1f) / image.width,
                                 (extent.height - 8.dp.toPx()).coerceAtLeast(1f) / image.height
                             )
-                            val w = (image.width * scale).toInt().coerceAtLeast(1);
+                            val w = (image.width * scale).toInt().coerceAtLeast(1)
                             val h = (image.height * scale).toInt().coerceAtLeast(1)
                             drawImage(
                                 image,
@@ -1038,7 +1052,7 @@ internal fun GameScreen.AeroCommandConsole() {
     val cachedFrameTitle = remember { arrayOf(standbyTitle) }
     val cachedTitlePrimary = remember { arrayOfNulls<com.corrodinggames.rts.game.units.Unit>(1) }
     val cachedTitleType = remember { arrayOfNulls<com.corrodinggames.rts.game.units.UnitTypeInterface>(1) }
-    val cachedFrameInfo = remember { arrayOf<() -> Pair<String, String>>({ standbyTitle to "" }) }
+    val cachedFrameInfo = remember { arrayOf({ standbyTitle to "" }) }
     val cachedInfoPrimary = remember { arrayOfNulls<com.corrodinggames.rts.game.units.Unit>(1) }
     OnGameUpdate {
         val engine = GameEngine.getInstance()
@@ -1109,12 +1123,11 @@ internal fun GameScreen.AeroCommandConsole() {
             if (showSandboxControls) SandboxForceBuildToggle()
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 CommandSurface(model, isEditMode, Modifier.fillMaxSize(), visibility)
-                val action = queueAction
-                val index = commands.indexOfFirst { it == action }
+                val index = commands.indexOfFirst { it == queueAction }
                 TouchQueuePopup(
                     model.value.buttons.getOrNull(index),
-                    onAdd = { action?.let { executeHudAction(it, selectedUnits, false) } },
-                    onRemove = { action?.let { executeHudAction(it, selectedUnits, true) } },
+                    onAdd = { queueAction?.let { executeHudAction(it, selectedUnits, false) } },
+                    onRemove = { queueAction?.let { executeHudAction(it, selectedUnits, true) } },
                     onClose = productionSelection::clear
                 )
             }
@@ -1163,64 +1176,68 @@ private fun DrawScope.drawHudActionGlyph(glyph: HudActionGlyph, origin: Offset, 
     val radius = minOf(extent.width, extent.height - 22.dp.toPx()).coerceAtLeast(24.dp.toPx()) * 0.22f
     drawCircle(Color(0xff061522).copy(alpha = 0.66f), radius * 1.8f, center)
     drawCircle(color.copy(alpha = 0.12f), radius * 1.55f, center, style = Stroke(1.5.dp.toPx()))
-    val stroke = Stroke(width = maxOf(2.dp.toPx(), radius * 0.19f), cap = androidx.compose.ui.graphics.StrokeCap.Round)
-    if (glyph == HudActionGlyph.UPGRADE) {
-        val head = Path().apply {
-            moveTo(center.x - radius * 0.58f, center.y - radius * 0.05f)
-            lineTo(center.x, center.y - radius * 0.68f)
-            lineTo(center.x + radius * 0.58f, center.y - radius * 0.05f)
+    val stroke = Stroke(width = maxOf(2.dp.toPx(), radius * 0.19f), cap = StrokeCap.Round)
+    when (glyph) {
+        HudActionGlyph.UPGRADE -> {
+            val head = Path().apply {
+                moveTo(center.x - radius * 0.58f, center.y - radius * 0.05f)
+                lineTo(center.x, center.y - radius * 0.68f)
+                lineTo(center.x + radius * 0.58f, center.y - radius * 0.05f)
+            }
+            drawPath(head, color, style = stroke)
+            drawLine(
+                color,
+                Offset(center.x, center.y - radius * 0.55f),
+                Offset(center.x, center.y + radius * 0.46f),
+                stroke.width,
+                cap = stroke.cap
+            )
+            drawLine(
+                color.copy(alpha = 0.8f), Offset(center.x - radius * 0.56f, center.y + radius * 0.55f),
+                Offset(center.x + radius * 0.56f, center.y + radius * 0.55f), stroke.width
+            )
         }
-        drawPath(head, color, style = stroke)
-        drawLine(
-            color,
-            Offset(center.x, center.y - radius * 0.55f),
-            Offset(center.x, center.y + radius * 0.46f),
-            stroke.width,
-            cap = stroke.cap
-        )
-        drawLine(
-            color.copy(alpha = 0.8f), Offset(center.x - radius * 0.56f, center.y + radius * 0.55f),
-            Offset(center.x + radius * 0.56f, center.y + radius * 0.55f), stroke.width
-        )
-    } else if (glyph == HudActionGlyph.WAYPOINT) {
-        val route = Path().apply {
-            moveTo(center.x - radius * 0.68f, center.y + radius * 0.48f)
-            lineTo(center.x - radius * 0.16f, center.y - radius * 0.13f)
-            lineTo(center.x + radius * 0.29f, center.y + radius * 0.22f)
-            lineTo(center.x + radius * 0.66f, center.y - radius * 0.47f)
+        HudActionGlyph.WAYPOINT -> {
+            val route = Path().apply {
+                moveTo(center.x - radius * 0.68f, center.y + radius * 0.48f)
+                lineTo(center.x - radius * 0.16f, center.y - radius * 0.13f)
+                lineTo(center.x + radius * 0.29f, center.y + radius * 0.22f)
+                lineTo(center.x + radius * 0.66f, center.y - radius * 0.47f)
+            }
+            drawCircle(color, radius * 0.15f, Offset(center.x - radius * 0.68f, center.y + radius * 0.48f))
+            drawPath(route, color, style = stroke)
+            drawLine(
+                color, Offset(center.x + radius * 0.66f, center.y - radius * 0.47f),
+                Offset(center.x + radius * 0.17f, center.y - radius * 0.44f), stroke.width, cap = stroke.cap
+            )
+            drawLine(
+                color, Offset(center.x + radius * 0.66f, center.y - radius * 0.47f),
+                Offset(center.x + radius * 0.63f, center.y + radius * 0.01f), stroke.width, cap = stroke.cap
+            )
         }
-        drawCircle(color, radius * 0.15f, Offset(center.x - radius * 0.68f, center.y + radius * 0.48f))
-        drawPath(route, color, style = stroke)
-        drawLine(
-            color, Offset(center.x + radius * 0.66f, center.y - radius * 0.47f),
-            Offset(center.x + radius * 0.17f, center.y - radius * 0.44f), stroke.width, cap = stroke.cap
-        )
-        drawLine(
-            color, Offset(center.x + radius * 0.66f, center.y - radius * 0.47f),
-            Offset(center.x + radius * 0.63f, center.y + radius * 0.01f), stroke.width, cap = stroke.cap
-        )
-    } else {
-        // A rally point is a destination marker, distinct from the moving route glyph used by
-        // patrol/waypoint actions.
-        drawCircle(color.copy(alpha = 0.9f), radius * 0.62f, center, style = Stroke(stroke.width))
-        drawCircle(color.copy(alpha = 0.45f), radius * 0.34f, center, style = Stroke(stroke.width * 0.8f))
-        drawCircle(color, radius * 0.12f, center)
-        drawLine(
-            color, Offset(center.x - radius * 0.94f, center.y),
-            Offset(center.x - radius * 0.72f, center.y), stroke.width
-        )
-        drawLine(
-            color, Offset(center.x + radius * 0.72f, center.y),
-            Offset(center.x + radius * 0.94f, center.y), stroke.width
-        )
-        drawLine(
-            color, Offset(center.x, center.y - radius * 0.94f),
-            Offset(center.x, center.y - radius * 0.72f), stroke.width
-        )
-        drawLine(
-            color, Offset(center.x, center.y + radius * 0.72f),
-            Offset(center.x, center.y + radius * 0.94f), stroke.width
-        )
+        else -> {
+            // A rally point is a destination marker, distinct from the moving route glyph used by
+            // patrol/waypoint actions.
+            drawCircle(color.copy(alpha = 0.9f), radius * 0.62f, center, style = Stroke(stroke.width))
+            drawCircle(color.copy(alpha = 0.45f), radius * 0.34f, center, style = Stroke(stroke.width * 0.8f))
+            drawCircle(color, radius * 0.12f, center)
+            drawLine(
+                color, Offset(center.x - radius * 0.94f, center.y),
+                Offset(center.x - radius * 0.72f, center.y), stroke.width
+            )
+            drawLine(
+                color, Offset(center.x + radius * 0.72f, center.y),
+                Offset(center.x + radius * 0.94f, center.y), stroke.width
+            )
+            drawLine(
+                color, Offset(center.x, center.y - radius * 0.94f),
+                Offset(center.x, center.y - radius * 0.72f), stroke.width
+            )
+            drawLine(
+                color, Offset(center.x, center.y + radius * 0.72f),
+                Offset(center.x, center.y + radius * 0.94f), stroke.width
+            )
+        }
     }
 }
 

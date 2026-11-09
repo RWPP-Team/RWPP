@@ -3,7 +3,7 @@ name: Build extension distributions
 on:
   push:
   release:
-    types: [published]
+    types: [ published ]
   workflow_dispatch:
 
 permissions:

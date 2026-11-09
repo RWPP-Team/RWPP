@@ -147,7 +147,7 @@ class TerrainEdgeBuildAlignmentTest {
     }
 
     @Test
-    fun previousDragPlacementsAreTreatedAsNativeBlueprintConflicts() {
+    fun earlierFootprintStopsSearchFromCreatingAnExtraRow() {
         val resolved = terrainEdgeResolveNativeSamples(
             samples = listOf(PointF(0f, 5f), PointF(0f, 0f)),
             dragAngleDegrees = 0f,
@@ -158,7 +158,15 @@ class TerrainEdgeBuildAlignmentTest {
             },
         )
 
-        assertEquals(listOf(0f to 5f, 0f to 15f), resolved.pairs())
+        assertEquals(listOf(0f to 5f), resolved.pairs())
+    }
+
+    @Test
+    fun enteringTheNextTileRequiresMoreThanPointerJitter() {
+        assertTrue(terrainEdgeInsetEndpoint(10f, 20.5f, 10) < 20f)
+        assertTrue(terrainEdgeInsetEndpoint(10f, 22f, 10) > 20f)
+        assertTrue(terrainEdgeInsetEndpoint(20f, 9.5f, 10) > 10f)
+        assertTrue(terrainEdgeInsetEndpoint(20f, 8f, 10) < 10f)
     }
 
     @Test
@@ -178,7 +186,10 @@ class TerrainEdgeBuildAlignmentTest {
 
         assertEquals(listOf(0f to 5f), firstDrag.pairs())
         assertEquals(listOf(5f to -5f), secondDrag.pairs())
-        assertTrue(secondAttempts.any { it.x == 5f && it.y == -5f }, "a new drag starts without the prior positive-side lock")
+        assertTrue(
+            secondAttempts.any { it.x == 5f && it.y == -5f },
+            "a new drag starts without the prior positive-side lock"
+        )
     }
 
     @Test

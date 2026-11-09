@@ -278,7 +278,7 @@ class ResourceBrowserScreen : Screen {
 
                                         if (info.version != null) {
                                             Text(
-                                                text = info.version!!,
+                                                text = info.version,
                                                 fontSize = 10.sp,
                                                 fontFamily = FontFamily.Monospace,
                                                 color = MaterialTheme.colorScheme.secondary
@@ -287,7 +287,7 @@ class ResourceBrowserScreen : Screen {
 
                                         if (info.author != null) {
                                             Text(
-                                                text = info.author!!,
+                                                text = info.author,
                                                 fontSize = 10.sp,
                                                 fontFamily = FontFamily.Monospace,
                                                 color = MaterialTheme.colorScheme.secondary
@@ -314,7 +314,7 @@ class ResourceBrowserScreen : Screen {
                                                 size = 32.dp,
                                                 iconSize = 16.dp,
                                                 contentDescription = readI18n("rwpp.browser.openResourcePage"),
-                                                onClick = { net.openUriInBrowser(info.bbsUrl!!) }
+                                                onClick = { net.openUriInBrowser(info.bbsUrl) }
                                             )
                                         }
 
@@ -327,7 +327,7 @@ class ResourceBrowserScreen : Screen {
                                                 onClick = {
                                                     downloadingMod = true
                                                     net.downloadFile(
-                                                        info.downloadUrl!!,
+                                                        info.downloadUrl,
                                                         File(
                                                             if (selectedTypeIndex == 0)
                                                                 "$modDir/${info.title}.rwmod"

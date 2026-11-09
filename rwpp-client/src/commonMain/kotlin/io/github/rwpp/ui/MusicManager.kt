@@ -58,14 +58,14 @@ private fun MusicManagerDialog(onDismiss: () -> Unit) {
                     Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    for (entry in entries) {
-                        AeroButton(entry.title, onClick = {
+                    for ((path, title) in entries) {
+                        AeroButton(title, onClick = {
                             GameScope.launch {
-                                NativeMusicLibrary.request(GameEngine.getInstance().musicController, entry.path)
+                                NativeMusicLibrary.request(GameEngine.getInstance().musicController, path)
                             }
                         }, modifier = Modifier.fillMaxWidth())
                         Text(
-                            entry.path,
+                            path,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.labelSmall
                         )

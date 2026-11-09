@@ -23,7 +23,6 @@ import io.github.rwpp.api.coroutines.GameScope
 import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.config.Settings
 import io.github.rwpp.game.building.BuildingPlanningController
-import io.github.rwpp.game.building.BuildingPlanningMode
 import io.github.rwpp.game.hotkeys.NativeGameHotkeys
 import io.github.rwpp.game.hotkeys.NativeTacticalActions
 import io.github.rwpp.game.hotkeys.SelectionCameraFollowController

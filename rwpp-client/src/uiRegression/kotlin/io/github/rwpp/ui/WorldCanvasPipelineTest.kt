@@ -16,6 +16,28 @@ import kotlin.test.*
 
 class WorldCanvasPipelineTest : DesktopComposeGraphicsTest() {
     @Test
+    fun desktopSpriteHotPathDoesNotLookUpOriginalMethodsThroughReflection() {
+        val name = "com/corrodinggames/rts/java/JavaCanvas"
+        val original = javaClass.classLoader.getResourceAsStream("$name.class")!!.use { it.readBytes() }
+        AsmRegistry.clear()
+        try {
+            AsmRegistry.register(io.github.rwpp.mixin.graphics.UnitAppearanceJavaCanvasMixin::class.java)
+            val node = ClassNode()
+            ClassReader(AsmProcessor().transform(name, original, javaClass.classLoader)).accept(node, 0)
+            val calls = node.methods.flatMap { it.instructions.toArray().filterIsInstance<MethodInsnNode>() }
+            assertEquals(6, calls.count {
+                it.owner == "io/github/rwpp/mixin/graphics/UnitAppearanceJavaCanvasMixin"
+            })
+            assertFalse(
+                calls.any { it.owner == "kim/der/asm/api/annotation/Operation" },
+                "Every sprite must retain a direct native fast path"
+            )
+        } finally {
+            AsmRegistry.clear()
+        }
+    }
+
+    @Test
     fun commonCanvasMaterialShaderCompilesAsSkSL() {
         for (source in listOf(
             WorldCanvasShaderSources.TERRAIN, WorldCanvasShaderSources.POST,
@@ -97,8 +119,17 @@ class WorldCanvasPipelineTest : DesktopComposeGraphicsTest() {
         val calls = node.methods.single { it.name == "visible" }.instructions.toArray()
             .filterIsInstance<MethodInsnNode>()
         assertTrue(
-            calls.any { it.name == "isVisibleToTeam" },
+            calls.any { it.name.startsWith("nativeUnitVisible") },
             "terrain material lighting ignores fog, while custom unit sprites retain the engine visibility check"
+        )
+        val gate = ClassNode()
+        javaClass.classLoader.getResourceAsStream("io/github/rwpp/graphics/NativeWorldFrameKt.class")!!.use {
+            ClassReader(it).accept(gate, 0)
+        }
+        assertTrue(
+            gate.methods.single { it.name == "nativeUnitVisible" }.instructions.toArray()
+                .filterIsInstance<MethodInsnNode>().any { it.name == "isVisibleToTeam" },
+            "The lifecycle gate must retain native fog rules, not replace them with unconditional visibility"
         )
     }
 }

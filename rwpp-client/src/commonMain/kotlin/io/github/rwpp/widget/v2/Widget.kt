@@ -28,7 +28,6 @@ import io.github.rwpp.LocalWindowManager
 import io.github.rwpp.api.config.ConfigIO
 import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.ui.HudOpacity
-import io.github.rwpp.ui.UI
 import io.github.rwpp.widget.LargeDropdownMenu
 import io.github.rwpp.widget.RWSingleOutlinedTextField
 import io.github.rwpp.widget.RWSliderColors
@@ -106,7 +105,6 @@ fun RWIconButton(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun LongPressFloatingActionButton(
     vector: ImageVector,

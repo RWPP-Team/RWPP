@@ -8,7 +8,6 @@
 package io.github.rwpp.ui
 
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
@@ -60,7 +59,7 @@ internal fun GameScreen.AeroOrderClickEffects() {
             }
         }
     }
-    WorldCanvas(Modifier.fillMaxSize()) {
+    WorldCanvas(Modifier.fillMaxSize(), isActive = { frame.events.isNotEmpty() }) {
         frame.events.forEach {
             val point = Offset(
                 (it.x - frame.camera.x) * frame.zoom * size.width / frame.width,

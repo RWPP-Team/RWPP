@@ -147,7 +147,11 @@ class ClientRoomJoinTicketTest {
         val ticket = NativeGameLifecycle.beginClientRoomJoin().apply { expectedSocket = original }
         try {
             val packet = com.corrodinggames.rts.gameFramework.network.Packet(178).apply { this.connection = connection }
-            io.github.rwpp.api.mixin.network.NativeNetworkLifecycleMixin.beginNetworkPacket(Any(), packet)
+            val network =
+                unsafe.allocateInstance(com.corrodinggames.rts.gameFramework.network.NetworkEngine::class.java)
+                        as com.corrodinggames.rts.gameFramework.network.NetworkEngine
+            network.networked = true
+            io.github.rwpp.api.mixin.network.NativeNetworkLifecycleMixin.beginNetworkPacket(network, packet)
             assertTrue(ticket.acceptTransport(next), "PACKET_RECONNECT_TO (178) must authorize the replacement socket")
         } finally {
             NativeGameLifecycle.finishClientRoomJoin(ticket)

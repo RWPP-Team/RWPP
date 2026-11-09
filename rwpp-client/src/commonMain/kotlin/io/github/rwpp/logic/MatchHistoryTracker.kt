@@ -139,12 +139,12 @@ class MatchHistoryTracker(
                 isAlive = !unit.dead,
                 isComplete = unit.buildProgress >= 1.0F,
                 isPlaceholder = unit.isPlaceholder,
-                isVirtual = unit.isVirtualUnit(),
+                isVirtual = unit.isVirtualUnit,
                 isAttached = unit.attachedToUnit != null,
             )
         ) return@synchronized
         team ?: return@synchronized
-        productionCounter.recordCompleted(unit, team.teamId, unit.isBuilding())
+        productionCounter.recordCompleted(unit, team.teamId, unit.isBuilding)
     }
 
     private fun finish(winTeam: Int?, gameTimeMillis: Long) = synchronized(lock) {
@@ -219,9 +219,9 @@ class MatchHistoryTracker(
                             teamId = unit.team?.teamId,
                             isAlive = !unit.dead,
                             isComplete = unit.buildProgress >= 1.0F,
-                            isBuilding = unit.isBuilding(),
+                            isBuilding = unit.isBuilding,
                             isPlaceholder = unit.isPlaceholder,
-                            isVirtual = unit.isVirtualUnit(),
+                            isVirtual = unit.isVirtualUnit,
                             isAttached = unit.attachedToUnit != null,
                             isTransported = unit.transportedBy != null,
                         )

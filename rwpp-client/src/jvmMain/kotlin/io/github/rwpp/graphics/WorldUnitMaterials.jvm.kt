@@ -46,7 +46,7 @@ internal object DesktopWorldUnitMaterials {
     private var background: BackgroundShader? = null
     private var backgroundPaint: UniquePaint? = null
     private var ready = false
-    private val screen = android.graphics.RectF()
+    private val screen = RectF()
 
     private var image: BitmapOrTexture? = null
     private var canvas: GraphicsEngine? = null
@@ -224,7 +224,7 @@ internal object DesktopWorldUnitMaterials {
         frameSignature.put(bounds.right); frameSignature.put(bounds.bottom)
         val offset = unit.turretDrawOffset
         frameSignature.put(offset.x); frameSignature.put(offset.y)
-        frameSignature.put(unit.getRenderScale())
+        frameSignature.put(unit.renderScale)
         frameSignature.put(unit.height)
         frameSignature.put(unit.getDrawAngle(false))
         frameSignature.put(unit.buildProgress)

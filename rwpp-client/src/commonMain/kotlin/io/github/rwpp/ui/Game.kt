@@ -54,11 +54,7 @@ import io.github.rwpp.game.hotkeys.SelectionCameraFollowController
 import io.github.rwpp.game.hud.AeroDamageSignals
 import io.github.rwpp.game.hud.normalizeHudComponents
 import io.github.rwpp.game.room.nativePauseMenuOptions
-import io.github.rwpp.hud.HudComponentState
-import io.github.rwpp.hud.HudComponentMode
-import io.github.rwpp.hud.HudComponentTemplate
-import io.github.rwpp.hud.HudEditor
-import io.github.rwpp.hud.HudViewport
+import io.github.rwpp.hud.*
 import io.github.rwpp.logic.hud.GameUiPauseState
 import io.github.rwpp.logic.hud.NativeHudVisibility
 import io.github.rwpp.screen.LocalScreenNavigator
@@ -174,13 +170,13 @@ class GameScreen : Screen {
     }
 
     fun setOriginalHudHidden(hidden: Boolean) {
-        appKoin.get<io.github.rwpp.config.Settings>().hideOriginalHud = hidden
+        appKoin.get<Settings>().hideOriginalHud = hidden
         hudSettingsRevision++
         NativeHudVisibility.update()
         if (hidden) {
             fun add(id: String, x: Float, y: Float) {
                 if (dataList.none { it.id == id }) dataList.add(
-                    io.github.rwpp.config.HudComponentData(
+                    HudComponentData(
                         id, 0f, 0f,
                         relativeX = x, relativeY = y
                     )
@@ -216,14 +212,17 @@ class GameScreen : Screen {
         val uiScope = rememberCoroutineScope()
         val navigator = LocalScreenNavigator.current
         var interfaceHidden by remember { mutableStateOf(false) }
-        val hotkeySettings = remember { appKoin.get<io.github.rwpp.config.Settings>() }
+        val hotkeySettings = remember { appKoin.get<Settings>() }
         var showPerformance by remember { mutableStateOf(hotkeySettings.showPerformanceUsage) }
+        var blueprintLibraryOpen by remember { mutableStateOf(false) }
         val hotkeysBlocked =
-            rememberUpdatedState(showPauseMenu || isEditMode || saveDialog != null || UI.showPlayerList)
+            rememberUpdatedState(
+                showPauseMenu || isEditMode || saveDialog != null || UI.showPlayerList || blueprintLibraryOpen
+            )
         // A destroyed gameplay screen must not leave the engine paused; the flag also decides
         // whether the native mouse may be released while a Compose screen owns the window.
-        DisposableEffect(showPauseMenu, isEditMode, saveDialog) {
-            GameUiPauseState.blocked = showPauseMenu || isEditMode || saveDialog != null
+        DisposableEffect(showPauseMenu, isEditMode, saveDialog, blueprintLibraryOpen) {
+            GameUiPauseState.blocked = showPauseMenu || isEditMode || saveDialog != null || blueprintLibraryOpen
             onDispose { GameUiPauseState.blocked = false }
         }
         DisposableEffect(hotkeySettings) {
@@ -235,7 +234,10 @@ class GameScreen : Screen {
             GameMainDispatcher.addUpdateTask(updateHotkeys)
             onDispose {
                 GameMainDispatcher.removeUpdateTask(updateHotkeys)
-                GameScope.launch { io.github.rwpp.game.hotkeys.NativeTacticalActions.reset() }
+                GameScope.launch {
+                    io.github.rwpp.game.hotkeys.NativeTacticalActions.reset()
+                    io.github.rwpp.game.hud.OverflowProductionQueue.clear()
+                }
             }
         }
         var hudMode by remember { mutableStateOf(HudComponentMode.ALWAYS) }
@@ -257,6 +259,7 @@ class GameScreen : Screen {
                 io.github.rwpp.game.sandbox.sandboxUnitDataUiAllowed(engine) -> HudComponentMode.SANDBOX
                 engine.replayEngine.isPlayingReplay || io.github.rwpp.game.hud.isAeroLiveObserver(engine) ->
                     HudComponentMode.OBSERVER
+
                 else -> HudComponentMode.ALWAYS
             }
             if (nextMode != hudMode) hudMode = nextMode
@@ -264,7 +267,7 @@ class GameScreen : Screen {
                 sandboxHudSeeded = true
                 if (dataList.none { it.id == SANDBOX_HUD_ID }) {
                     dataList.add(
-                        io.github.rwpp.config.HudComponentData(
+                        HudComponentData(
                             SANDBOX_HUD_ID, 0f, 0f, relativeX = 0.02f, relativeY = 0.62f
                         )
                     )
@@ -284,6 +287,7 @@ class GameScreen : Screen {
                 showPauseMenu = false
                 NativeHudVisibility.hidden = false
                 NativeHudVisibility.aeroSelection = false
+                NativeHudVisibility.aeroBars = false
                 NativeHudVisibility.aeroOrders = false
                 NativeHudVisibility.aeroRallyPoints = false
                 AeroDamageSignals.enabled = false
@@ -306,7 +310,7 @@ class GameScreen : Screen {
                     if (e.keyEvent.key == Key.Escape && e.keyEvent.type == KeyEventType.KeyDown) {
                         if (UI.showPlayerList) return@launch // The modal owns this Escape.
                         if (interfaceHidden) {
-                            io.github.rwpp.api.coroutines.GameScope.launch {
+                            GameScope.launch {
                                 GameEngine.getInstance().cameraScrollActive = false
                             }
                         } else if (isEditMode) {
@@ -332,6 +336,12 @@ class GameScreen : Screen {
                 { dataList.remove(it.data) },
                 activeTemplates,
                 onSaveConfig = { appKoin.get<io.github.rwpp.api.config.ConfigIO>().saveAllConfig() },
+                onImportLayout = { imported ->
+                    dataList.clear()
+                    dataList.addAll(imported)
+                    appKoin.get<io.github.rwpp.api.config.ConfigIO>().saveAllConfig()
+                },
+                layoutComponentIds = availableTemplates.keys,
             )
 
             CommandTooltipLayer()
@@ -343,7 +353,7 @@ class GameScreen : Screen {
                 rememberVectorPainter(Icons.Default.Menu), { showPauseMenu = true },
                 modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
                 contentDescription = readI18n("rwpp.common.menu"), size = 32.dp, iconSize = 18.dp,
-                animated = appKoin.get<io.github.rwpp.config.Settings>().hudAnimations
+                animated = appKoin.get<Settings>().hudAnimations
             )
         }
 
@@ -355,7 +365,11 @@ class GameScreen : Screen {
 
         DeveloperPerformanceOverlay(showPerformance && !showPauseMenu && !interfaceHidden)
         BuildingPlanningFrame(visible = !showPauseMenu && !isEditMode && !interfaceHidden)
-        BlueprintPlacementToolbar(visible = !showPauseMenu && !isEditMode && !interfaceHidden)
+        BlueprintPlacementToolbar(
+            visible = !showPauseMenu && !isEditMode && !interfaceHidden,
+            libraryOpen = blueprintLibraryOpen,
+            onLibraryOpenChanged = { blueprintLibraryOpen = it },
+        )
 
         // showImportantScreenMessage and friends are painted by the Aero HUD while the native one is hidden.
         AeroScreenMessage(visible = hideOriginalHud && !showPauseMenu && !isEditMode && !interfaceHidden)
@@ -396,7 +410,12 @@ class GameScreen : Screen {
     fun OnGameUpdate(onUpdate: () -> Unit) {
         val currentUpdate by rememberUpdatedState(onUpdate)
         DisposableEffect(Unit) {
-            val task = Runnable { currentUpdate() }
+            val task = Runnable {
+                val engine = GameEngine.getInstance() ?: return@Runnable
+                synchronized(engine.gameUpdateLock) {
+                    if (io.github.rwpp.graphics.nativeWorldFrame(engine) != null) currentUpdate()
+                }
+            }
             val registration = registerHudFrame(task)
             onDispose { registration.close() }
         }
@@ -415,8 +434,8 @@ class GameScreen : Screen {
         val config = koinInject<io.github.rwpp.api.config.ConfigIO>()
         var isMuteAudio by remember { mutableStateOf(!config.getGameConfig<Boolean>("enableSounds")) }
         var isShowFps by remember { mutableStateOf(config.getGameConfig<Boolean>("showFps")) }
-        var masterVolume by remember { mutableFloatStateOf(config.getGameConfig<Float>("masterVolume")) }
-        var interfaceVolume by remember { mutableFloatStateOf(config.getGameConfig<Float>("interfaceVolume")) }
+        var masterVolume by remember { mutableFloatStateOf(config.getGameConfig("masterVolume")) }
+        var interfaceVolume by remember { mutableFloatStateOf(config.getGameConfig("interfaceVolume")) }
 
         var options by remember { mutableStateOf(nativePauseMenuOptions(GameEngine.getInstance())) }
         OnGameUpdate { options = nativePauseMenuOptions(GameEngine.getInstance()) }
@@ -434,7 +453,7 @@ class GameScreen : Screen {
                         AeroButton(readI18n("rwpp.common.confirm"), onClick = {
                             val action = confirmation
                             dismiss(); onResume()
-                            io.github.rwpp.api.coroutines.GameScope.launch {
+                            GameScope.launch {
                                 val engine = GameEngine.getInstance()
                                 val current = nativePauseMenuOptions(engine)
                                 if (action == "room" && current.returnRoom) engine.networkEngine.scheduleReturnToBattleroomSoon()
@@ -561,7 +580,7 @@ class GameScreen : Screen {
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    var hideHud by remember { mutableStateOf(appKoin.get<io.github.rwpp.config.Settings>().hideOriginalHud) }
+                    var hideHud by remember { mutableStateOf(appKoin.get<Settings>().hideOriginalHud) }
                     AeroSettingToggle(readI18n("rwpp.ingame.hideNativeHud"), hideHud, onCheckedChange = {
                         hideHud = it
                         setOriginalHudHidden(it)
@@ -612,7 +631,7 @@ class GameScreen : Screen {
                         )
                         if (options.briefing) AeroButton(readI18n("menus.ingame.briefing"), onClick = {
                             onResume()
-                            io.github.rwpp.api.coroutines.GameScope.launch {
+                            GameScope.launch {
                                 GameEngine.getInstance().triggerEngine?.briefingText?.let { UI.showWarning(it.resolve()) }
                             }
                         }, clickSound = Sounds.openPopup)

@@ -7,14 +7,15 @@
 
 package io.github.rwpp.graphics
 
+import android.graphics.RectF
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import com.corrodinggames.rts.game.units.OrderableUnit
 import com.corrodinggames.rts.game.units.actions.ActionType
 import com.corrodinggames.rts.gameFramework.GameEngine
 import io.github.rwpp.config.Settings
 import io.github.rwpp.game.hud.*
-import io.github.rwpp.game.replay.aeroPresentationTeam
 import io.github.rwpp.game.units.comp.EntityRangeUnitComp
 import kotlin.math.min
 import com.corrodinggames.rts.game.units.Unit as GameUnit
@@ -35,6 +36,7 @@ internal class AeroWorldEffectsSampler(
     private val rangeSettings: EntityRangeUnitComp,
     private val presentation: AeroWorldPresentation,
 ) {
+    private val footprintScratch = RectF()
     private val trails = HashMap<Int, Float>()
     private val productionSampler = AeroProductionSampler()
     private val refresh = WorldVisualRefreshSchedule()
@@ -48,6 +50,28 @@ internal class AeroWorldEffectsSampler(
     private val trackedRanges = AeroRangeTracker<GameUnit>()
     private var sampledSelection: List<GameUnit> = emptyList()
     private var lastTime = 0L
+    private var sampledWorld: NativeWorldFrame? = null
+    private var sampledGameTime = 0
+
+    private fun resetWorldState() {
+        trails.clear()
+        productionSampler.clear()
+        visibleUnits.clear()
+        trackedVisuals.clear()
+        animatedVisuals.publishStable(emptyList())
+        lastAnimatedByUnit.clear()
+        selectedViewSource = null
+        selectedViewValue = null
+        liveTrailIds.clear()
+        trackedRanges.clear()
+        sampledSelection = emptyList()
+        refresh.reset()
+        lastTime = 0L
+        sampledWorld = null
+        sampledGameTime = 0
+        AeroDamageSignals.clear()
+        presentation.clear()
+    }
 
     private fun selectedViewFor(units: List<Pair<GameUnit, SelectedVisual>>): List<SelectedVisual> {
         if (selectedViewSource !== units) {
@@ -87,6 +111,41 @@ internal class AeroWorldEffectsSampler(
         showAllReplayOrders: Boolean,
     ): WorldVisuals {
         val engine = GameEngine.getInstance()
+        if (engine == null) {
+            resetWorldState()
+            return WorldVisuals()
+        }
+        return synchronized(engine.gameUpdateLock) {
+            val world = nativeWorldFrame(engine)
+            if (world == null) {
+                resetWorldState()
+                return@synchronized WorldVisuals()
+            }
+            if (sampledWorld?.sameWorld(world) != true || engine.gameTimeMillis < sampledGameTime) {
+                resetWorldState()
+                sampledWorld = world
+            }
+            sampledGameTime = engine.gameTimeMillis
+            sampleActiveFrame(
+                world, currentSnapshot, settings, selectedUnits, accent, productionPausedLabel,
+                productionWaitingLabel, hoverAllowed, showAllReplayOrders
+            )
+        }
+    }
+
+    private fun sampleActiveFrame(
+        world: NativeWorldFrame,
+        currentSnapshot: WorldVisuals,
+        settings: Settings,
+        selectedUnits: List<GameUnit>,
+        accent: Color,
+        productionPausedLabel: String,
+        productionWaitingLabel: String,
+        hoverAllowed: Boolean,
+        showAllReplayOrders: Boolean,
+    ): WorldVisuals {
+        val engine = world.engine
+        val viewer = world.viewer
         AeroDamageSignals.enabled = settings.aeroDamageNumbers
         if (!settings.aeroDamageNumbers) AeroDamageSignals.clear()
         if (settings.aeroProductionLabels) productionSampler.beginFrame() else productionSampler.clear()
@@ -95,13 +154,15 @@ internal class AeroWorldEffectsSampler(
             explicitRanges || settings.showBuildingAttackRange || settings.showAttackRangeUnit != "Never"
         val replayOrdersEnabled =
             (engine.replayEngine.isPlayingReplay || isAeroLiveObserver(engine)) && showAllReplayOrders
-        if (!settings.aeroSelection && !settings.aeroHoverEffects && !settings.aeroUnitGlowHighlight &&
+        val aeroBars = settings.aeroSelection || settings.improvedHealthBar
+        if (!aeroBars && !settings.showCollisionBoxes && !settings.showUnitTargetLine && !settings.aeroHoverEffects && !settings.aeroUnitGlowHighlight &&
             !settings.aeroOrderEffects && !rangesEnabled && !settings.aeroDamageNumbers &&
             !settings.aeroRallyPointEffects && !settings.aeroProductionLabels && !replayOrdersEnabled
         ) {
             val emptySnapshot = if (currentSnapshot.selected.isNotEmpty() || currentSnapshot.orders.isNotEmpty() ||
                 currentSnapshot.ranges.isNotEmpty() || currentSnapshot.damageNumbers.isNotEmpty() ||
-                currentSnapshot.production.isNotEmpty()
+                currentSnapshot.production.isNotEmpty() || currentSnapshot.collisionBounds.isNotEmpty() ||
+                currentSnapshot.targetLines.isNotEmpty()
             ) WorldVisuals() else currentSnapshot
             trails.clear()
             trackedVisuals.clear()
@@ -126,7 +187,7 @@ internal class AeroWorldEffectsSampler(
             val animatedTracking = animatedVisuals.update(trackedVisuals) { entry ->
                 val unit = entry.first
                 val visual = lastAnimatedByUnit[unit]?.second ?: entry.second
-                if (unit.dead || unit.transportedBy != null || !unit.isVisibleToTeam(aeroPresentationTeam(engine))) {
+                if (unit.team == null || unit.dead || unit.transportedBy != null || !nativeUnitVisible(world, unit)) {
                     return@update null
                 }
                 val hp = unitHealthRatio(unit.hp, unit.maxHp)
@@ -135,23 +196,27 @@ internal class AeroWorldEffectsSampler(
                 trails[identity] = trail
                 val center = Offset(unit.x, unit.y - unit.height)
                 val shield = unitHealthRatio(unit.shield, unit.maxShield)
+                val secondary = if (aeroBars) aeroNonShieldSecondary(unit) else -1f
+                val recharging = secondary >= 0f && unit.isRechargingEnergy
                 val selected = settings.aeroSelection && unit.selected
                 val radius = unit.radius
                 val scaledDown = unit.drawnScaledDown
                 val (transportUsed, transportCapacity) = transportSlots(
-                    unit, settings.aeroSelection && visual.transportCapacity > 0
+                    unit, aeroBars && visual.transportCapacity > 0
                 )
                 val next = if (visual.center == center && visual.hp == hp && visual.trail == trail &&
                     visual.shield == shield && visual.selected == selected && visual.barRadius == radius &&
                     visual.barScaledDown == scaledDown && visual.transportUsed == transportUsed &&
-                    visual.transportCapacity == transportCapacity
+                    visual.transportCapacity == transportCapacity && visual.secondary == secondary &&
+                    visual.secondaryRecharging == recharging
                 ) {
                     lastAnimatedByUnit[unit] ?: (unit to visual)
                 } else {
                     unit to visual.copy(
                         center = center, hp = hp, trail = trail, shield = shield,
                         selected = selected, barRadius = radius, barScaledDown = scaledDown,
-                        transportUsed = transportUsed, transportCapacity = transportCapacity
+                        transportUsed = transportUsed, transportCapacity = transportCapacity,
+                        secondary = secondary, secondaryRecharging = recharging
                     )
                 }
                 lastAnimatedByUnit[unit] = next
@@ -161,7 +226,11 @@ internal class AeroWorldEffectsSampler(
             val nextSnapshot = currentSnapshot.copy(
                 selected = selectedView,
                 ranges = trackedRanges.frame { unit ->
-                    if (unit.dead || unit.transportedBy != null || !unit.isVisibleToTeam(aeroPresentationTeam(engine))) null
+                    if (unit.team == null || unit.dead || unit.transportedBy != null || !nativeUnitVisible(
+                            world,
+                            unit
+                        )
+                    ) null
                     else Offset(unit.x, unit.y)
                 },
                 damageNumbers = AeroDamageSignals.frame(engine.gameTimeMillis.toLong()),
@@ -179,7 +248,7 @@ internal class AeroWorldEffectsSampler(
         visibleUnits.clear()
         for (entry in GameUnit.unitList) {
             val unit = entry as? GameUnit ?: continue
-            if (!unit.dead && unit.transportedBy == null && unit.isVisibleToTeam(aeroPresentationTeam(engine))) {
+            if (unit.team != null && !unit.dead && unit.transportedBy == null && nativeUnitVisible(world, unit)) {
                 visibleUnits.add(unit)
             }
         }
@@ -205,24 +274,40 @@ internal class AeroWorldEffectsSampler(
         val orders = ArrayList<AeroOrder>()
         val circles = ArrayList<AeroRangeCircle>()
         val production = ArrayList<AeroProductionVisual>()
+        val collisionBounds = if (settings.showCollisionBoxes) ArrayList<AeroCollisionVisual>() else null
+        val targetLines = if (settings.showUnitTargetLine) ArrayList<Pair<Offset, Offset>>() else null
         val observing = isAeroLiveObserver(engine)
         val replay = engine.replayEngine.isPlayingReplay
         val replaying = replay || observing
         val showAllOrders = replaying && showAllReplayOrders
-        val viewer = aeroPresentationTeam(engine)
         allVisible.forEach { unit ->
             val inView = unit.x + unit.radius >= engine.cameraRenderX && unit.y + unit.radius >= engine.cameraRenderY &&
                     unit.x - unit.radius <= engine.cameraRenderX + engine.screenWidth / engine.zoomScale &&
                     unit.y - unit.radius <= engine.cameraRenderY + engine.screenHeight / engine.zoomScale
+            if (inView && collisionBounds != null && unit.collisionEnabled) {
+                val footprint = if (unit.isBuilding) {
+                    unit.getMinimapRect(world.map, footprintScratch)
+                    Rect(footprintScratch.left, footprintScratch.top, footprintScratch.right, footprintScratch.bottom)
+                } else null
+                collisionBounds += AeroCollisionVisual(Offset(unit.x, unit.y), unit.radius, footprint)
+            }
+            if (inView && targetLines != null && unit is OrderableUnit && unit.maxAttackRange > 70f &&
+                (!engine.networkEngine.networked || unit.team.isSameTeam(viewer))
+            ) {
+                val target = unit.attackTarget
+                if (target != null && target.team != null && !target.dead && nativeUnitVisible(world, target)) {
+                    targetLines += Offset(unit.x, unit.y) to Offset(target.x, target.y)
+                }
+            }
             val hp = unitHealthRatio(unit.hp, unit.maxHp)
             val construction = unit.constructionProgress
-            val secondary = if (inView && settings.aeroSelection) aeroNonShieldSecondary(unit) else -1f
+            val secondary = if (inView && aeroBars) aeroNonShieldSecondary(unit) else -1f
             val isHovered = unit === hovered
             val health = nativeUnitHealthBarAllowed(unit) &&
                     aeroHealthVisible(unit.selected, isHovered, engine.settings.showHp, hp, selectedUnitCount)
             val glowHighlight = settings.aeroUnitGlowHighlight && (unit.selected || isHovered)
             val shieldVisible =
-                aeroShieldVisible(settings.aeroSelection, unit.selected, isHovered, unit.shield, unit.maxShield)
+                aeroShieldVisible(aeroBars, unit.selected, isHovered, unit.shield, unit.maxShield)
             val ownerColor = Color(unit.team.color)
             val enemy = viewer != null && unit.team.isEnemy(viewer)
             val selectionColor = aeroSelectionHighlightColor(
@@ -233,12 +318,12 @@ internal class AeroWorldEffectsSampler(
                 accent = accent,
             )
             val (transportUsed, transportCapacity) = transportSlots(
-                unit, settings.aeroSelection && inView &&
-                    (unit.selected || isHovered || engine.settings.showHp)
+                unit, aeroBars && inView &&
+                        (unit.selected || isHovered || engine.settings.showHp)
             )
-            if (inView && (settings.aeroSelection &&
+            if (inView && (aeroBars &&
                         (unit.selected || health || shieldVisible || construction >= 0f || secondary >= 0f ||
-                            transportCapacity > 0) || isHovered || glowHighlight)
+                                transportCapacity > 0) || isHovered || glowHighlight)
             ) {
                 val identity = System.identityHashCode(unit)
                 live += identity
@@ -253,9 +338,10 @@ internal class AeroWorldEffectsSampler(
                     if (enemy) AeroEnemyHighlight else accent,
                     selected = settings.aeroSelection && unit.selected,
                     hovered = isHovered,
-                    healthVisible = settings.aeroSelection && health,
-                    construction = if (settings.aeroSelection) construction else -1f,
-                    secondary = if (settings.aeroSelection) secondary else -1f,
+                    healthVisible = aeroBars && health,
+                    construction = if (aeroBars) construction else -1f,
+                    secondary = if (aeroBars) secondary else -1f,
+                    secondaryRecharging = secondary >= 0f && unit.isRechargingEnergy,
                     shieldVisible = shieldVisible,
                     glowHighlight = glowHighlight,
                     selectionColor = selectionColor,
@@ -263,13 +349,14 @@ internal class AeroWorldEffectsSampler(
                     barScaledDown = unit.drawnScaledDown,
                     barMini = unit.getAttachmentSlot()?.showMiniHp == true,
                     transportUsed = transportUsed,
-                    transportCapacity = transportCapacity
+                    transportCapacity = transportCapacity,
+                    improvedHealthStyle = settings.improvedHealthBar,
                 )
                 trackedVisuals += unit to visual
             }
             if (settings.aeroProductionLabels && inView && unit.isBuilding &&
-                (unit.team === aeroPresentationTeam(engine) || settings.aeroAlliedProductionLabels && unit.team.isSameTeam(
-                    aeroPresentationTeam(engine)
+                (unit.team === viewer || settings.aeroAlliedProductionLabels && unit.team.isSameTeam(
+                    viewer
                 ))
             ) {
                 productionSampler.sample(unit, engine.gameTimeMillis.toLong(), engine.isGamePaused(false))
@@ -278,7 +365,7 @@ internal class AeroWorldEffectsSampler(
             if (unit is OrderableUnit) {
                 val forcedRange = rangeSettings.isAttackRangeShown(unit)
                 if (rangesEnabled && (forcedRange || !settings.aeroEnemyRangesOnly || unit.team.isEnemy(
-                        aeroPresentationTeam(engine)
+                        viewer
                     )) &&
                     aeroAttackRangeAllowed(
                         unit.maxAttackRange, unit.movementType, unit.isBuilding,
@@ -300,10 +387,10 @@ internal class AeroWorldEffectsSampler(
                     }
                 }
                 if (settings.aeroOrderEffects || settings.aeroRallyPointEffects && unit.selected || showAllOrders) {
-                    val sameReplayTeam = unit.team === aeroPresentationTeam(engine)
+                    val sameReplayTeam = unit.team === viewer
                     val sharedReplayControl =
-                        unit.team != null && aeroPresentationTeam(engine) != null && unit.team.canControlTeam(
-                            aeroPresentationTeam(engine)
+                        unit.team != null && viewer != null && unit.team.canControlTeam(
+                            viewer
                         )
                     val mayShowOrders = aeroReplayOrderAccess(
                         replaying, showAllOrders, sameReplayTeam,
@@ -314,7 +401,7 @@ internal class AeroWorldEffectsSampler(
                             val needsFogGate = showAllOrders && !sameReplayTeam && !sharedReplayControl
                             val map = engine.map
                             val destinationVisible = aeroReplayWaypointDestinationVisible(
-                                map?.fogOfWarEnabled ?: false, aeroPresentationTeam(engine)?.fogGrid,
+                                map?.fogOfWarEnabled ?: false, viewer.fogGrid,
                                 map?.tileWidth ?: 0, map?.tileHeight ?: 0,
                                 map?.mapWidthInTiles ?: 0, map?.mapHeightInTiles ?: 0,
                                 point.x, point.y, targetUnitVisible = true, requireCurrentVision = needsFogGate
@@ -334,11 +421,15 @@ internal class AeroWorldEffectsSampler(
                         for (index in 0 until count) {
                             val waypoint = unit.getWaypoint(index) ?: continue
                             val target = waypoint.targetUnit
-                            val targetVisible = target == null || target.isVisibleToTeam(aeroPresentationTeam(engine))
+                            val targetVisible =
+                                target == null || (target.team != null && !target.dead && nativeUnitVisible(
+                                    world,
+                                    target
+                                ))
                             val needsFogGate = showAllOrders && !sameReplayTeam && !sharedReplayControl
                             val map = engine.map
                             val destinationVisible = aeroReplayWaypointDestinationVisible(
-                                map?.fogOfWarEnabled ?: false, aeroPresentationTeam(engine)?.fogGrid,
+                                map?.fogOfWarEnabled ?: false, viewer.fogGrid,
                                 map?.tileWidth ?: 0, map?.tileHeight ?: 0,
                                 map?.mapWidthInTiles ?: 0, map?.mapHeightInTiles ?: 0,
                                 waypoint.targetX, waypoint.targetY, targetVisible, needsFogGate
@@ -404,7 +495,7 @@ internal class AeroWorldEffectsSampler(
                         )
                     }
                 }
-                if (!settings.aeroEnemyRangesOnly || source.team.isEnemy(aeroPresentationTeam(engine))) {
+                if (!settings.aeroEnemyRangesOnly || source.team.isEnemy(viewer)) {
                     val circle = AeroRangeCircle(
                         Offset(source.x, source.y), source.getBuildRange(type),
                         source.team.teamId, Color(0xff72d8f5), "build"
@@ -437,7 +528,9 @@ internal class AeroWorldEffectsSampler(
             settings.aeroRangeEffects,
             production,
             productionPausedLabel,
-            productionWaitingLabel
+            productionWaitingLabel,
+            collisionBounds = collisionBounds.orEmpty(),
+            targetLines = targetLines.orEmpty(),
         )
         presentation.publishFrameSnapshot(snapshot, immutableTracking, trackedRanges.snapshot())
         return snapshot

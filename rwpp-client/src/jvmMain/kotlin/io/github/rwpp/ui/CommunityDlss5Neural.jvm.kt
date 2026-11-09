@@ -86,19 +86,19 @@ internal actual fun enableCommunityDlss5(controllerDirectory: String): String = 
         check(status.controllerPids.isNotEmpty()) { "Controller did not start" }
         val executable = Paths.get(status.executable)
         val helper = ensureDlssControlHelper()
-        val script = """
-            Add-Type -Path ${'$'}env:RWPP_DLSS_HELPER
-            ${'$'}target = [int]${'$'}env:RWPP_DLSS_GAME_PID
-            ${'$'}root = Split-Path ${'$'}env:RWPP_DLSS_CONTROLLER_EXE
-            ${'$'}runtime = Join-Path ${'$'}root 'runtime'
-            ${'$'}controller = Get-Process -Name UniversalDLSS5 | Where-Object { ${'$'}_.Path -eq ${'$'}env:RWPP_DLSS_CONTROLLER_EXE } | Select-Object -First 1
-            ${'$'}deadline = [DateTime]::UtcNow.AddSeconds(5)
-            do { ${'$'}controller.Refresh(); if (${'$'}controller.MainWindowHandle -ne 0) { break }; Start-Sleep -Milliseconds 100 } while ([DateTime]::UtcNow -lt ${'$'}deadline)
-            [RwppDlssControl]::Configure(${'$'}target, ${'$'}runtime)
-            ${'$'}bridge = Join-Path ${'$'}root 'UniversalDLSS5.Bridge.dll'
-            if (-not [RwppDlssControl]::IsBridgeLoaded(${'$'}target, ${'$'}bridge)) {
-                & (Join-Path ${'$'}root 'UniversalDLSS5.Injector.exe') ${'$'}target ${'$'}bridge
-                if (${'$'}LASTEXITCODE -ne 0) { throw "Injector failed: ${'$'}LASTEXITCODE" }
+        val script = $$"""
+            Add-Type -Path $env:RWPP_DLSS_HELPER
+            $target = [int]$env:RWPP_DLSS_GAME_PID
+            $root = Split-Path $env:RWPP_DLSS_CONTROLLER_EXE
+            $runtime = Join-Path $root 'runtime'
+            $controller = Get-Process -Name UniversalDLSS5 | Where-Object { $_.Path -eq $env:RWPP_DLSS_CONTROLLER_EXE } | Select-Object -First 1
+            $deadline = [DateTime]::UtcNow.AddSeconds(5)
+            do { $controller.Refresh(); if ($controller.MainWindowHandle -ne 0) { break }; Start-Sleep -Milliseconds 100 } while ([DateTime]::UtcNow -lt $deadline)
+            [RwppDlssControl]::Configure($target, $runtime)
+            $bridge = Join-Path $root 'UniversalDLSS5.Bridge.dll'
+            if (-not [RwppDlssControl]::IsBridgeLoaded($target, $bridge)) {
+                & (Join-Path $root 'UniversalDLSS5.Injector.exe') $target $bridge
+                if ($LASTEXITCODE -ne 0) { throw "Injector failed: $LASTEXITCODE" }
             }
         """.trimIndent()
         windowsControllerCommand(

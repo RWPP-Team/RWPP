@@ -102,12 +102,14 @@ val verifyServerDependencies = tasks.register("verifyServerDependencies") {
                 is ProjectComponentIdentifier -> id.takeIf {
                     it.projectPath == ":rwpp-client"
                 }?.displayName
+
                 is ModuleComponentIdentifier -> id.takeIf {
                     it.group.startsWith("com.soywiz") || it.group.startsWith("korlibs") || it.group == "org.korge" ||
-                        it.group.startsWith("org.jetbrains.compose") || it.group.startsWith("androidx.compose") ||
-                        it.group.startsWith("org.lwjgl") || it.group == "io.github.rwpp-team" &&
-                        it.module.startsWith("rwpp-client")
+                            it.group.startsWith("org.jetbrains.compose") || it.group.startsWith("androidx.compose") ||
+                            it.group.startsWith("org.lwjgl") || it.group == "io.github.rwpp-team" &&
+                            it.module.startsWith("rwpp-client")
                 }?.displayName
+
                 else -> null
             }
         }

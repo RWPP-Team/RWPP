@@ -35,7 +35,7 @@ internal class WorldSceneMaterialGrid {
     fun coversView(engine: GameEngine, map: NativeMap): Boolean {
         if (width == 0 || map.tileWidth <= 0 || map.tileHeight <= 0) return false
         val zoom = engine.zoomScale.coerceAtLeast(0.05f)
-        val w = width / resolution;
+        val w = width / resolution
         val h = height / resolution
         return (originX == 0 || engine.cameraRenderX / map.tileWidth >= originX + 2) &&
                 (originY == 0 || engine.cameraRenderY / map.tileHeight >= originY + 2) &&
@@ -56,7 +56,7 @@ internal class WorldSceneMaterialGrid {
             top,
             map.mapHeightInTiles
         )
-        val w = right - left;
+        val w = right - left
         val h = bottom - top
         if (w <= 0 || h <= 0) return false
         var r = terrainWaterSampleResolution(map.mapWidthInTiles, map.mapHeightInTiles)

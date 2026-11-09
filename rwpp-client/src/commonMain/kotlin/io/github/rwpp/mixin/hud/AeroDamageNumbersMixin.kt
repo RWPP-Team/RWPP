@@ -20,7 +20,10 @@ import com.corrodinggames.rts.game.units.Unit as GameUnit
 /** The simulation only enqueues actual HP/shield loss from currently visible units. */
 @AsmMixin("com/corrodinggames/rts/game/units/Unit")
 object AeroDamageNumbersMixin {
-    private data class Before(val unit: GameUnit, val health: Float, val position: Offset, val visible: Boolean)
+    private data class Before(
+        val unit: GameUnit, val health: Float, val position: Offset, val visible: Boolean,
+        val world: io.github.rwpp.graphics.NativeWorldFrame?
+    )
 
     private val calls = ThreadLocal.withInitial { ArrayDeque<Before>() }
 
@@ -32,12 +35,16 @@ object AeroDamageNumbersMixin {
         if (!AeroDamageSignals.enabled) return
         val unit = self as GameUnit
         val engine = GameEngine.getInstance() ?: return
-        calls.get().addLast(
-            Before(
-                unit, max(0f, unit.hp) + max(0f, unit.shield),
-                Offset(unit.x, unit.y - unit.height - unit.radius), unit.isVisibleToTeam(engine.playerTeam)
+        synchronized(engine.gameUpdateLock) {
+            val world = io.github.rwpp.graphics.nativeWorldFrame(engine)
+            calls.get().addLast(
+                Before(
+                    unit, max(0f, unit.hp) + max(0f, unit.shield),
+                    Offset(unit.x, unit.y - unit.height - unit.radius),
+                    world != null && io.github.rwpp.graphics.nativeUnitVisible(world, unit), world
+                )
             )
-        )
+        }
     }
 
     @AsmInject(
@@ -57,10 +64,12 @@ object AeroDamageNumbersMixin {
         }
         val before = stack.removeLast()
         if (!before.visible) return
-        val loss = before.health - max(0f, unit.hp) - max(0f, unit.shield)
-        AeroDamageSignals.hit(
-            System.identityHashCode(unit), before.position, loss,
-            GameEngine.getInstance().gameTimeMillis.toLong()
-        )
+        val engine = GameEngine.getInstance() ?: return
+        synchronized(engine.gameUpdateLock) {
+            val world = io.github.rwpp.graphics.nativeWorldFrame(engine) ?: return@synchronized
+            if (before.world?.sameWorld(world) != true) return@synchronized
+            val loss = before.health - max(0f, unit.hp) - max(0f, unit.shield)
+            AeroDamageSignals.hit(System.identityHashCode(unit), before.position, loss, engine.gameTimeMillis.toLong())
+        }
     }
 }

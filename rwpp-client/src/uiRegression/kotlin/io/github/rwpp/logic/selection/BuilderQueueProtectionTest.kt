@@ -7,6 +7,7 @@ import kotlin.test.assertNull
 
 class BuilderQueueProtectionTest {
     private fun site(x: Int) = BuilderQueueSite("experimentalLandFactory", x, 400, 1)
+
     @Test
     fun retainsLongestQueueAndOnlyGroupsMatchingRemainingSites() {
         val full = listOf(site(100), site(200), site(300))

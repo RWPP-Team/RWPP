@@ -125,7 +125,7 @@ fun App() {
         withContext(Dispatchers.IO) {
             while (true) {
                 networkLoadingSnapshot = readNativeNetworkLoadingSnapshot()
-                delay(100)
+                delay(100.milliseconds)
             }
         }
     }

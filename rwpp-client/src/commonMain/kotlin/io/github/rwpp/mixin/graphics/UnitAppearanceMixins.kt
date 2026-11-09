@@ -29,8 +29,10 @@ object UnitAppearanceTeamColorSourceMixin {
         method = "getTeamColorVariants(Lcom/corrodinggames/rts/gameFramework/render/BitmapOrTexture;Lcom/corrodinggames/rts/game/TeamColorMode;Z)[Lcom/corrodinggames/rts/gameFramework/render/BitmapOrTexture;",
         require = 1,
     )
-    fun retain(source: BitmapOrTexture, mode: TeamColorMode, lazy: Boolean,
-               original: Operation<Array<BitmapOrTexture>>): Array<BitmapOrTexture> =
+    fun retain(
+        source: BitmapOrTexture, mode: TeamColorMode, lazy: Boolean,
+        original: Operation<Array<BitmapOrTexture>>
+    ): Array<BitmapOrTexture> =
         original.call(source, mode, lazy).also { UnitAppearanceRenderBridge.registerTeamColorSources(source, mode, it) }
 }
 
@@ -77,8 +79,10 @@ object UnitAppearanceGlCanvasMixin {
         method = "drawImage(Lcom/corrodinggames/rts/gameFramework/render/BitmapOrTexture;FFLandroid/graphics/Paint;)V",
         require = 1,
     )
-    fun image(texture: BitmapOrTexture, x: Float, y: Float, paint: Paint?,
-        original: Operation<kotlin.Unit>) {
+    fun image(
+        texture: BitmapOrTexture, x: Float, y: Float, paint: Paint?,
+        original: Operation<kotlin.Unit>
+    ) {
         val appearance = UnitAppearanceRenderBridge.drawOverride(texture)
         original.call(appearance?.texture ?: texture, x, y, paint)
     }
@@ -87,8 +91,10 @@ object UnitAppearanceGlCanvasMixin {
         method = "drawImage(Lcom/corrodinggames/rts/gameFramework/render/BitmapOrTexture;Landroid/graphics/Rect;Landroid/graphics/Rect;Landroid/graphics/Paint;)V",
         require = 1,
     )
-    fun rect(texture: BitmapOrTexture, source: Rect, destination: Rect, paint: Paint?,
-             original: Operation<kotlin.Unit>) {
+    fun rect(
+        texture: BitmapOrTexture, source: Rect, destination: Rect, paint: Paint?,
+        original: Operation<kotlin.Unit>
+    ) {
         val appearance = UnitAppearanceRenderBridge.drawOverride(texture, source)
         original.call(appearance?.texture ?: texture, appearance?.source ?: source, destination, paint)
     }
@@ -97,8 +103,10 @@ object UnitAppearanceGlCanvasMixin {
         method = "drawImage(Lcom/corrodinggames/rts/gameFramework/render/BitmapOrTexture;Landroid/graphics/Rect;Landroid/graphics/RectF;Landroid/graphics/Paint;)V",
         require = 1,
     )
-    fun rectF(texture: BitmapOrTexture, source: Rect, destination: RectF, paint: Paint?,
-              original: Operation<kotlin.Unit>) {
+    fun rectF(
+        texture: BitmapOrTexture, source: Rect, destination: RectF, paint: Paint?,
+        original: Operation<kotlin.Unit>
+    ) {
         val appearance = UnitAppearanceRenderBridge.drawOverride(texture, source)
         original.call(appearance?.texture ?: texture, appearance?.source ?: source, destination, paint)
     }

@@ -23,6 +23,9 @@ internal object NativeHudVisibility {
     var aeroSelection = false
 
     @Volatile
+    var aeroBars = false
+
+    @Volatile
     var aeroOrders = false
 
     @Volatile
@@ -32,6 +35,7 @@ internal object NativeHudVisibility {
         val settings = appKoin.get<Settings>()
         hidden = settings.hideOriginalHud
         aeroSelection = settings.aeroSelection
+        aeroBars = settings.aeroSelection || settings.improvedHealthBar
         aeroOrders = settings.aeroOrderEffects
         aeroRallyPoints = settings.aeroRallyPointEffects
     }

@@ -151,7 +151,7 @@ internal object UnitAppearanceRenderBridge {
         val team = current.unit.team ?: return null
         val displaySlot = team.getDisplaySlot().coerceIn(0, 9)
         val ownerPosition = team.teamId
-        val ownerNativeColor = team.getColor()
+        val ownerNativeColor = team.color
         val paintColor = resolveUnitAppearancePaintColor(
             enabled = settings.paintEnabled,
             triColorEnabled = settings.triColorEnabled,
@@ -163,7 +163,7 @@ internal object UnitAppearanceRenderBridge {
             enemySource = settings.enemyColor,
             allySource = settings.allyColor,
             nativeColorForPlayerPosition = { playerPosition ->
-                Team.getTeam(playerPosition)?.getColor() ?: Team.lookupTeamColor(playerPosition)
+                Team.getTeam(playerPosition)?.color ?: Team.lookupTeamColor(playerPosition)
             },
         ) ?: ownerNativeColor
 
@@ -346,7 +346,7 @@ internal object UnitAppearanceRenderBridge {
     private fun relation(unit: Unit): UnitAppearanceRelation {
         val team = unit.team ?: return UnitAppearanceRelation.NEUTRAL
         if (team === Team.grayTeam) return UnitAppearanceRelation.NEUTRAL
-        val engine = runCatching { com.corrodinggames.rts.gameFramework.GameEngine.getInstance() }
+        val engine = runCatching { GameEngine.getInstance() }
             .getOrNull() ?: return UnitAppearanceRelation.ALLY
         // A live observer draw already replaced playerTeam with the watched team; the watched
         // units are still someone else's selection and keep the ally colour.

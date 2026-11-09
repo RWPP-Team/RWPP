@@ -124,6 +124,7 @@ internal expect fun encodeMapPreviewPng(image: MapPreviewRaster): ByteArray
 private const val DEFAULT_PREVIEW_DIMENSION = 512
 private const val MIN_PREVIEW_DIMENSION = 64
 private const val MAX_PREVIEW_DIMENSION = 1024
+
 // Large community maps ship their tile data inline; the biggest observed map is 14 MB.
 private const val MAX_TMX_BYTES = 32 * 1024 * 1024
 private const val MAX_TSX_BYTES = 2 * 1024 * 1024
@@ -200,6 +201,7 @@ internal suspend fun renderMapPreview(
 
     var totalAssetBytes = 0L
     val seenAssetBytes = HashMap<String, Int>()
+
     // Community maps routinely reference tilesets and images the author never shipped.
     // The engine loads such a map and draws those tiles as empty, so the preview keeps
     // the GID range and leaves it blank instead of dropping the whole image.
@@ -218,7 +220,7 @@ internal suspend fun renderMapPreview(
 
     val mapDirectory = mapPath.substringBeforeLast('/', "")
     val decodedImages = PreviewImageCache()
-    val tilesets = root.directChildren("tileset").mapNotNull { element ->
+    val tilesets = root.directChildren("tileset").map { element ->
         val firstGid = element.intAttr("firstgid")
         require(firstGid > 0) { "Tileset firstgid must be positive" }
         val source = element.getAttribute("source").takeIf(String::isNotBlank)
@@ -226,7 +228,7 @@ internal suspend fun renderMapPreview(
             // Inline Rusted Warfare tilesets use paths rooted at the game tilesets directory.
             parsePreviewTileset(firstGid, element, "tilesets", ::loadResource, decodeImage, decodedImages)
         } else {
-            val external = loadResource(source, mapDirectory) ?: return@mapNotNull emptyPreviewTile(firstGid)
+            val external = loadResource(source, mapDirectory) ?: return@map emptyPreviewTile(firstGid)
             require(external.second.size <= MAX_TSX_BYTES) { "External TSX file is too large" }
             val tilesetElement = parsePreviewXml(external.second).documentElement
             require(tilesetElement.tagName == "tileset") { "External TSX has no tileset root" }
@@ -644,7 +646,7 @@ private fun alphaOver(source: Int, destination: Int): Int {
     return (outAlpha shl 24) or (channel(16) shl 16) or (channel(8) shl 8) or channel(0)
 }
 
-private fun parsePreviewXml(bytes: ByteArray): Document {
+internal fun parsePreviewXml(bytes: ByteArray): Document {
     require(bytes.size <= MAX_TMX_BYTES) { "TMX / TSX XML is too large" }
     // Android's XML provider does not implement every desktop JAXP feature. Reject declarations
     // before parsing instead of making ordinary UTF-8 maps depend on those optional switches.
@@ -696,6 +698,7 @@ internal fun previewResourceCandidates(source: String, baseDirectory: String, ma
     fun add(candidate: String) {
         normalizeResourcePath(candidate)?.takeIf(::isAllowedResourcePath)?.let(candidates::add)
     }
+
     val fileName = source.replace('\\', '/').substringAfterLast('/')
     val bareSource = source.replace('\\', '/').removePrefix("assets/")
     if (source.startsWith('/')) {

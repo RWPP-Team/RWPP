@@ -19,6 +19,7 @@ import io.github.rwpp.widget.v2.AeroButton
 import io.github.rwpp.widget.v2.AeroSettingGroup
 import io.github.rwpp.widget.v2.AeroTextField
 import kotlinx.coroutines.*
+import kotlin.time.Duration.Companion.milliseconds
 
 internal expect fun launchCommunityDlss5(controllerDirectory: String): String
 internal expect fun resolveCommunityDlss5Directory(controllerDirectory: String): String
@@ -54,7 +55,7 @@ internal fun CommunityDlss5StatusControls(controllerDirectory: String) {
     LaunchedEffect(controllerDirectory) {
         while (isActive) {
             status = withContext(Dispatchers.IO) { queryCommunityDlss5Status(controllerDirectory) }
-            delay(3000)
+            delay(3000.milliseconds)
         }
     }
     val observed = status

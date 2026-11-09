@@ -316,7 +316,6 @@ internal fun RoomMapActionBar(
 }
 
 /** Real compactable chat panel. Compact history grows with its messages and scrolls with the page. */
-@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 internal fun RoomChatPanel(
     history: AnnotatedString,
@@ -496,7 +495,6 @@ private fun RoomAiActionButton(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun RoomChatComposer(
     message: String,

@@ -8,5 +8,4 @@
 package io.github.rwpp.ui
 
 internal actual fun closeGameWindowForRoomReturn() {
-    Unit
 }

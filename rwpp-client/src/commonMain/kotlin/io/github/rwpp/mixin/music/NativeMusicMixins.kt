@@ -21,14 +21,19 @@ import kim.der.asm.api.annotation.*
 abstract class NativeMusicAccessMixin {
     @Accessor("currentTrack")
     abstract fun rwppTrack(): MusicControllerMusicFactoryMusicSteam?
+
     @Accessor("trackLoaded")
     abstract fun rwppTrackLoaded(): Boolean
+
     @Accessor("currentTrackNoLoop")
     abstract fun rwppNoLoop(): Boolean
+
     @Accessor("currentTrackNoLoop")
     abstract fun rwppNoLoop(value: Boolean)
+
     @Accessor("modMusicCheckPending")
     abstract fun rwppModMusicPending(value: Boolean)
+
     @Accessor("pendingNowPlayingMessage")
     abstract fun rwppNowPlaying(value: String?)
 }

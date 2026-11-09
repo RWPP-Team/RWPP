@@ -2,15 +2,6 @@ package io.github.rwpp.api.net.kcp
 
 import java.util.PriorityQueue
 import kotlin.collections.ArrayDeque
-import kotlin.collections.List
-import kotlin.collections.copyOf
-import kotlin.collections.forEach
-import kotlin.collections.indices
-import kotlin.collections.isNotEmpty
-import kotlin.collections.listOf
-import kotlin.collections.mutableListOf
-import kotlin.collections.plus
-import kotlin.collections.single
 import kotlin.random.Random
 import kotlin.test.*
 

@@ -132,7 +132,7 @@ internal object AeroMinimapSignals {
         val projectiles = Projectile.allProjectiles
         val projectileItems = projectiles.items()
         val nativeMinimapSize = minOf(minimap.width, minimap.height).takeIf { it > 0f } ?: 120f
-        for (index in 0 until projectiles.size) {
+        for (index in projectiles.indices) {
             val projectile = projectileItems[index] as? Projectile ?: continue
             if (projectile.nukeWeapon) nukeActive = true
             val interceptedNuke = projectile.interceptTargetProjectile?.nukeWeapon == true

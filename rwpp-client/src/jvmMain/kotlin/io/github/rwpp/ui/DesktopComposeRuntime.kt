@@ -104,7 +104,7 @@ internal object DesktopComposeRuntime {
                     // Compose callbacks run inside the synchronous Slick input bridge, so this
                     // call is reentrant on AWT with the same Display context already borrowed.
                     container.input.removeListener(listener)
-                    bridge.call { createdRenderer.close() }
+                    bridge.call { DesktopWorldCanvases.close(); createdRenderer.close() }
                     renderer = null
                     inputListener = null
                     contextBridge = null
@@ -126,6 +126,7 @@ internal object DesktopComposeRuntime {
         if (framePacer.shouldRender(System.nanoTime(), settings.hudRefreshRate)) {
             bridge.call { scene.render() }
         }
+        com.corrodinggames.rts.gameFramework.GameEngine.getInstance()?.let { DesktopWorldCanvases.draw(it) }
         // This method only composites an existing GL texture. Keep it on Slick's
         // current context instead of transferring that context to AWT every game frame.
         scene.drawToScreen()

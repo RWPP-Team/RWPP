@@ -13,7 +13,7 @@ import com.corrodinggames.rts.gameFramework.render.CanvasLike
 /** Copies native Paint state into a small per-thread nesting pool; original paints are never mutated. */
 internal object WorldFilteredPaints {
     private class Pool {
-        val paints = ArrayList<Paint>();
+        val paints = ArrayList<Paint>()
         var depth = 0
     }
 

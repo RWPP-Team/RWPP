@@ -322,7 +322,7 @@ class SettingsScreen(
                                         if (appContext.isDesktop()) {
                                             AeroSettingToggle(
                                                 label = readI18n("menus.settings.option.immersiveFullScreen"),
-                                                defaultValue = configIO.getGameConfig<Boolean>("slick2dFullScreen"),
+                                                defaultValue = configIO.getGameConfig("slick2dFullScreen"),
                                                 subLabel = readI18n("rwpp.settings.immersiveFullScreenHint"),
                                                 onCheckedChange = {
                                                     settings.isFullscreen = it
@@ -355,6 +355,11 @@ class SettingsScreen(
                                             SettingsSwitchRW("smartSelection_v2", labelKey = "smartSelection")
                                             SettingsSwitchRW("quickRally")
                                             SettingsSwitchRW("doubleClickToAttackMove")
+                                            AeroSettingToggle(
+                                                readI18n("rwpp.settings.overflowProductionQueue"),
+                                                settings.overflowProductionQueue,
+                                                onCheckedChange = { settings.overflowProductionQueue = it },
+                                            )
                                             AeroSettingToggle(
                                                 readI18n("rwpp.graphics.terrainEdgeBuilding"),
                                                 settings.terrainEdgeBuilding,

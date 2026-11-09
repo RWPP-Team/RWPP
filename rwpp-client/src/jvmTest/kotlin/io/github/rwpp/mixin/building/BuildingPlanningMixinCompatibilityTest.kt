@@ -2,7 +2,8 @@ package io.github.rwpp.mixin.building
 
 import kim.der.asm.AsmRegistry
 import kim.der.asm.transformer.AsmProcessor
-import kotlin.test.*
+import kotlin.test.Test
+import kotlin.test.assertFalse
 
 /** Validate the actual game method signatures and callback parameter mapping before shipping. */
 class BuildingPlanningMixinCompatibilityTest {

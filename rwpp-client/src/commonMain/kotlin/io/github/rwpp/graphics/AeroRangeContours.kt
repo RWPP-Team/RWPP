@@ -160,12 +160,12 @@ internal fun DrawScope.drawAeroRangeGroupMask(
     val maxProjectedRadius =
         max(viewportWidth, viewportHeight) * AERO_RANGE_MAX_PROJECTED_RADIUS_FACTOR
     var union: Path? = null
-    for (circle in group.circles) {
-        if (circle.radius > AERO_RANGE_MAX_WORLD_RADIUS) continue
-        val x = (circle.center.x - camera.x) * worldToScreen.x
-        val y = (circle.center.y - camera.y) * worldToScreen.y
-        val rx = circle.radius * worldToScreen.x
-        val ry = circle.radius * worldToScreen.y
+    for ((center1, radius) in group.circles) {
+        if (radius > AERO_RANGE_MAX_WORLD_RADIUS) continue
+        val x = (center1.x - camera.x) * worldToScreen.x
+        val y = (center1.y - camera.y) * worldToScreen.y
+        val rx = radius * worldToScreen.x
+        val ry = radius * worldToScreen.y
         if (!x.isFinite() || !y.isFinite() || !rx.isFinite() || !ry.isFinite() || rx <= 0f || ry <= 0f) continue
         if (rx > maxProjectedRadius || ry > maxProjectedRadius) continue
         val left = x - rx
@@ -232,9 +232,7 @@ internal fun DrawScope.drawAeroRangeContours(
 
 /** Reject unlimited radii before they reach either the update-phase or render-phase cache. */
 internal fun AeroRangeCircle.hasUsableBounds(): Boolean {
-    if (!center.x.isFinite() || !center.y.isFinite() || !radius.isFinite() ||
-        radius <= 0f || radius > AERO_RANGE_MAX_WORLD_RADIUS
-    ) return false
-    return (center.x - radius).isFinite() && (center.x + radius).isFinite() &&
+    return !(!center.x.isFinite() || !center.y.isFinite() || !radius.isFinite() ||
+            radius <= 0f || radius > AERO_RANGE_MAX_WORLD_RADIUS) && (center.x - radius).isFinite() && (center.x + radius).isFinite() &&
             (center.y - radius).isFinite() && (center.y + radius).isFinite()
 }

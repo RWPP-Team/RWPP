@@ -20,6 +20,7 @@ import com.corrodinggames.rts.gameFramework.GameEngine
 import io.github.rwpp.api.game.impl.openGamePath
 import io.github.rwpp.api.game.impl.openGamePathWithModTag
 import io.github.rwpp.api.game.map.GameMap
+import io.github.rwpp.game.replay.ReplayEmbeddedMap
 import io.github.rwpp.api.game.map.NetworkMap
 import io.github.rwpp.api.logging.logger
 import io.github.rwpp.game.map.MapPreviewGenerationService
@@ -46,7 +47,8 @@ class MapPreviewKeyer : Keyer<GameMap> {
 private const val MAP_PREVIEW_SCHEMA = 3
 
 internal fun mapPreviewKey(data: GameMap): String =
-    "map-preview-v$MAP_PREVIEW_SCHEMA:${data.mapType}:${data.enginePath}"
+    "map-preview-v$MAP_PREVIEW_SCHEMA:${data.mapType}:${data.enginePath}" +
+            (data as? ReplayEmbeddedMap)?.let { ":${it.previewIdentity}" }.orEmpty()
 
 /**
  * Map lists, the battle room, missions and replays render a GameMap directly. Only the
@@ -61,7 +63,7 @@ internal class MapPreviewFetcher(
 ) : Fetcher {
     override suspend fun fetch(): FetchResult {
         val stream = withContext(Dispatchers.IO) {
-            nativePreview(map) ?: renderedPreview(map)
+            if (map is ReplayEmbeddedMap) renderedPreview(map) else nativePreview(map) ?: renderedPreview(map)
         }
         if (stream == null) {
             logger().warn("Neither a PNG nor a renderable TMX is available for '{}'", map.enginePath)

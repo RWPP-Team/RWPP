@@ -223,7 +223,7 @@ object AeroNativeSelectionMixin {
 
     @AsmInject(method = "drawOverlay(FZ)V", target = InjectionPoint.HEAD, cancellable = true, require = 1)
     fun bars(callback: CallbackInfo, self: Any) {
-        if (NativeHudVisibility.aeroSelection) callback.cancel()
+        if (NativeHudVisibility.aeroBars) callback.cancel()
     }
 }
 

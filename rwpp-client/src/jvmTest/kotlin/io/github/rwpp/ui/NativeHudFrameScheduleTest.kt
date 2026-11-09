@@ -1,6 +1,8 @@
 package io.github.rwpp.ui
 
-import kotlin.test.*
+import kotlin.test.Test
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class NativeHudFrameScheduleTest {
     @Test

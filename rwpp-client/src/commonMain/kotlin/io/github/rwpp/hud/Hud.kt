@@ -8,6 +8,8 @@
 package io.github.rwpp.hud
 
 
+import io.github.rwpp.ui.PortableConfigActions
+import kotlinx.serialization.builtins.ListSerializer
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
@@ -414,6 +416,7 @@ private fun HudEditorSettingsDialog(
 private fun HudEditorToolbar(
     widthDp: Float,
     onAddComponent: () -> Unit,
+    onLayoutFiles: (() -> Unit)?,
     onSaveAndExit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -425,6 +428,9 @@ private fun HudEditorToolbar(
     if (widthDp >= 600f) {
         Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             AeroButton(addLabel, onAddComponent, modifier = Modifier.weight(1f), subText = addSubtext)
+            if (onLayoutFiles != null) AeroButton(
+                readI18n("rwpp.portable.layout"), onLayoutFiles, modifier = Modifier.weight(1f),
+            )
             AeroButton(saveLabel, onSaveAndExit, modifier = Modifier.weight(1f), subText = saveSubtext)
         }
     } else {
@@ -440,6 +446,9 @@ private fun HudEditorToolbar(
                     AeroButton(saveLabel, onSaveAndExit, modifier = Modifier.weight(1f), subText = saveSubtext)
                 }
             }
+            if (onLayoutFiles != null) AeroButton(
+                readI18n("rwpp.portable.layout"), onLayoutFiles, modifier = Modifier.fillMaxWidth(),
+            )
             if (widthDp < 420f) {
                 AeroButton(saveLabel, onSaveAndExit, modifier = Modifier.fillMaxWidth(), subText = saveSubtext)
             }
@@ -457,16 +466,20 @@ fun HudEditor(
     availableTemplates: Map<String, HudComponentTemplate> = mapOf(),
     modifier: Modifier = Modifier,
     onSaveConfig: () -> Unit = {},
+    onImportLayout: ((List<HudComponentData>) -> Unit)? = null,
+    layoutComponentIds: Set<String> = availableTemplates.keys,
 ) {
     var verticalGuidelineX by remember { mutableStateOf<Float?>(null) }
     var horizontalGuidelineY by remember { mutableStateOf<Float?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
+    var showLayoutFiles by remember { mutableStateOf(false) }
     var settingsScope by remember { mutableStateOf<HudSettingsScope?>(null) }
     val density = LocalDensity.current
     val latestSaveConfig = rememberUpdatedState(onSaveConfig)
     LaunchedEffect(isEditMode) {
         if (!isEditMode) {
             showAddDialog = false
+            showLayoutFiles = false
             settingsScope = null
         }
     }
@@ -544,8 +557,7 @@ fun HudEditor(
                                             val change = event.changes.firstOrNull {
                                                 activePointerId == null || it.id == activePointerId
                                             } ?: continue
-                                            val coordinates = moveZoneCoordinates[0]
-                                            if (coordinates == null) continue
+                                            val coordinates = moveZoneCoordinates[0] ?: continue
                                             val rootPosition = coordinates.localToRoot(change.position)
                                             when (event.type) {
                                                 PointerEventType.Press -> {
@@ -629,6 +641,7 @@ fun HudEditor(
                 HudEditorToolbar(
                     widthDp = toolbarWidthDp,
                     onAddComponent = { showAddDialog = true },
+                    onLayoutFiles = if (onImportLayout != null) ({ showLayoutFiles = true }) else null,
                     onSaveAndExit = {
                         components.forEach(HudComponentState::syncToData)
                         onEditModeChange(false)
@@ -676,6 +689,30 @@ fun HudEditor(
     }
 
     if (isEditMode) {
+        if (showLayoutFiles && onImportLayout != null) {
+            AnimatedDialog(onDismissRequest = { showLayoutFiles = false }) { dismiss ->
+                AeroPanel(Modifier.widthIn(max = 480.dp).fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AeroHeader(title = "HUD LAYOUT")
+                        PortableConfigActions(
+                            "rwpp-hud-layout.toml", ListSerializer(HudComponentData.serializer()),
+                            snapshot = { components.map { it.syncToData(); it.data.copy() } },
+                            apply = { imported ->
+                                require(imported.size <= 128 && imported.all {
+                                    it.id in layoutComponentIds && it.xDp.isFinite() && it.yDp.isFinite() &&
+                                            it.scale in 0.05f..5f &&
+                                            (it.relativeX == null || it.relativeX!! in 0f..1f) &&
+                                            (it.relativeY == null || it.relativeY!! in 0f..1f)
+                                })
+                                onImportLayout(imported.map { it.copy(instanceId = java.util.UUID.randomUUID().toString()) })
+                            },
+                            save = { components.forEach(HudComponentState::syncToData); onSaveConfig() },
+                        )
+                        AeroButton(readI18n("rwpp.common.close"), dismiss, modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            }
+        }
         settingsScope?.let { scope ->
             HudEditorSettingsDialog(scope, onDismiss = { settingsScope = null })
         }
@@ -810,12 +847,12 @@ private fun HudComponentWrapper(
                             var guideX: Float? = null
                             var minXDist = snapThresholdDp
 
-                            for (target in xTargets) {
-                                val dist = abs(rawX - target.candidatePos)
+                            for ((candidatePos, guidePos) in xTargets) {
+                                val dist = abs(rawX - candidatePos)
                                 if (dist < minXDist) {
                                     minXDist = dist
-                                    bestX = target.candidatePos
-                                    guideX = target.guidePos
+                                    bestX = candidatePos
+                                    guideX = guidePos
                                 }
                             }
 
@@ -823,12 +860,12 @@ private fun HudComponentWrapper(
                             var guideY: Float? = null
                             var minYDist = snapThresholdDp
 
-                            for (target in yTargets) {
-                                val dist = abs(rawY - target.candidatePos)
+                            for ((candidatePos, guidePos) in yTargets) {
+                                val dist = abs(rawY - candidatePos)
                                 if (dist < minYDist) {
                                     minYDist = dist
-                                    bestY = target.candidatePos
-                                    guideY = target.guidePos
+                                    bestY = candidatePos
+                                    guideY = guidePos
                                 }
                             }
 

@@ -10,11 +10,7 @@ package io.github.rwpp.api.mixin.game.stats
 import com.corrodinggames.rts.gameFramework.StatsHandlerTeamStats
 import com.corrodinggames.rts.gameFramework.network.InputNetStream
 import io.github.rwpp.api.event.hooks.StatsHistoryLoadCallbacks
-import kim.der.asm.api.annotation.Accessor
-import kim.der.asm.api.annotation.AddInterface
-import kim.der.asm.api.annotation.AsmMixin
-import kim.der.asm.api.annotation.Operation
-import kim.der.asm.api.annotation.WrapMethod
+import kim.der.asm.api.annotation.*
 
 internal interface NativeStatsHistoryAccess {
     fun rwppTeamStats(): Array<StatsHandlerTeamStats?>

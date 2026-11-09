@@ -22,8 +22,8 @@ internal fun clampOverscrollCamera(engine: GameEngine, marginPixels: Float) {
     val map = engine.map ?: return
     val zoom = engine.zoomScale.takeIf { it.isFinite() && it > 0f } ?: 1f
     val margin = marginPixels.coerceIn(0f, 800f) / zoom
-    val x = overscrollCameraAxis(engine.cameraWorldX, map.pixelWidth.toFloat(), engine.gameAreaWorldWidth, margin)
-    val y = overscrollCameraAxis(engine.cameraWorldY, map.pixelHeight.toFloat(), engine.viewHeight, margin)
+    val x = overscrollCameraAxis(engine.cameraWorldX, map.pixelWidth, engine.gameAreaWorldWidth, margin)
+    val y = overscrollCameraAxis(engine.cameraWorldY, map.pixelHeight, engine.viewHeight, margin)
     engine.cameraWasClamped = x != engine.cameraWorldX || y != engine.cameraWorldY
     engine.setCamera(x, y)
 }

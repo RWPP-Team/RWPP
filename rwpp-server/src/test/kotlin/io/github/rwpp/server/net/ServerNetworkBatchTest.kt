@@ -19,6 +19,7 @@ import kotlin.test.*
 class ServerNetworkBatchTest {
     @Test
     fun optimizedTcpPreservesBatchAndFinalCloseOrder() = tcpBatch(true)
+
     @Test
     fun unbatchedTcpPreservesBatchAndFinalCloseOrder() = tcpBatch(false)
 

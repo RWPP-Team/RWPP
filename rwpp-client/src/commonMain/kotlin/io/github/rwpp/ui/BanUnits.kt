@@ -173,7 +173,7 @@ fun BanUnitViewDialog(
                             if (expandedMap[type] == true) {
                                 items(
                                     count = units.size,
-                                    key = { "unit_${units[it].getInternalName()}" }
+                                    key = { "unit_${units[it].internalName}" }
                                 ) { index ->
                                     val unit = units[index]
                                     val isChecked = selectedUnits.contains(unit)
@@ -309,14 +309,14 @@ private fun AeroBanUnitCard(
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 Text(
-                    text = unit.getDisplayName(),
+                    text = unit.displayName,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     color = if (isChecked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
                     fontFamily = FontFamily.Monospace
                 )
                 Text(
-                    text = "ID: ${unit.getInternalName()}",
+                    text = "ID: ${unit.internalName}",
                     fontSize = 10.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontFamily = FontFamily.Monospace

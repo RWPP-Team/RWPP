@@ -18,6 +18,7 @@ import java.util.concurrent.TimeUnit
 private object AndroidUiAudio {
     private class Pending {
         val ready = CountDownLatch(1)
+
         @Volatile
         var status = -1
     }

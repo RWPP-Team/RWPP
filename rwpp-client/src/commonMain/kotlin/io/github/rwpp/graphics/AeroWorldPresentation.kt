@@ -27,6 +27,7 @@ internal class ImmutableFrameListCache<T> {
 
     fun publishStable(items: List<T>) {
         current = items
+        scratch.clear()
     }
 
     fun update(source: List<T>, transform: (T) -> T?): List<T> {
@@ -51,6 +52,8 @@ internal class ImmutableFrameListCache<T> {
 /** Immutable tracking inputs published by HUD sampling, consumed after actual native world draw. */
 internal class AeroWorldPresentation {
     private data class Samples(
+        val world: NativeWorldFrame,
+        val gameTime: Int,
         val frame: WorldVisuals,
         val units: List<Pair<GameUnit, SelectedVisual>>,
         val ranges: List<Pair<GameUnit, AeroRangeCircle>>,
@@ -88,7 +91,7 @@ internal class AeroWorldPresentation {
             visuals.damageNumbers.isEmpty() && visuals.production.isEmpty()
         ) {
             clear()
-        } else samples = Samples(visuals, units.toList(), ranges)
+        } else publishSamples(visuals, units.toList(), ranges)
     }
 
     /** The frame path hands over fresh collections that it never mutates after this call. */
@@ -101,7 +104,22 @@ internal class AeroWorldPresentation {
             visuals.damageNumbers.isEmpty() && visuals.production.isEmpty()
         ) {
             clear()
-        } else samples = Samples(visuals, units, ranges)
+        } else publishSamples(visuals, units, ranges)
+    }
+
+    private fun publishSamples(
+        visuals: WorldVisuals, units: List<Pair<GameUnit, SelectedVisual>>,
+        ranges: List<Pair<GameUnit, AeroRangeCircle>>
+    ) {
+        val engine = GameEngine.getInstance()
+        if (engine == null) {
+            clear(); return
+        }
+        synchronized(engine.gameUpdateLock) {
+            val world = nativeWorldFrame(engine)
+            if (world == null) clear()
+            else samples = Samples(world, engine.gameTimeMillis, visuals, units, ranges)
+        }
     }
 
     fun clear() {
@@ -120,7 +138,7 @@ internal class AeroWorldPresentation {
 
     private fun captureUnits(
         source: List<Pair<GameUnit, SelectedVisual>>,
-        viewer: Team?
+        world: NativeWorldFrame
     ): List<SelectedVisual> {
         if (unitSource !== source) {
             unitSource = source
@@ -131,7 +149,11 @@ internal class AeroWorldPresentation {
         selectedScratch.clear()
         var changed = false
         for ((unit, visual) in source) {
-            if (viewer == null || unit.dead || unit.transportedBy != null || !unit.isVisibleToTeam(viewer)) continue
+            if (unit.team == null || unit.dead || unit.transportedBy != null || !nativeUnitVisible(
+                    world,
+                    unit
+                )
+            ) continue
             val center = Offset(unit.x, unit.y - unit.height)
             val selected = visual.selected && unit.selected
             val barRadius = unit.radius
@@ -159,12 +181,14 @@ internal class AeroWorldPresentation {
 
     private fun captureRanges(
         source: List<Pair<GameUnit, AeroRangeCircle>>,
-        viewer: Team?
+        world: NativeWorldFrame
     ): List<AeroRangeGroup> {
+        val viewer = world.viewer
         if (rangeSource === source && rangeViewer === viewer) {
             var unchanged = true
             for ((unit, _) in source) {
-                val visible = viewer != null && !unit.dead && unit.transportedBy == null && unit.isVisibleToTeam(viewer)
+                val visible =
+                    unit.team != null && !unit.dead && unit.transportedBy == null && nativeUnitVisible(world, unit)
                 val previous = rangeStates[unit]
                 if (previous == null || previous.visible != visible ||
                     visible && (previous.x != unit.x || previous.y != unit.y)
@@ -179,7 +203,8 @@ internal class AeroWorldPresentation {
         val builder = AeroRangeGroupBuilder()
         rangeStates.clear()
         for ((unit, circle) in source) {
-            val visible = viewer != null && !unit.dead && unit.transportedBy == null && unit.isVisibleToTeam(viewer)
+            val visible =
+                unit.team != null && !unit.dead && unit.transportedBy == null && nativeUnitVisible(world, unit)
             rangeStates[unit] = CapturedRangeState(unit.x, unit.y, visible)
             if (visible) builder.add(circle.copy(center = Offset(unit.x, unit.y)))
         }
@@ -190,22 +215,33 @@ internal class AeroWorldPresentation {
     }
 
     fun capture(engine: GameEngine) {
-        resetCapturedStateIfRequested()
-        val source = samples ?: return
-        val viewer = engine.playerTeam
-        val selected = captureUnits(source.units, viewer)
-        val ranges = captureRanges(source.ranges, viewer)
-        val shown = source.frame.copy(
-            selected = selected, ranges = ranges,
-            camera = Offset(engine.cameraRenderX, engine.cameraRenderY), zoom = engine.zoomScale,
-            width = engine.screenWidth.coerceAtLeast(1f), height = engine.screenHeight.coerceAtLeast(1f),
-            phase = (System.nanoTime() % 2_000_000_000L) / 2_000_000_000f
-        )
-        frame.value = shown
-        // Moving units and effects need the same wake-up as camera motion. State application on
-        // Android's separate UI thread must not wait for an unrelated window invalidation.
-        requestWorldPresentationFrame()
+        // Do not even lock an engine that has already been replaced by the host.
+        if (GameEngine.getInstance() !== engine) {
+            clear(); return
+        }
+        synchronized(engine.gameUpdateLock) {
+            resetCapturedStateIfRequested()
+            val world = nativeWorldFrame(engine)
+            val source = samples
+            if (world == null || source != null && (!source.world.sameWorld(world) || engine.gameTimeMillis < source.gameTime)) {
+                clear()
+                resetCapturedStateIfRequested()
+                frame.value = WorldVisuals()
+                return@synchronized
+            }
+            if (source == null) return@synchronized
+            val selected = captureUnits(source.units, world)
+            val ranges = captureRanges(source.ranges, world)
+            frame.value = source.frame.copy(
+                selected = selected, ranges = ranges,
+                camera = Offset(engine.cameraRenderX, engine.cameraRenderY), zoom = engine.zoomScale,
+                width = engine.screenWidth.coerceAtLeast(1f), height = engine.screenHeight.coerceAtLeast(1f),
+                phase = (System.nanoTime() % 2_000_000_000L) / 2_000_000_000f
+            )
+            requestWorldPresentationFrame()
+        }
     }
+
 }
 
 /** No world scans: only already sampled visible units/ranges are followed in the render phase. */

@@ -226,7 +226,7 @@ class RwppUiFramework : UiFramework {
             contentCleanup.getAndSet(emptyCleanup).invoke()
             AndroidUiRuntime.gameSurfaceClosed(host, surface, restore = !launcherSurface.isClosed)
         }
-        surface.attachFactory(UiContentFactory { nativeActivity ->
+        surface.attachFactory { nativeActivity ->
             val gameActivity = nativeActivity as? Activity
                 ?: throw IllegalArgumentException("Android game surfaces require an Activity owner")
             val container = object : FrameLayout(gameActivity) {
@@ -282,7 +282,7 @@ class RwppUiFramework : UiFramework {
                 }
             })
             container
-        })
+        }
         return surface
     }
 

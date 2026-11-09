@@ -183,7 +183,7 @@ fun Team.applyConfigChange(
     val network = engine.networkEngine
     var slot = spawnPoint
     var teamChanged = false
-    var teamId = 0
+    var teamId: Int
     var autoAssigned = false
     var spectator = false
 

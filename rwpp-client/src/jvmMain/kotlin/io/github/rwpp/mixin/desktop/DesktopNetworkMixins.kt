@@ -91,6 +91,8 @@ object DesktopNetworkPacketMixin {
             runCatching { DataInputStream(ByteArrayInputStream(data)).use { it.readUTF() } }.getOrNull()
                 ?: return null
         if (!firstValue.startsWith(io.github.rwpp.packageName)) return null
-        return Toml.decodeFromString(RoomOption.serializer(), firstValue.removePrefix(io.github.rwpp.packageName))
+        return runCatching {
+            Toml.decodeFromString(RoomOption.serializer(), firstValue.removePrefix(io.github.rwpp.packageName))
+        }.getOrNull()
     }
 }

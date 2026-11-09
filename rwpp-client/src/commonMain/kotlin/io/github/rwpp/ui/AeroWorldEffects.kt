@@ -7,7 +7,6 @@
 
 package io.github.rwpp.ui
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
@@ -68,7 +67,8 @@ internal fun GameScreen.AeroWorldEffects() {
             showAllReplayOrders = AeroReplayControlsState.showAllUnitOrders
         )
     }
-    AeroWorldEffectSurface(snapshot, presentation = presentation.frame)
+    val empty = remember { WorldVisuals() }
+    AeroWorldEffectSurface(if (nativeWorldCanvas) empty else snapshot, presentation = presentation.frame)
 }
 
 @Composable
@@ -88,7 +88,12 @@ internal fun AeroWorldEffectSurface(
                 Offset(0f, with(density) { 1.dp.toPx() }), with(density) { 2.dp.toPx() })
         )
     }
-    WorldCanvas(modifier.fillMaxSize()) {
+    WorldCanvas(modifier.fillMaxSize(), isActive = {
+        val frame = presentation?.value ?: snapshot
+        frame.selected.isNotEmpty() || frame.ranges.isNotEmpty() || frame.orders.isNotEmpty() ||
+                frame.production.isNotEmpty() || frame.damageNumbers.isNotEmpty() ||
+                frame.collisionBounds.isNotEmpty() || frame.targetLines.isNotEmpty()
+    }) {
         // Observe the native render-phase snapshot in draw, so HUD re-layout/recomposition
         // cannot pin world-space effects to an old update-phase camera while panning.
         val frame = presentation?.value ?: snapshot
@@ -97,7 +102,7 @@ internal fun AeroWorldEffectSurface(
             !frame.zoom.isFinite() || frame.zoom <= 0f ||
             !frame.camera.x.isFinite() || !frame.camera.y.isFinite()
         ) return@WorldCanvas
-        val sx = size.width / frame.width;
+        val sx = size.width / frame.width
         val sy = size.height / frame.height
         // A modded preview unit can report an unlimited build or attack range. Projecting that
         // value produces geometry far outside the Skia path range, which the GPU tessellates
@@ -113,6 +118,38 @@ internal fun AeroWorldEffectSurface(
             frame.ranges, frame.camera, frame.zoom, frame.width, frame.height,
             frame.phase, frame.detailedRangeStyle
         )
+        if (frame.collisionBounds.isNotEmpty()) {
+            val color = Color(0xdcffd24b)
+            val stroke = Stroke(1.5.dp.toPx())
+            frame.collisionBounds.forEach { bounds ->
+                val center = project(bounds.center)
+                val radius = bounds.radius * frame.zoom * min(sx, sy)
+                if (finite(center.x) && finite(center.y) && finite(radius) && radius > 0f) {
+                    drawCircle(color, radius, center, style = stroke)
+                }
+                bounds.footprint?.let { footprint ->
+                    val topLeft = project(footprint.topLeft)
+                    val bottomRight = project(footprint.bottomRight)
+                    val width = bottomRight.x - topLeft.x
+                    val height = bottomRight.y - topLeft.y
+                    if (finite(topLeft.x) && finite(topLeft.y) && finite(width) && finite(height) &&
+                        width > 0f && height > 0f
+                    ) drawRect(color, topLeft, Size(width, height), style = stroke)
+                }
+            }
+        }
+        if (frame.targetLines.isNotEmpty()) {
+            val viewport = Rect(Offset.Zero, size)
+            frame.targetLines.forEach { (origin, target) ->
+                val from = project(origin)
+                val to = project(target)
+                if (finite(from.x) && finite(from.y) && finite(to.x) && finite(to.y)) {
+                    clipAeroSegment(from, to, viewport)?.let { (start, end) ->
+                        drawLine(Color(0xccff775c), start, end, 1.5.dp.toPx())
+                    }
+                }
+            }
+        }
         frame.orders.forEach { order ->
             val to = project(order.to)
             if (!to.x.isFinite() || !to.y.isFinite()) return@forEach
@@ -123,9 +160,9 @@ internal fun AeroWorldEffectSurface(
             if (!rawFrom.x.isFinite() || !rawFrom.y.isFinite()) return@forEach
             val segment = clipAeroSegment(rawFrom, to, viewport) ?: return@forEach
             val from = segment.first
-            val delta = segment.second - from;
+            val delta = segment.second - from
             val length = delta.getDistance()
-            val direction = if (length > 0.1f) delta / length else Offset(1f, 0f);
+            val direction = if (length > 0.1f) delta / length else Offset(1f, 0f)
             val normal = Offset(-direction.y, direction.x)
             val color = when (order.kind) {
                 AeroOrderKind.ATTACK -> Color(0xffff775c)
@@ -330,7 +367,13 @@ internal fun AeroWorldEffectSurface(
                 val fillHeight = if (unit.barMini) bounds.height else 3f * rowScale
                 drawRect(Color.Black.copy(alpha = 0.65f), origin, Size(w, bounds.height))
                 drawRect(Color(0xffffc66b), origin, Size(w * unit.trail, fillHeight))
-                drawRect(if (unit.hp < 0.25f) Color(0xffff6565) else unit.color, origin, Size(w * unit.hp, fillHeight))
+                val healthColor = when {
+                    unit.improvedHealthStyle && unit.hp < 0.30f -> Color(0xffff6565)
+                    unit.improvedHealthStyle && unit.hp < 0.60f -> Color(0xffed9121)
+                    unit.hp < 0.25f -> Color(0xffff6565)
+                    else -> unit.color
+                }
+                drawRect(healthColor, origin, Size(w * unit.hp, fillHeight))
                 barY += 5f * rowScale
             }
             if (unit.transportCapacity > 0) {
@@ -359,7 +402,7 @@ internal fun AeroWorldEffectSurface(
             }
             for ((amount, color) in listOf(
                 unit.construction to Color(0xff72d8f5),
-                unit.secondary to Color(0xffffcb74)
+                unit.secondary to if (unit.secondaryRecharging) Color(0xff8b929b) else Color(0xffffcb74)
             )) {
                 if (amount >= 0f) {
                     drawRect(Color.Black.copy(alpha = 0.6f), Offset(origin.x, barY), Size(w, 3f * rowScale))

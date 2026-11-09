@@ -24,7 +24,13 @@ internal fun applyPreregisterRoomOption(
     applyOption: (RoomOption) -> Unit,
 ): PreregisterPacketResult {
     if (packetType != PREREGISTER_INFO.type) return PreregisterPacketResult.NOT_PREREGISTER
-    if (isHost || option == null) return PreregisterPacketResult.NATIVE_HANDLED
+    if (isHost) return PreregisterPacketResult.NATIVE_HANDLED
+    // A native preregistration response opts into no RWPP features. Forget any
+    // options inherited from a previous peer before processing its first room packet.
+    if (option == null) {
+        applyOption(RoomOption())
+        return PreregisterPacketResult.NATIVE_HANDLED
+    }
     applyOption(option)
     return if (option.protocolVersion == expectedProtocolVersion) {
         PreregisterPacketResult.NATIVE_HANDLED

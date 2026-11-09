@@ -9,6 +9,7 @@ package io.github.rwpp.config
 
 
 import io.github.rwpp.api.config.Config
+import io.github.rwpp.game.building.BuildingPlanningBlueprintItem
 import io.github.rwpp.logic.selection.DEFAULT_SMART_SELECTION_EXTRA_BUILDER_TYPES
 
 import kotlinx.serialization.Serializable
@@ -49,6 +50,8 @@ data class Settings(
     @Volatile var drawUnitShadows: Boolean = true,
     @Volatile var suppressDeathSmoke: Boolean = false,
     @Volatile var terrainEdgeBuilding: Boolean = true,
+    @Volatile var overflowProductionQueue: Boolean = false,
+    var savedBlueprints: List<SavedBlueprint> = emptyList(),
     /** One-time migration version so legacy default-false configs become enabled exactly once. */
     var terrainEdgeBuildingPreferenceVersion: Int = 0,
     @Volatile var sandboxForceBuild: Boolean = false,
@@ -161,3 +164,6 @@ data class Settings(
         val unitAttackRangeTypes = listOf("Never", "Land", "Air", "All")
     }
 }
+
+@Serializable
+data class SavedBlueprint(val name: String, val items: List<BuildingPlanningBlueprintItem>)

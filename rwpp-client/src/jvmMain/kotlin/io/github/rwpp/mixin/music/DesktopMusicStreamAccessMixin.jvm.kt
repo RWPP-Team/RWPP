@@ -18,8 +18,10 @@ import kim.der.asm.api.annotation.AsmMixin
 abstract class DesktopMusicStreamAccessMixin {
     @Accessor("soundEngine")
     abstract fun rwppSoundEngine(): OpenALSoundEngine
+
     @Accessor("playingMusic")
     abstract fun rwppMusic(): Music?
+
     @Accessor("PENDING_booleanE")
     abstract fun rwppLoopRequested(value: Boolean)
 }

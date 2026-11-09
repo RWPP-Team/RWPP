@@ -26,29 +26,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.LongAdder
 import java.util.concurrent.locks.LockSupport
 import kotlin.collections.ArrayDeque
-import kotlin.collections.ArrayList
-import kotlin.collections.List
-import kotlin.collections.Map
-import kotlin.collections.all
-import kotlin.collections.component1
-import kotlin.collections.component2
-import kotlin.collections.drop
-import kotlin.collections.filter
-import kotlin.collections.filterIsInstance
 import kotlin.collections.firstOrNull
-import kotlin.collections.flatMap
-import kotlin.collections.forEach
-import kotlin.collections.getOrElse
-import kotlin.collections.isNotEmpty
-import kotlin.collections.joinToString
-import kotlin.collections.linkedMapOf
-import kotlin.collections.listOf
-import kotlin.collections.map
-import kotlin.collections.mutableListOf
-import kotlin.collections.none
-import kotlin.collections.setOf
-import kotlin.collections.sorted
-import kotlin.collections.sumOf
 import kotlin.math.max
 
 /** Opt-in closed-loop component benchmark. Vanilla models native worker I/O without the game engine. */
@@ -290,6 +268,7 @@ object ServerThroughputBenchmark {
         val phase = AtomicInteger()
         val stopping = AtomicBoolean()
         val failures = ConcurrentLinkedQueue<String>()
+
         @Volatile
         var measureDeadline = Long.MAX_VALUE
     }
@@ -319,6 +298,7 @@ object ServerThroughputBenchmark {
         val incoming = ByteBuffer.allocate(max(64 * 1024, size + 8))
         var nextSequence = 0L
         var expectedSequence = 0L
+
         @Volatile
         var outstanding = 0
     }
@@ -333,6 +313,7 @@ object ServerThroughputBenchmark {
         var completedInWindow = 0L
         val latencyNanos = ArrayList<Long>()
         val errorCount = AtomicInteger()
+
         @Volatile
         var observedPhase = 0
 

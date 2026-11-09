@@ -22,7 +22,9 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.zip.ZipFile;
 
-/** Exercises the actual RWML importer and dependency class-loader boundary. */
+/**
+ * Exercises the actual RWML importer and dependency class-loader boundary.
+ */
 public final class ExtensionPackCheck {
     private static void require(boolean condition, String reason) {
         if (!condition) throw new AssertionError(reason);
@@ -79,14 +81,14 @@ public final class ExtensionPackCheck {
             ClassLoader host = ExtensionPackCheck.class.getClassLoader();
             try (var apiLoader = new URLClassLoader(new URL[]{api.toUri().toURL()}, host);
                  var clientLoader = new URLClassLoader(new URL[]{client.toUri().toURL()},
-                     new ExtensionDependencyClassLoader(host, List.of(apiLoader)))) {
+                         new ExtensionDependencyClassLoader(host, List.of(apiLoader)))) {
                 for (String name : List.of("io.github.rwpp.api.ApiRuntime", "org.koin.core.Koin", "org.slf4j.LoggerFactory")) {
                     require(Class.forName(name, false, apiLoader) == Class.forName(name, false, clientLoader), name + " has split identity");
                 }
                 Object framework = Class.forName(order.get(1).uiFramework(), true, clientLoader).getConstructor().newInstance();
                 require(framework instanceof UiFramework, "UI framework cannot be instantiated through its dependency loader");
                 Class.forName("io.github.rwpp.api.game.audio.SoundDecoding_jvmKt", false, clientLoader)
-                    .getMethod("decodePlatformSound", byte[].class, String.class);
+                        .getMethod("decodePlatformSound", byte[].class, String.class);
                 // The desktop backend uses the game's Slick Ogg decoder and its OpenAL
                 // context. Decode the packaged assets without requiring an audio device.
                 Class<?> decoderType = Class.forName("org.newdawn.slick.openal.OggDecoder", true, host);
@@ -103,7 +105,7 @@ public final class ExtensionPackCheck {
                             int rate = data.getField("rate").getInt(decoded);
                             ByteBuffer samples = (ByteBuffer) data.getField("data").get(decoded);
                             require((channels == 1 || channels == 2) && rate > 0 && samples.remaining() > 0,
-                                "Desktop sound did not decode: " + entry.getName());
+                                    "Desktop sound did not decode: " + entry.getName());
                         }
                     }
                 }
@@ -111,9 +113,9 @@ public final class ExtensionPackCheck {
                 Object logger = loggerFactory.getMethod("getILoggerFactory").invoke(null);
                 require(logger.getClass().getName().equals("org.slf4j.simple.SimpleLoggerFactory"), "API cannot discover its logging backend");
                 Object mainDispatcher = Class.forName("kotlinx.coroutines.Dispatchers", true, apiLoader)
-                    .getMethod("getMain").invoke(null);
+                        .getMethod("getMain").invoke(null);
                 require(mainDispatcher.getClass().getName().startsWith("kotlinx.coroutines.swing."),
-                    "API cannot discover Dispatchers.Main: " + mainDispatcher);
+                        "API cannot discover Dispatchers.Main: " + mainDispatcher);
 
                 // Client bootstrap may install its backend and record its own context;
                 // it must never bootstrap the API again under the client's identity.
@@ -136,7 +138,9 @@ public final class ExtensionPackCheck {
         Set<String> result = new HashSet<>();
         for (var entry : archive.stream().filter(e -> e.getName().matches("classes[0-9]*\\.dex")).toList()) {
             byte[] bytes;
-            try (var stream = archive.getInputStream(entry)) { bytes = stream.readAllBytes(); }
+            try (var stream = archive.getInputStream(entry)) {
+                bytes = stream.readAllBytes();
+            }
             ByteBuffer dex = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
             require(dex.getInt(0) == 0x0a786564, "Invalid DEX header");
             int strings = dex.getInt(60), types = dex.getInt(68);

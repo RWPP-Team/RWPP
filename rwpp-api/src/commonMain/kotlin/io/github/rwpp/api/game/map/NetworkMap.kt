@@ -73,6 +73,7 @@ private fun openNetworkMap(value: String, mapName: String, type: GameSetupMapTyp
             "mods/maps/$mapFileName",
             "/SD/rusted_warfare/maps/$mapFileName",
         )
+
         GameSetupMapType.savedGame -> listOf(
             "/SD/rustedWarfare/saves/$mapFileName",
             "saves/$mapFileName",
@@ -101,7 +102,7 @@ private fun openNetworkMap(value: String, mapName: String, type: GameSetupMapTyp
 
     val failure = FileNotFoundException(
         "Map '$mapName' is not available locally. It may not have been downloaded, or its file cannot be read. " +
-            "Checked: ${candidates.joinToString()}",
+                "Checked: ${candidates.joinToString()}",
     )
     lastFailure?.let(failure::initCause)
     throw failure
@@ -136,7 +137,12 @@ private fun sameMapName(
     second: String?,
     type: GameSetupMapType,
 ): Boolean {
-    return !(first.isNullOrBlank() || second.isNullOrBlank()) && mapNameFromPath(first, type).equals(mapNameFromPath(second, type), ignoreCase = true)
+    return !(first.isNullOrBlank() || second.isNullOrBlank()) && mapNameFromPath(first, type).equals(
+        mapNameFromPath(
+            second,
+            type
+        ), ignoreCase = true
+    )
 }
 
 private fun String.removeMapSuffix(): String = when {

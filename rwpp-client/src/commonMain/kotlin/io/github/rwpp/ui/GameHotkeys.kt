@@ -7,18 +7,16 @@
 
 package io.github.rwpp.ui
 
+import io.github.rwpp.api.config.ConfigIO
+import io.github.rwpp.appKoin
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -101,10 +99,32 @@ internal fun HotkeySettings(settings: Settings) {
     }
     MouseControlPreferences(settings)
     var search by remember { mutableStateOf("") }
+    var bindingsRevision by remember { mutableIntStateOf(0) }
     AeroSettingGroup("HOTKEYS", "KEYBOARD") {
         Text(
             readI18n("rwpp.hotkeys.hint"),
             color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp
+        )
+        PortableConfigActions(
+            "rwpp-hotkeys.toml", MapSerializer(String.serializer(), String.serializer()),
+            snapshot = {
+                buttons.associate { button ->
+                    button.settingsKey to (settings.hotkeyBindings[button.settingsKey]
+                        ?: NativeGameHotkeys.bindingSlots(button.inputBindings.indices.map { button.getBindingLabelAt(it) })
+                            .filter(String::isNotBlank).joinToString(","))
+                }
+            },
+            apply = { imported ->
+                require(imported.size <= 512 && imported.all { (key, value) ->
+                    key.length in 1..128 && value.length <= 128 &&
+                            NativeGameHotkeys.validNativeHotkeyBindings(value)
+                })
+                settings.hotkeyBindings = imported
+                bindingsRevision++
+                GameScope.launch { NativeGameHotkeys.apply(settings) }
+                appKoin.get<ConfigIO>().saveConfig(settings)
+            },
+            save = { appKoin.get<ConfigIO>().saveConfig(settings) },
         )
         AeroTextField(search, { search = it }, readI18n("rwpp.hotkeys.search"), Modifier.fillMaxWidth())
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -119,7 +139,7 @@ internal fun HotkeySettings(settings: Settings) {
             key(button.settingsKey) {
                 val initial = settings.hotkeyBindings[button.settingsKey]?.split(',')
                     ?: button.inputBindings.indices.map { button.getBindingLabelAt(it) }
-                var bindings by remember { mutableStateOf(NativeGameHotkeys.bindingSlots(initial)) }
+                var bindings by remember(bindingsRevision) { mutableStateOf(NativeGameHotkeys.bindingSlots(initial)) }
                 Row(
                     Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)

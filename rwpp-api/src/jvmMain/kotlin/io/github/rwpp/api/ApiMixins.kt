@@ -8,26 +8,7 @@
 package io.github.rwpp.api
 
 import io.github.rwpp.api.mixin.coroutines.GameDispatcherMixin
-import io.github.rwpp.api.mixin.event.ClientEventMixin
-import io.github.rwpp.api.mixin.event.CommandEventMixin
-import io.github.rwpp.api.mixin.event.DrawEventMixin
-import io.github.rwpp.api.mixin.event.EngineLoadedMixin
-import io.github.rwpp.api.mixin.event.FactoryUnitCreationEventMixin
-import io.github.rwpp.api.mixin.event.FileSaveCommitMixin
-import io.github.rwpp.api.mixin.event.MapTriggerEventMixin
-import io.github.rwpp.api.mixin.event.ModReloadEventHooks
-import io.github.rwpp.api.mixin.event.NetworkEventMixin
-import io.github.rwpp.api.mixin.event.PersistenceEventMixin
-import io.github.rwpp.api.mixin.event.PlayerEventMixin
-import io.github.rwpp.api.mixin.event.RefreshUiEventMixin
-import io.github.rwpp.api.mixin.event.ReplaySnapshotSaveMixin
-import io.github.rwpp.api.mixin.event.SimulationEventMixin
-import io.github.rwpp.api.mixin.event.UnitDrawEntryMixin
-import io.github.rwpp.api.mixin.event.UnitEventMixin
-import io.github.rwpp.api.mixin.event.UnitMetadataEventMixin
-import io.github.rwpp.api.mixin.event.UnitOverlayBarMixin
-import io.github.rwpp.api.mixin.event.UnitSpawnRegistryMixin
-import io.github.rwpp.api.mixin.event.UnitUpgradeEventMixin
+import io.github.rwpp.api.mixin.event.*
 import io.github.rwpp.api.mixin.game.NativeEngineLifecycleMixin
 import io.github.rwpp.api.mixin.game.NativeReplayLifecycleMixin
 import io.github.rwpp.api.mixin.game.ai.AiControllerHooks
@@ -35,15 +16,7 @@ import io.github.rwpp.api.mixin.game.ai.AiTeamLifecycleHooks
 import io.github.rwpp.api.mixin.game.ai.AiUnitMixActionSnapshotMixin
 import io.github.rwpp.api.mixin.game.stats.NativeStatsHistoryAccessMixin
 import io.github.rwpp.api.mixin.game.stats.StatsHistoryLoadMixin
-import io.github.rwpp.api.mixin.network.NativeAddressConnectMixin
-import io.github.rwpp.api.mixin.network.NativeDecisionMixin
-import io.github.rwpp.api.mixin.network.NativeJoinDecisionMixin
-import io.github.rwpp.api.mixin.network.NativeNetworkLifecycleMixin
-import io.github.rwpp.api.mixin.network.NativeTcpConnectMixin
-import io.github.rwpp.api.mixin.network.NativeTcpConnectionMixin
-import io.github.rwpp.api.mixin.network.NativeTcpListenMixin
-import io.github.rwpp.api.mixin.network.NetworkPacketMixin
-import io.github.rwpp.api.mixin.network.PayloadCapabilityMixin
+import io.github.rwpp.api.mixin.network.*
 
 /**
  * API-owned mixin inventory used when the API is registered as a built-in host extension.

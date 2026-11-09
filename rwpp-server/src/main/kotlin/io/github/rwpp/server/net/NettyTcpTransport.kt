@@ -109,6 +109,7 @@ private class TcpWriter(private val channel: Channel, private val maxPayload: In
     private var bytes = 0L
     private var count = 0
     private var scheduled = false
+
     @Synchronized
     fun send(payload: ByteArray): Boolean {
         if (!channel.isActive || payload.size !in 1..maxPayload || count >= maxMessages || bytes + payload.size > 64L * 1024 * 1024) return false
@@ -152,6 +153,7 @@ class NettyTcpServerTransport(
     private val closed = AtomicBoolean()
     private val started = AtomicBoolean()
     private var server: Channel? = null
+
     @Volatile
     override var localAddress: TransportAddress? = null
         private set

@@ -40,7 +40,7 @@ internal fun readNativeNetworkLoadingSnapshot(): NativeNetworkLoadingSnapshot? =
 
     val network = GameEngine.getInstance().networkEngine
     if (!network.networked || network.isServer || network.gameStarted) return null
-    val connection = network.getClientConnection() ?: return null
+    val connection = network.clientConnection ?: return null
     val total = (Reflect.get<Number>(connection, "receivingProgressTotal")?.toInt() ?: 0)
     if (total <= MINIMUM_VISIBLE_PACKET_BYTES) return null
     val received = (Reflect.get<Number>(connection, "receivingProgressBytes")?.toInt() ?: 0)

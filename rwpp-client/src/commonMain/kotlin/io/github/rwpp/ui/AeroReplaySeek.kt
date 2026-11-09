@@ -76,7 +76,7 @@ internal fun GameScreen.AeroReplayTimelineControls(accent: Color) {
                         "${previewTick.coerceIn(0, progressTickCount)} / $progressTickCount"
                     } else {
                         "${formatReplayDuration(relativeCurrentTimeMillis)} / ${formatReplayDuration(durationMillis)}  ·  " +
-                                "${relativeCurrentTick} / $progressTickCount"
+                                "$relativeCurrentTick / $progressTickCount"
                     }
                     timelinePosition
                 } else {

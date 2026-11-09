@@ -71,6 +71,7 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
 
     private var textureId: Int = 0
     private var fboId: Int = 0
+
     /** Depth/stencil storage owned by the offscreen target; Skia is told it has 8 stencil bits. */
     private var stencilId: Int = 0
     private var needRender = true
@@ -114,7 +115,7 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
     private var drawX = 0f
     private var drawY = 0f
 
-    private val viewportBuffer = ByteBuffer.allocateDirect(Int.SIZE_BYTES * 4)
+    private val viewportBuffer = ByteBuffer.allocateDirect(Int.SIZE_BYTES * 16)
         .order(ByteOrder.nativeOrder())
         .asIntBuffer()
 
@@ -181,7 +182,13 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
 
             fboId = GL30.glGenFramebuffers()
             GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, fboId)
-            GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, textureId, 0)
+            GL30.glFramebufferTexture2D(
+                GL30.GL_FRAMEBUFFER,
+                GL30.GL_COLOR_ATTACHMENT0,
+                GL11.GL_TEXTURE_2D,
+                textureId,
+                0
+            )
 
             // Skia is told the target has 8 stencil bits below. Some drivers expose implicit stencil
             // storage for a colour-only FBO, others do not. Attaching a real depth/stencil renderbuffer
@@ -272,9 +279,8 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
         renderDispatcher.drain()
         frameRecomposer.performFrame(System.nanoTime())
         renderDispatcher.drain()
-        val viewport = getCurrentViewport()
-        val width = viewport?.get(2) ?: getDisplayWidth()
-        val height = viewport?.get(3) ?: getDisplayHeight()
+        val width = getDisplayWidth()
+        val height = getDisplayHeight()
 
         if (width != framebufferWidth || height != framebufferHeight) {
             updateBounds(width, height)
@@ -314,16 +320,14 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
     }
 
     fun drawToScreen() {
-        val viewport = getCurrentViewport()
-        val viewportX = viewport?.get(0) ?: 0
-        val viewportY = viewport?.get(1) ?: 0
-        val winW = (viewport?.get(2) ?: framebufferWidth.coerceAtLeast(1)).toFloat()
-        val winH = (viewport?.get(3) ?: framebufferHeight.coerceAtLeast(1)).toFloat()
+        val winW = getDisplayWidth().toFloat()
+        val winH = getDisplayHeight().toFloat()
 
         this.drawX = 0f
         this.drawY = 0f
 
         ExternalGlState().use {
+            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0)
             resetGLStateToFixedFunction()
 
             GL11.glDisable(GL11.GL_SCISSOR_TEST)
@@ -343,7 +347,7 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
 
             val physWinW = winW.toInt().coerceAtLeast(1)
             val physWinH = winH.toInt().coerceAtLeast(1)
-            GL11.glViewport(viewportX, viewportY, physWinW, physWinH)
+            GL11.glViewport(0, 0, physWinW, physWinH)
 
             // The fullscreen composite uses fixed-function drawing. A GLSL program, a non-zero
             // active texture unit, a non-additive blend equation or a colour mask left by the game's
@@ -526,17 +530,15 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
         )
     }
 
-    @OptIn(InternalComposeUiApi::class)
     override fun keyPressed(key: Int, c: Char) {
         sendComposeKeyEvent(KeyEventType.KeyDown, key, c)
     }
 
-    @OptIn(InternalComposeUiApi::class)
     override fun keyReleased(key: Int, c: Char) {
         sendComposeKeyEvent(KeyEventType.KeyUp, key, c)
     }
 
-    @OptIn(InternalComposeUiApi::class, ExperimentalComposeUiApi::class)
+    @OptIn(InternalComposeUiApi::class)
     private fun sendComposeKeyEvent(type: KeyEventType, slickKey: Int, c: Char) {
         val composeKey = slickToComposeKey(slickKey)
 
@@ -564,7 +566,7 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
                 io.github.rwpp.appKoin.get<io.github.rwpp.ui.GameScreen>().isEditMode ||
                 io.github.rwpp.ui.isShowSendMessageDialog
 
-    @OptIn(InternalComposeUiApi::class, ExperimentalComposeUiApi::class)
+    @OptIn(InternalComposeUiApi::class)
     fun sendAwtKeyEvent(e: java.awt.event.KeyEvent, type: KeyEventType) {
         val composeKey = Key(e.keyCode)
 
@@ -638,6 +640,7 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
     override fun mouseClicked(p0: Int, p1: Int, p2: Int, p3: Int) {
         if (menuOwnsInput()) _input.consumeEvent()
     }
+
     override fun inputEnded() {}
     override fun inputStarted() {}
     override fun isAcceptingInput(): Boolean = true
@@ -666,7 +669,6 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
             windowInfoState.containerSize = size
         }
 
-        @OptIn(InternalComposeUiApi::class, ExperimentalComposeUiApi::class)
         override suspend fun startInputMethod(request: PlatformTextInputMethodRequest): Nothing {
             imeDialog.startInputMethod(request)
         }

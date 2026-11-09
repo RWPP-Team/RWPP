@@ -28,9 +28,15 @@ if (isApi) listOf("jvm", "android").forEach { platform ->
             attributes.attribute(key as Attribute<Any>, base.attributes.getAttribute(key)!!)
         }
     }
-    dependencies.add(runtime.name, catalog.findLibrary(if (platform == "jvm") "slf4j-simple" else "logback-android").get())
+    dependencies.add(
+        runtime.name,
+        catalog.findLibrary(if (platform == "jvm") "slf4j-simple" else "logback-android").get()
+    )
     val coroutines = catalog.findVersion("coroutines").get().requiredVersion
-    dependencies.add(runtime.name, "org.jetbrains.kotlinx:kotlinx-coroutines-${if (platform == "jvm") "swing" else "android"}:$coroutines")
+    dependencies.add(
+        runtime.name,
+        "org.jetbrains.kotlinx:kotlinx-coroutines-${if (platform == "jvm") "swing" else "android"}:$coroutines"
+    )
 }
 val descriptorDirectory = layout.buildDirectory.dir("generated/extension-descriptor")
 val generateExtensionDescriptor = tasks.register("generateExtensionDescriptor") {
@@ -41,8 +47,10 @@ val generateExtensionDescriptor = tasks.register("generateExtensionDescriptor") 
     doLast {
         descriptorDirectory.get().file("META-INF/extension.properties").asFile.apply {
             parentFile.mkdirs()
-            writeText(sourceDescriptor.readText().replace("\${version}", project.version.toString())
-                .replace("\${apiVersion}", api.version.toString()), Charsets.UTF_8)
+            writeText(
+                sourceDescriptor.readText().replace("\${version}", project.version.toString())
+                    .replace("\${apiVersion}", api.version.toString()), Charsets.UTF_8
+            )
         }
     }
 }
@@ -58,8 +66,8 @@ fun moduleKey(id: ComponentIdentifier): String? =
 fun suppliedByHost(id: ComponentIdentifier): Boolean {
     val module = id as? ModuleComponentIdentifier ?: return false
     return module.group == "org.jetbrains.kotlin" && module.module.startsWith("kotlin-stdlib") ||
-        module.group == "io.github.rwpp-team" && module.module in setOf("rwml-core", "game-lib") ||
-        module.group == "kim.der.relay-cn" || module.group == "org.ow2.asm"
+            module.group == "io.github.rwpp-team" && module.module in setOf("rwml-core", "game-lib") ||
+            module.group == "kim.der.relay-cn" || module.group == "org.ow2.asm"
 }
 
 fun runtimeArtifacts(configuration: String, type: String, include: (ComponentIdentifier) -> Boolean) =
@@ -72,15 +80,16 @@ fun runtimeArtifacts(configuration: String, type: String, include: (ComponentIde
 
 fun ownRuntime(platform: String, type: String): FileCollection {
     val apiConfiguration = "extension${platform.replaceFirstChar(Char::uppercaseChar)}RuntimeClasspath"
-    val configuration = if (isApi) apiConfiguration else if (platform == "jvm") "jvmRuntimeClasspath" else "releaseRuntimeClasspath"
+    val configuration =
+        if (isApi) apiConfiguration else if (platform == "jvm") "jvmRuntimeClasspath" else "releaseRuntimeClasspath"
     val shared = provider {
         if (isApi) emptySet() else api.configurations.getByName(apiConfiguration)
             .incoming.resolutionResult.allComponents.mapNotNull { moduleKey(it.id) }.toSet()
     }
     return runtimeArtifacts(configuration, type) { id ->
         !suppliedByHost(id) &&
-            !(id is ProjectComponentIdentifier && id.projectPath == ":rwpp-api") &&
-            moduleKey(id)?.let { it !in shared.get() } != false
+                !(id is ProjectComponentIdentifier && id.projectPath == ":rwpp-api") &&
+                moduleKey(id)?.let { it !in shared.get() } != false
     }
 }
 
@@ -94,7 +103,8 @@ val verifyExtension: (File, Boolean) -> Unit = { archive, android ->
     }
     ZipFile(archive).use { zip ->
         val descriptor = Properties().apply {
-            zip.getInputStream(checkNotNull(zip.getEntry("META-INF/extension.properties"))).reader(Charsets.UTF_8).use(::load)
+            zip.getInputStream(checkNotNull(zip.getEntry("META-INF/extension.properties"))).reader(Charsets.UTF_8)
+                .use(::load)
         }
         val expectedId = if (isApi) "io.github.rwpp.api" else "io.github.rwpp"
         check(descriptor.getProperty("id") == expectedId) { "Wrong extension descriptor in $archive" }
@@ -102,8 +112,8 @@ val verifyExtension: (File, Boolean) -> Unit = { archive, android ->
         check((zip.getEntry("classes.dex") != null) == android)
         check(zip.entries().asSequence().none {
             it.name.startsWith("io/github/rwml/") || it.name.startsWith("kim/der/") ||
-                it.name.startsWith("org/objectweb/asm/") || it.name.startsWith("kotlin/jvm/") ||
-                it.name.startsWith("com/corrodinggames/") || it.name.startsWith("io/netty/") || it.name.startsWith("kcp/")
+                    it.name.startsWith("org/objectweb/asm/") || it.name.startsWith("kotlin/jvm/") ||
+                    it.name.startsWith("com/corrodinggames/") || it.name.startsWith("io/netty/") || it.name.startsWith("kcp/")
         }) { "Host or server classes leaked into $archive" }
         if (!isApi) {
             check(descriptor.getProperty("ui-framework") == "io.github.rwpp.ui.RwppUiFramework")
@@ -119,12 +129,21 @@ val verifyExtension: (File, Boolean) -> Unit = { archive, android ->
             val service = checkNotNull(zip.getEntry("META-INF/services/org.slf4j.spi.SLF4JServiceProvider"))
             val provider = zip.getInputStream(service).reader(Charsets.UTF_8).use { it.readText().trim() }
             check(provider == if (android) "org.slf4j.impl.LoggerServiceProvider" else "org.slf4j.simple.SimpleServiceProvider")
-            check(zip.getEntry(if (android) "kotlinx/coroutines/android/AndroidDispatcherFactory.class"
-                else "kotlinx/coroutines/swing/SwingDispatcherFactory.class") != null)
-            val dispatcherService = checkNotNull(zip.getEntry("META-INF/services/kotlinx.coroutines.internal.MainDispatcherFactory"))
+            check(
+                zip.getEntry(
+                    if (android) "kotlinx/coroutines/android/AndroidDispatcherFactory.class"
+                    else "kotlinx/coroutines/swing/SwingDispatcherFactory.class"
+                ) != null
+            )
+            val dispatcherService =
+                checkNotNull(zip.getEntry("META-INF/services/kotlinx.coroutines.internal.MainDispatcherFactory"))
             val dispatcherFactories = zip.getInputStream(dispatcherService).reader(Charsets.UTF_8).use { it.readText() }
-            check(dispatcherFactories.contains(if (android) "kotlinx.coroutines.android.AndroidDispatcherFactory"
-                else "kotlinx.coroutines.swing.SwingDispatcherFactory"))
+            check(
+                dispatcherFactories.contains(
+                    if (android) "kotlinx.coroutines.android.AndroidDispatcherFactory"
+                    else "kotlinx.coroutines.swing.SwingDispatcherFactory"
+                )
+            )
         }
     }
 }
@@ -141,7 +160,14 @@ val rwppJvmExtensionJar = tasks.register<Jar>("rwppJvmExtensionJar") {
     from({ jvmRuntime.files.map { zipTree(it) } }) { exclude("META-INF/extension.properties") }
     from(descriptorDirectory)
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-    exclude("META-INF/MANIFEST.MF", "META-INF/*.SF", "META-INF/*.RSA", "META-INF/*.DSA", "META-INF/versions/**", "module-info.class")
+    exclude(
+        "META-INF/MANIFEST.MF",
+        "META-INF/*.SF",
+        "META-INF/*.RSA",
+        "META-INF/*.DSA",
+        "META-INF/versions/**",
+        "module-info.class"
+    )
     isPreserveFileTimestamps = false
     isReproducibleFileOrder = true
     doLast { verifyExtension(archiveFile.get().asFile, false) }
@@ -164,18 +190,27 @@ val androidProgram = tasks.register<Jar>("rwppAndroidProgramJar") {
     from({ androidRuntimeAars.files.map { zipTree(it) } }) { exclude("META-INF/extension.properties") }
     from("src/commonMain/resources") { exclude("META-INF/extension.properties") }
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-    exclude("META-INF/MANIFEST.MF", "META-INF/*.SF", "META-INF/*.RSA", "META-INF/*.DSA", "META-INF/versions/**", "module-info.class")
+    exclude(
+        "META-INF/MANIFEST.MF",
+        "META-INF/*.SF",
+        "META-INF/*.RSA",
+        "META-INF/*.DSA",
+        "META-INF/versions/**",
+        "module-info.class"
+    )
     isPreserveFileTimestamps = false
     isReproducibleFileOrder = true
 }
 val d8 = configurations.create("extensionD8") { isCanBeConsumed = false; isCanBeResolved = true }
 dependencies.add(d8.name, catalog.findLibrary("r8").get())
 val androidSdkJar = provider {
-    val local = Properties().apply { rootProject.file("local.properties").takeIf { it.isFile }?.inputStream()?.use(::load) }
+    val local =
+        Properties().apply { rootProject.file("local.properties").takeIf { it.isFile }?.inputStream()?.use(::load) }
     val sdk = providers.gradleProperty("androidSdkDir").orNull ?: System.getenv("ANDROID_SDK_ROOT")
-        ?: System.getenv("ANDROID_HOME") ?: local.getProperty("sdk.dir") ?: error("Set androidSdkDir or sdk.dir")
+    ?: System.getenv("ANDROID_HOME") ?: local.getProperty("sdk.dir") ?: error("Set androidSdkDir or sdk.dir")
     val level = (project.findProperty("androidCompileSdk") as String?)
-        ?: extensions.getByType<VersionCatalogsExtension>().named("libs").findVersion("android-compileSdk").get().requiredVersion
+        ?: extensions.getByType<VersionCatalogsExtension>().named("libs").findVersion("android-compileSdk")
+            .get().requiredVersion
     file(sdk).resolve("platforms/android-$level/android.jar").also { check(it.isFile) { "Missing Android SDK: $it" } }
 }
 val dexDirectory = layout.buildDirectory.dir("dex/extension")
@@ -195,10 +230,22 @@ val androidDex = tasks.register<JavaExec>("rwppAndroidExtensionDex") {
         require(directory.toPath().startsWith(buildRoot) && directory.toPath() != buildRoot)
         project.delete(directory)
         directory.mkdirs()
-        val compileFiles = (androidCompileJars.files + androidCompileAars.files).filter { it.isFile && it.extension == "jar" }.toMutableSet()
+        val compileFiles =
+            (androidCompileJars.files + androidCompileAars.files).filter { it.isFile && it.extension == "jar" }
+                .toMutableSet()
         if (!isApi) compileFiles.add(api.tasks.named<Jar>("rwppAndroidProgramJar").get().archiveFile.get().asFile)
         setArgs(buildList {
-            addAll(listOf("--release", "--min-api", "26", "--output", directory.absolutePath, "--lib", androidSdkJar.get().absolutePath))
+            addAll(
+                listOf(
+                    "--release",
+                    "--min-api",
+                    "26",
+                    "--output",
+                    directory.absolutePath,
+                    "--lib",
+                    androidSdkJar.get().absolutePath
+                )
+            )
             compileFiles.forEach { addAll(listOf("--classpath", it.absolutePath)) }
             add(androidProgram.get().archiveFile.get().asFile.absolutePath)
         })

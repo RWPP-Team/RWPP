@@ -125,6 +125,7 @@ internal object FrameBeginEventPool {
     private val pool = NativeEventPool(::FrameBeginEvent) { it.clearForReuse() }
     fun acquire(engine: RWGameEngine, deltaTime: Float, deltaMillis: Int): FrameBeginEvent =
         pool.acquire().also { it.prepare(engine, deltaTime, deltaMillis) }
+
     fun release(event: FrameBeginEvent) = pool.release(event)
 }
 
@@ -132,6 +133,7 @@ internal object FrameEndEventPool {
     private val pool = NativeEventPool(::FrameEndEvent) { it.clearForReuse() }
     fun acquire(engine: RWGameEngine, deltaTime: Float, deltaMillis: Int): FrameEndEvent =
         pool.acquire().also { it.prepare(engine, deltaTime, deltaMillis) }
+
     fun release(event: FrameEndEvent) = pool.release(event)
 }
 
@@ -139,6 +141,7 @@ internal object SimulationBeforeTickEventPool {
     private val pool = NativeEventPool(::SimulationBeforeTickEvent) { it.clearForReuse() }
     fun acquire(engine: RWGameEngine, tick: Int): SimulationBeforeTickEvent =
         pool.acquire().also { it.prepare(engine, tick) }
+
     fun release(event: SimulationBeforeTickEvent) = pool.release(event)
 }
 
@@ -146,5 +149,6 @@ internal object SimulationAfterTickEventPool {
     private val pool = NativeEventPool(::SimulationAfterTickEvent) { it.clearForReuse() }
     fun acquire(engine: RWGameEngine, tick: Int): SimulationAfterTickEvent =
         pool.acquire().also { it.prepare(engine, tick) }
+
     fun release(event: SimulationAfterTickEvent) = pool.release(event)
 }

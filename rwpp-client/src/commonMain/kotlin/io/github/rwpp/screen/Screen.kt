@@ -220,10 +220,9 @@ class ScreenNavigator(
             // Keep route changes synchronous. Retaining singleton room screens for an exit
             // animation leaves their dialogs and listeners attached while the game tears down.
             key(currentScreen) {
-                val targetScreen = currentScreen
                 val glitchTime = glitchProgress * 0.28f
                 Box(modifier = Modifier.fillMaxSize()) {
-                    val screenKey = targetScreen::class.qualifiedName.orEmpty()
+                    val screenKey = currentScreen::class.qualifiedName.orEmpty()
                     val override = localOverrides[screenKey] as? Screen
                     Box(
                         modifier = Modifier
@@ -233,7 +232,7 @@ class ScreenNavigator(
                                 time = glitchTime
                             )
                     ) {
-                        (override ?: targetScreen).Content()
+                        (override ?: currentScreen).Content()
                     }
 
                     AeroCyberOverlay(

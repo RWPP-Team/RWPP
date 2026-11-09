@@ -105,14 +105,18 @@ object BuildingPlanningSuppressCapturedMoveMixin {
 /** Leave native buttons and action queues out of the private preview interaction. */
 @AsmMixin("com/corrodinggames/rts/gameFramework/gui/InterfaceEngine")
 object BuildingPlanningIndependentInputMixin {
-    @AsmInject(method = "handleUnitClick(Lcom/corrodinggames/rts/game/units/Unit;)V",
-        target = InjectionPoint.HEAD, cancellable = true, require = 1)
+    @AsmInject(
+        method = "handleUnitClick(Lcom/corrodinggames/rts/game/units/Unit;)V",
+        target = InjectionPoint.HEAD, cancellable = true, require = 1
+    )
     fun retainPlanningBuilders(callback: CallbackInfo) {
         if (BuildingPlanningController.ownsIndependentPlanningInput()) callback.cancel()
     }
 
-    @ModifyExpressionValue(method = "update(F)V", require = 1,
-        at = At(InjectionPoint.INVOKE, target = "com/corrodinggames/rts/gameFramework/GameEngine.hasTouchEvents()Z"))
+    @ModifyExpressionValue(
+        method = "update(F)V", require = 1,
+        at = At(InjectionPoint.INVOKE, target = "com/corrodinggames/rts/gameFramework/GameEngine.hasTouchEvents()Z")
+    )
     fun previewDragDoesNotPanCamera(value: Boolean): Boolean =
         value && !BuildingPlanningController.suppressNativeTouchPlacementPan()
 }

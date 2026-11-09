@@ -33,8 +33,8 @@ internal data class HudIconKey(
 )
 
 internal data class HudIconRequest(
-    val key: HudIconKey, val type: com.corrodinggames.rts.game.units.UnitTypeInterface?,
-    val shown: GameUnit?, val team: com.corrodinggames.rts.game.Team,
+    val key: HudIconKey, val type: UnitTypeInterface?,
+    val shown: GameUnit?, val team: Team,
     val icon: BitmapOrTexture?, val overlay: BitmapOrTexture?,
 )
 
@@ -123,7 +123,7 @@ internal object ActionImages {
     internal fun renderPending(render: (HudIconRequest) -> ImageBitmap = ::renderNativeHudIcon) {
         repeat(4) {
             val (request, requestGeneration) = synchronized(lock) {
-                val queue = if (visiblePending.isNotEmpty()) visiblePending else pending
+                val queue = visiblePending.ifEmpty { pending }
                 val key = queue.keys.firstOrNull() ?: return
                 inFlight.add(key)
                 queue.remove(key)!! to generation

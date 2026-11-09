@@ -15,6 +15,7 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.sin
+import kotlin.math.sign
 
 internal data class TerrainEdgeNativeSamples(
     val points: Iterable<PointF>,
@@ -76,7 +77,7 @@ internal fun terrainEdgeSnapAxisAngle(angleDegrees: Float): Float {
     var difference = (angleDegrees - nearestAxis) % 360f
     if (difference > 180f) difference -= 360f
     if (difference < -180f) difference += 360f
-    return if (kotlin.math.abs(difference) < TERRAIN_EDGE_AXIS_SNAP_DEGREES) nearestAxis else angleDegrees
+    return if (abs(difference) < TERRAIN_EDGE_AXIS_SNAP_DEGREES) nearestAxis else angleDegrees
 }
 
 internal fun terrainEdgeSearchNormal(angleDegrees: Float): PointF {
@@ -139,18 +140,22 @@ internal fun terrainEdgeResolveNativeSamples(
         var found: PointF? = null
         var foundSide = 0
         var offset = halfGridStep
-        while (offset <= maxSearchOffset && found == null) {
+        var coveredByEarlierPlacement = false
+        while (offset <= maxSearchOffset && found == null && !coveredByEarlierPlacement) {
             for (side in sides) {
                 val shifted = PointF(
                     sample.x + normalX * offset * side,
                     sample.y + normalY * offset * side,
                 )
                 val candidate = validateNativePlacement(shifted)
-                if (candidate != null && !conflictsWithEarlierDragPlacement(candidate, placements)) {
-                    found = candidate
-                    foundSide = side
+                if (candidate == null) continue
+                if (conflictsWithEarlierDragPlacement(candidate, placements)) {
+                    coveredByEarlierPlacement = true
                     break
                 }
+                found = candidate
+                foundSide = side
+                break
             }
             offset += halfGridStep
         }
@@ -179,8 +184,8 @@ internal fun terrainEdgeCandidateOverlapsEarlierPlacement(
     footprintBottom: Int,
 ): Boolean {
     if (tileWidth <= 0 || tileHeight <= 0) return true
-    val originX = building.getMinimapOriginX()
-    val originY = building.getMinimapOriginY()
+    val originX = building.minimapOriginX
+    val originY = building.minimapOriginY
     val candidateTileX = floor((candidate.x - originX) / tileWidth).toInt()
     val candidateTileY = floor((candidate.y - originY) / tileHeight).toInt()
     val combinedRadius = if (building.isBuilding) 9f else (building.radius * 2f).coerceAtLeast(11f)
@@ -200,6 +205,12 @@ internal fun terrainEdgeCandidateOverlapsEarlierPlacement(
     return current.any(::overlaps) || existing.any(::overlaps)
 }
 
+/** Ignore the first fraction of the next tile in the direction of the drag. */
+internal fun terrainEdgeInsetEndpoint(start: Float, end: Float, tileSize: Int): Float {
+    val delta = end - start
+    return end - sign(delta) * minOf(abs(delta), tileSize * 0.12f)
+}
+
 /** Native placement is authoritative; PathEngine costs are intentionally not consulted here. */
 internal object TerrainEdgeBuildAlignment {
     fun samples(
@@ -212,13 +223,29 @@ internal object TerrainEdgeBuildAlignment {
     ): TerrainEdgeNativeSamples? {
         val map = engine.map ?: return null
         if (map.halfTileWidth <= 0 || map.tileWidth <= 0 || map.tileHeight <= 0) return null
-        val originX = building.getMinimapOriginX()
-        val originY = building.getMinimapOriginY()
+        val originX = building.minimapOriginX
+        val originY = building.minimapOriginY
+        val ui = engine.interfaceEngine
+        val rawX = ui.placingPointerX / engine.zoomScale + engine.cameraRenderX
+        val rawY = ui.placingPointerY / engine.zoomScale + engine.cameraRenderY
+        // These are the unsnapped coordinates used by handleBuildingPlacement itself.
+        // Only adjust when they resolve to this call's native endpoint.
+        map.snapToTile(rawX, rawY)
+        val matchesPointer = abs(map.fogRevealTileX + originX - endX) < 0.01f &&
+                abs(map.fogRevealTileY + originY - endY) < 0.01f
+        if (matchesPointer) {
+            map.snapToTile(
+                terrainEdgeInsetEndpoint(startX, rawX, map.tileWidth),
+                terrainEdgeInsetEndpoint(startY, rawY, map.tileHeight),
+            )
+        }
+        val snappedEndX = if (matchesPointer) map.fogRevealTileX + originX else endX
+        val snappedEndY = if (matchesPointer) map.fogRevealTileY + originY else endY
         return terrainEdgeNativeDragSamples(
             startX = startX,
             startY = startY,
-            endX = endX,
-            endY = endY,
+            endX = snappedEndX,
+            endY = snappedEndY,
             originX = originX,
             originY = originY,
             nativeSampleStep = map.halfTileWidth.toFloat(),

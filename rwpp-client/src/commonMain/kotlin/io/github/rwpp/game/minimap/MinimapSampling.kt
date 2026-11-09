@@ -172,8 +172,25 @@ internal class NativeMinimapSampler {
         }
     }
 
-    fun sample(engine: GameEngine, updateFog: Boolean, usePlayerColors: Boolean): MinimapFrameData? {
-        val current = engine.map ?: return null
+    fun sample(engine: GameEngine, updateFog: Boolean, usePlayerColors: Boolean): MinimapFrameData? =
+        synchronized(engine.gameUpdateLock) {
+            val world = io.github.rwpp.graphics.nativeWorldFrame(engine)
+            if (world == null) {
+                map = null
+                resourceDots = emptyList()
+                terrain = IntArray(0)
+                publishedTerrainPixels = IntArray(0)
+                return@synchronized null
+            }
+            sampleReady(world, updateFog, usePlayerColors)
+        }
+
+    private fun sampleReady(
+        world: io.github.rwpp.graphics.NativeWorldFrame, updateFog: Boolean,
+        usePlayerColors: Boolean
+    ): MinimapFrameData? {
+        val engine = world.engine
+        val current = world.map
         if (current.mapWidthInTiles <= 0 || current.mapHeightInTiles <= 0 || current.groundLayer == null) return null
         if (map !== current) {
             val colors = HashMap<MapTile, Int>()
@@ -231,7 +248,7 @@ internal class NativeMinimapSampler {
                     dead = unit.dead,
                     hasTeam = unit.team != null,
                     transported = unit.transportedBy != null,
-                    visibleToPlayer = aeroUnitVisible(engine, unit),
+                    visibleToPlayer = aeroUnitVisible(world, unit),
                     shouldShowOnMinimap = unit.shouldShowOnMinimap(),
                     virtualUnit = unit.isVirtualUnit,
                 )

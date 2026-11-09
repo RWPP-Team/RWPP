@@ -75,7 +75,7 @@ internal object DesktopWorldTerrainMaterials {
             }
             mapFrames++
             val texture = mask ?: return
-            val w = nativeMap.mapWidthInTiles;
+            val w = nativeMap.mapWidthInTiles
             val h = nativeMap.mapHeightInTiles
             // Include the coast radius so off-screen editor changes cannot leave a stale bank.
             val minX = (floor(engine.cameraRenderX / nativeMap.tileWidth).toInt() - 7).coerceAtLeast(0)
@@ -169,7 +169,7 @@ internal object DesktopWorldTerrainMaterials {
     /** Mutations outside the visible coast margin stay queued until their chunk can affect view. */
     private fun consumeVisibleTerrainMutation(minX: Int, minY: Int, maxX: Int, maxY: Int): Boolean {
         synchronized(mutationLock) {
-            if (dirtyChunks.isEmpty() || dirtyChunkColumns <= 0) return false
+            if (dirtyChunks.isEmpty || dirtyChunkColumns <= 0) return false
             val firstX = minX / DIRTY_CHUNK_TILES
             val lastX = maxX / DIRTY_CHUNK_TILES
             val firstY = minY / DIRTY_CHUNK_TILES
@@ -201,7 +201,7 @@ internal object DesktopWorldTerrainMaterials {
     }
 
     private fun buildMask(nativeMap: NativeMap, engine: GameEngine) {
-        val w = nativeMap.mapWidthInTiles;
+        val w = nativeMap.mapWidthInTiles
         val h = nativeMap.mapHeightInTiles
         if (w <= 0 || h <= 0 || w > 2048 || h > 2048) return
         mask?.disposeBitmap(); mask = null; map = nativeMap; cacheCells.clear()
@@ -222,8 +222,8 @@ internal object DesktopWorldTerrainMaterials {
             tileSignatures[y * w + x] = terrainTileSignature(terrainLayers, x, y)
         }
         val sampled = sampleWorldTerrain(terrainLayers, waterSampler, 0, 0, w, h, maskResolution, rasterWorkspace)
-        val coverage = sampled.coverage;
-        val lava = sampled.lava;
+        val coverage = sampled.coverage
+        val lava = sampled.lava
         val cliffs = sampled.cliffs
         val distances = sampled.distances
         val created = createTerrainMaskImage(engine.graphics, maskWidth, maskHeight)
@@ -240,7 +240,7 @@ internal object DesktopWorldTerrainMaterials {
             }
         }
         created.commitPixelData()
-        (created.loadedImage as? JavaBitmap)?.slickImage?.setFilter(org.newdawn.slick.Image.FILTER_LINEAR)
+        (created.loadedImage as? JavaBitmap)?.slickImage?.filter = org.newdawn.slick.Image.FILTER_LINEAR
         mask = created
         terrainMaskBuilds++
     }

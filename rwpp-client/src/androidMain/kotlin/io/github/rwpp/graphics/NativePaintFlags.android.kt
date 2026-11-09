@@ -10,5 +10,5 @@ package io.github.rwpp.graphics
 import android.graphics.Paint
 
 internal actual fun enableNativePaintFiltering(paint: Paint) {
-    paint.setFilterBitmap(true)
+    paint.isFilterBitmap = true
 }

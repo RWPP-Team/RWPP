@@ -480,7 +480,7 @@ private fun MatchPlayerStatistics(
                 )
                 MatchHistoryRow(
                     readI18n("rwpp.matchHistory.credits"),
-                    java.text.NumberFormat.getIntegerInstance().format(stats.credits.toLong()),
+                    NumberFormat.getIntegerInstance().format(stats.credits.toLong()),
                 )
                 MatchHistoryRow(
                     readI18n("rwpp.matchHistory.income"),

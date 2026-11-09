@@ -141,7 +141,7 @@ fun registerJavadocJar(publication: String, artifact: String) =
             file.parentFile.mkdirs()
             file.writeText(
                 "RWPP API ${project.version}. API documentation ships with the Kotlin sources archive; " +
-                    "read $artifact-${project.version}-sources.jar in your IDE.\n"
+                        "read $artifact-${project.version}-sources.jar in your IDE.\n"
             )
         }
     }

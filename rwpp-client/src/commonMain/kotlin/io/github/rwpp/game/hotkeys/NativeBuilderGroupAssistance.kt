@@ -110,8 +110,8 @@ internal object NativeBuilderGroupAssistance {
                     val type = waypoint.unitType ?: return null
                     val template = NativeUnit.getPlaceholderOrDefault(type)
                     val map = GameEngine.getInstance().map ?: return null
-                    val x = snappedBuilderSiteCoordinate(waypoint.targetX, template.getMinimapOriginX(), map.tileWidth)
-                    val y = snappedBuilderSiteCoordinate(waypoint.targetY, template.getMinimapOriginY(), map.tileHeight)
+                    val x = snappedBuilderSiteCoordinate(waypoint.targetX, template.minimapOriginX, map.tileWidth)
+                    val y = snappedBuilderSiteCoordinate(waypoint.targetY, template.minimapOriginY, map.tileHeight)
                     sites.add(BuilderQueueSite(type.internalName, x, y, waypoint.buildTechLevel))
                 }
 

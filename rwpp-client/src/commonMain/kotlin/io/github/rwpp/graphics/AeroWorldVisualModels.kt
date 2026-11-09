@@ -57,10 +57,8 @@ internal fun aeroReplayWaypointDestinationVisible(
     if (!x.isFinite() || !y.isFinite() || tileWidth <= 0 || tileHeight <= 0) return false
     val tileX = floor(x / tileWidth).toInt()
     val tileY = floor(y / tileHeight).toInt()
-    if (tileX !in 0 until mapWidth || tileY !in 0 until mapHeight ||
-        tileX >= fogGrid.size || tileY >= fogGrid[tileX].size
-    ) return false
-    return fogGrid[tileX][tileY].toInt() < 5
+    return !(tileX !in 0 until mapWidth || tileY !in 0 until mapHeight ||
+            tileX >= fogGrid.size || tileY >= fogGrid[tileX].size) && fogGrid[tileX][tileY].toInt() < 5
 }
 
 /** World-space footprint of a native placement grid, used by the Aero build effect. */
@@ -120,8 +118,7 @@ internal fun aeroHealthVisible(
     hp: Float,
     selectedUnitCount: Int,
 ): Boolean {
-    if (hideFullHealthBarDuringMultiSelection(selected, selectedUnitCount, hp, 1f)) return false
-    return selected || hovered || alwaysShow && hp < 1f
+    return !hideFullHealthBarDuringMultiSelection(selected, selectedUnitCount, hp, 1f) && (selected || hovered || alwaysShow && hp < 1f)
 }
 
 /** Slightly lighter outline for the native drag-selection rectangle. */
@@ -160,6 +157,10 @@ internal fun damageTrail(previous: Float, current: Float, elapsed: Float): Float
 /** Expensive unit queries run at 30 Hz while camera projection still follows every display frame. */
 internal class WorldVisualRefreshSchedule {
     private var sampledAt = Long.MIN_VALUE
+    fun reset() {
+        sampledAt = Long.MIN_VALUE
+    }
+
     fun due(now: Long, force: Boolean = false): Boolean {
         if (!force && sampledAt != Long.MIN_VALUE && now >= sampledAt && now - sampledAt < 33_333_333L) return false
         sampledAt = now
@@ -194,7 +195,9 @@ internal data class SelectedVisual(
     /** Selection brackets follow the native ally/enemy relation, the health fill keeps [color]. */
     val selectionColor: Color = color,
     val barRadius: Float = radius, val barScaledDown: Boolean = false, val barMini: Boolean = false,
-    val transportUsed: Int = -1, val transportCapacity: Int = -1
+    val transportUsed: Int = -1, val transportCapacity: Int = -1,
+    val secondaryRecharging: Boolean = false,
+    val improvedHealthStyle: Boolean = false,
 )
 
 internal data class WorldVisuals(
@@ -210,7 +213,9 @@ internal data class WorldVisuals(
     val detailedRangeStyle: Boolean = true,
     val production: List<AeroProductionVisual> = emptyList(),
     val pausedLabel: String = "",
-    val waitingLabel: String = ""
+    val waitingLabel: String = "",
+    val collisionBounds: List<AeroCollisionVisual> = emptyList(),
+    val targetLines: List<Pair<Offset, Offset>> = emptyList(),
 )
 
 internal data class AeroDamageNumber(

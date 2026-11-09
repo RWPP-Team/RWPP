@@ -21,7 +21,6 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -258,8 +257,7 @@ class MultiplayerScreen : Screen {
                 val result = game.directJoinServer(
                     serverAddress,
                     selectedRoomDescription?.uuid2,
-                    LoadingContext { messageKey -> updateLoadingMessage(readI18n(messageKey)) },
-                )
+                ) { messageKey -> updateLoadingMessage(readI18n(messageKey)) }
                 selectedRoomDescription = null
                 if (result.isSuccess) {
                     withContext(GameMainDispatcher) {
@@ -637,7 +635,7 @@ class MultiplayerScreen : Screen {
                         GameEngine.getInstance().modManager.refreshModList().filterIsInstance<Mod>()
                             .filter { it.isEnabled }
                             .sumOf { mod ->
-                                val path = mod.getSourcePath() ?: mod.path.orEmpty()
+                                val path = mod.sourcePath ?: mod.path.orEmpty()
                                 runCatching { File(path).calculateSize() }.getOrDefault(0L)
                             }
                     )

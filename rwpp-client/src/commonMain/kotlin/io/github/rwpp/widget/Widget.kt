@@ -41,7 +41,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.rwpp.config.Settings
 import io.github.rwpp.ui.HudOpacity
-import io.github.rwpp.ui.UI
 import io.github.rwpp.widget.v2.bounceClick
 import org.koin.compose.koinInject
 
@@ -95,7 +94,6 @@ fun <T> BasicDropdownMenu(
 }
 
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun <T> LargeDropdownMenu(
     modifier: Modifier = Modifier,
@@ -123,7 +121,7 @@ fun <T> LargeDropdownMenu(
             colors = RWOutlinedTextColors,
             value = if (hasValue) items.getOrNull(selectedIndex)?.let { selectedItemToString(it) } ?: "" else "",
             enabled = enabled,
-            modifier = Modifier.menuAnchor(androidx.compose.material3.ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+            modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
                 .fillMaxWidth(),
             trailingIcon = {
                 ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
@@ -270,7 +268,6 @@ fun RWSingleOutlinedTextField(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RWTextButton(
     label: String,

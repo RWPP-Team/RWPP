@@ -7,6 +7,8 @@
 
 package io.github.rwpp.mixin.building
 
+import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.PointF
 import com.corrodinggames.rts.game.units.OrderableUnit
 import com.corrodinggames.rts.gameFramework.GameEngine
@@ -16,6 +18,15 @@ import kim.der.asm.api.annotation.*
 import com.corrodinggames.rts.game.units.Unit as GameUnit
 
 private fun terrainEdgeBuildingEnabled(): Boolean = GameVisualSettings.get()?.terrainEdgeBuilding == true
+
+private val placementCountPaint by lazy {
+    Paint().apply {
+        isAntiAlias = true
+        color = Color.WHITE
+        textAlign = Paint.Align.CENTER
+        setShadowLayer(2f, 1f, 1f, Color.BLACK)
+    }
+}
 
 private const val HANDLE_BUILDING_PLACEMENT = "handleBuildingPlacement(FFLandroid/graphics/Point;)V"
 private const val FIND_PLACEMENTS =
@@ -49,7 +60,7 @@ private fun placeAlongTerrainEdge(
         }
 
         val candidates = ArrayList<PointF>(MAX_NATIVE_PLACEMENTS)
-        val existing = if (positions == null) emptyList() else positions.filterIsInstance<PointF>()
+        val existing = positions?.filterIsInstance<PointF>() ?: emptyList()
         val nativeCandidateBuffer = ArrayList<PointF>(1)
         val (candidateRangeUnit, previewRangeUnit) = terrainEdgeNativeRangeUnits(rangeUnit)
         val originalBuildingX = building.x
@@ -72,8 +83,8 @@ private fun placeAlongTerrainEdge(
             }
         }
 
-        val originX = building.getMinimapOriginX()
-        val originY = building.getMinimapOriginY()
+        val originX = building.minimapOriginX
+        val originY = building.minimapOriginY
         val resolved = terrainEdgeResolveNativeSamples(
             samples = aligned.points,
             dragAngleDegrees = aligned.dragAngleDegrees,
@@ -99,18 +110,20 @@ private fun placeAlongTerrainEdge(
         )
         candidates.addAll(resolved)
 
-        if (candidates.isEmpty()) {
-            original.call(self, building, startX, startY, endX, endY, drawPreview, positions, rangeUnit)
-            return
-        }
-
         if (drawPreview) {
             // Render precisely the same native-validated points that release will enqueue.
             for (candidate in candidates) {
-                val x = candidate.x - building.getMinimapOriginX()
-                val y = candidate.y - building.getMinimapOriginY()
+                val x = candidate.x - building.minimapOriginX
+                val y = candidate.y - building.minimapOriginY
                 callNative(x, y, x, y, true, null, previewRangeUnit)
             }
+            val paint = placementCountPaint
+            paint.textSize = 18f * engine.dipScale
+            val x = ((endX - engine.cameraRenderX) * engine.zoomScale)
+                .coerceIn(paint.textSize, maxOf(paint.textSize, engine.gameAreaWidth - paint.textSize))
+            val y = ((endY - engine.cameraRenderY) * engine.zoomScale - paint.textSize)
+                .coerceIn(paint.textSize, maxOf(paint.textSize, engine.screenHeight - paint.textSize))
+            engine.graphics.drawText(candidates.size.toString(), x, y, paint)
         }
         if (!drawPreview && positions != null) {
             @Suppress("UNCHECKED_CAST")

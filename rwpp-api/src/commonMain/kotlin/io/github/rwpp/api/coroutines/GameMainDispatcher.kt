@@ -7,10 +7,7 @@
 
 package io.github.rwpp.api.coroutines
 
-import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Runnable
-import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.*
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.locks.LockSupport
@@ -37,6 +34,7 @@ object GameMainDispatcher : CoroutineDispatcher() {
     private var nativeThread: Thread? = null
     private var handoffThread: Thread? = null
     private var lastNativeFrameNanos = 0L
+
     @Volatile
     private var wakeThread: Thread? = null
     private val bridgeFrames = object : ThreadLocal<NativeBridgeThreadState>() {
@@ -201,6 +199,7 @@ object GameMainDispatcher : CoroutineDispatcher() {
         private val lock = Any()
         private val queue = ConcurrentLinkedQueue<Runnable>()
         private var activeCall: NativeBridgeCall? = null
+
         @Volatile
         private var ownerThread: Thread? = null
 
@@ -366,4 +365,13 @@ internal expect object PlatformGameMainDispatcherPump {
     fun isNativeLoopActive(): Boolean?
 }
 
-val GameScope = CoroutineScope(GameMainDispatcher + SupervisorJob())
+private val gameTaskFailures = CoroutineExceptionHandler { _, failure ->
+    val engine = com.corrodinggames.rts.gameFramework.GameEngine.getInstance()
+    if (engine != null) io.github.rwpp.api.game.impl.NativeGameFaults.report(engine, failure, "game task")
+    else {
+        val error = io.github.rwpp.api.game.impl.nativeGameFailure(failure)
+        io.github.rwpp.api.logging.logger().warn("Game task failed before engine initialization", error)
+    }
+}
+
+val GameScope = CoroutineScope(GameMainDispatcher + SupervisorJob() + gameTaskFailures)

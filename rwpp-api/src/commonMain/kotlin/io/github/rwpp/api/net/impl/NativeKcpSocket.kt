@@ -291,6 +291,7 @@ class NativeKcpSocket() : Socket(), NativePacketSocket {
     }
 
     private val deliveryScheduled = AtomicBoolean()
+
     @Synchronized
     override fun closeAfterWrites() {
         tcp?.let { (it as NativePacketSocket).closeAfterWrites(); return }

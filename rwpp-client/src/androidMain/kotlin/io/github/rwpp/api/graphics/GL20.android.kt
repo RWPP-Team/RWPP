@@ -432,14 +432,16 @@ actual object GL20 {
         type: Int,
         pixels: Buffer?
     ) {
-        if (pixels is ByteBuffer) GLES20.glReadPixels(x, y, width, height, format, type, pixels)
-        else if (pixels is ShortBuffer) GLES20.glReadPixels(x, y, width, height, format, type, pixels)
-        else if (pixels is IntBuffer) GLES20.glReadPixels(x, y, width, height, format, type, pixels)
-        else if (pixels is FloatBuffer) GLES20.glReadPixels(x, y, width, height, format, type, pixels)
-        else throw RuntimeException(
-            ("Can't use " + pixels?.javaClass?.getName()
-                    + " with this method. Use ByteBuffer, ShortBuffer, IntBuffer or FloatBuffer instead. Blame LWJGL")
-        )
+        when (pixels) {
+            is ByteBuffer -> GLES20.glReadPixels(x, y, width, height, format, type, pixels)
+            is ShortBuffer -> GLES20.glReadPixels(x, y, width, height, format, type, pixels)
+            is IntBuffer -> GLES20.glReadPixels(x, y, width, height, format, type, pixels)
+            is FloatBuffer -> GLES20.glReadPixels(x, y, width, height, format, type, pixels)
+            else -> throw RuntimeException(
+                ("Can't use " + pixels?.javaClass?.name
+                        + " with this method. Use ByteBuffer, ShortBuffer, IntBuffer or FloatBuffer instead. Blame LWJGL")
+            )
+        }
     }
 
     actual fun glReleaseShaderCompiler() {
@@ -497,76 +499,83 @@ actual object GL20 {
         type: Int,
         pixels: Buffer?
     ) {
-        if (pixels == null) GLES20.glTexImage2D(
-            target,
-            level,
-            internalformat,
-            width,
-            height,
-            border,
-            format,
-            type,
-            null as ByteBuffer?
-        )
-        else if (pixels is ByteBuffer) GLES20.glTexImage2D(
-            target,
-            level,
-            internalformat,
-            width,
-            height,
-            border,
-            format,
-            type,
-            pixels
-        )
-        else if (pixels is ShortBuffer) GLES20.glTexImage2D(
-            target,
-            level,
-            internalformat,
-            width,
-            height,
-            border,
-            format,
-            type,
-            pixels
-        )
-        else if (pixels is IntBuffer) GLES20.glTexImage2D(
-            target,
-            level,
-            internalformat,
-            width,
-            height,
-            border,
-            format,
-            type,
-            pixels
-        )
-        else if (pixels is FloatBuffer) GLES20.glTexImage2D(
-            target,
-            level,
-            internalformat,
-            width,
-            height,
-            border,
-            format,
-            type,
-            pixels
-        )
-        else if (pixels is DoubleBuffer) GLES20.glTexImage2D(
-            target,
-            level,
-            internalformat,
-            width,
-            height,
-            border,
-            format,
-            type,
-            pixels
-        )
-        else throw RuntimeException(
-            ("Can't use " + pixels.javaClass.getName()
-                    + " with this method. Use ByteBuffer, ShortBuffer, IntBuffer, FloatBuffer or DoubleBuffer instead. Blame LWJGL")
-        )
+        when (pixels) {
+            null -> GLES20.glTexImage2D(
+                target,
+                level,
+                internalformat,
+                width,
+                height,
+                border,
+                format,
+                type,
+                null as ByteBuffer?
+            )
+            is ByteBuffer -> GLES20.glTexImage2D(
+                target,
+                level,
+                internalformat,
+                width,
+                height,
+                border,
+                format,
+                type,
+                pixels
+            )
+
+            is ShortBuffer -> GLES20.glTexImage2D(
+                target,
+                level,
+                internalformat,
+                width,
+                height,
+                border,
+                format,
+                type,
+                pixels
+            )
+
+            is IntBuffer -> GLES20.glTexImage2D(
+                target,
+                level,
+                internalformat,
+                width,
+                height,
+                border,
+                format,
+                type,
+                pixels
+            )
+
+            is FloatBuffer -> GLES20.glTexImage2D(
+                target,
+                level,
+                internalformat,
+                width,
+                height,
+                border,
+                format,
+                type,
+                pixels
+            )
+
+            is DoubleBuffer -> GLES20.glTexImage2D(
+                target,
+                level,
+                internalformat,
+                width,
+                height,
+                border,
+                format,
+                type,
+                pixels
+            )
+
+            else -> throw RuntimeException(
+                ("Can't use " + pixels.javaClass.name
+                        + " with this method. Use ByteBuffer, ShortBuffer, IntBuffer, FloatBuffer or DoubleBuffer instead. Blame LWJGL")
+            )
+        }
     }
 
     actual fun glTexParameterf(target: Int, pname: Int, param: Float) {
@@ -588,65 +597,72 @@ actual object GL20 {
         type: Int,
         pixels: Buffer?
     ) {
-        if (pixels is ByteBuffer) GLES20.glTexSubImage2D(
-            target,
-            level,
-            xoffset,
-            yoffset,
-            width,
-            height,
-            format,
-            type,
-            pixels
-        )
-        else if (pixels is ShortBuffer) GLES20.glTexSubImage2D(
-            target,
-            level,
-            xoffset,
-            yoffset,
-            width,
-            height,
-            format,
-            type,
-            pixels
-        )
-        else if (pixels is IntBuffer) GLES20.glTexSubImage2D(
-            target,
-            level,
-            xoffset,
-            yoffset,
-            width,
-            height,
-            format,
-            type,
-            pixels
-        )
-        else if (pixels is FloatBuffer) GLES20.glTexSubImage2D(
-            target,
-            level,
-            xoffset,
-            yoffset,
-            width,
-            height,
-            format,
-            type,
-            pixels
-        )
-        else if (pixels is DoubleBuffer) GLES20.glTexSubImage2D(
-            target,
-            level,
-            xoffset,
-            yoffset,
-            width,
-            height,
-            format,
-            type,
-            pixels
-        )
-        else throw RuntimeException(
-            ("Can't use " + pixels?.javaClass?.getName()
-                    + " with this method. Use ByteBuffer, ShortBuffer, IntBuffer, FloatBuffer or DoubleBuffer instead. Blame LWJGL")
-        )
+        when (pixels) {
+            is ByteBuffer -> GLES20.glTexSubImage2D(
+                target,
+                level,
+                xoffset,
+                yoffset,
+                width,
+                height,
+                format,
+                type,
+                pixels
+            )
+
+            is ShortBuffer -> GLES20.glTexSubImage2D(
+                target,
+                level,
+                xoffset,
+                yoffset,
+                width,
+                height,
+                format,
+                type,
+                pixels
+            )
+
+            is IntBuffer -> GLES20.glTexSubImage2D(
+                target,
+                level,
+                xoffset,
+                yoffset,
+                width,
+                height,
+                format,
+                type,
+                pixels
+            )
+
+            is FloatBuffer -> GLES20.glTexSubImage2D(
+                target,
+                level,
+                xoffset,
+                yoffset,
+                width,
+                height,
+                format,
+                type,
+                pixels
+            )
+
+            is DoubleBuffer -> GLES20.glTexSubImage2D(
+                target,
+                level,
+                xoffset,
+                yoffset,
+                width,
+                height,
+                format,
+                type,
+                pixels
+            )
+
+            else -> throw RuntimeException(
+                ("Can't use " + pixels?.javaClass?.name
+                        + " with this method. Use ByteBuffer, ShortBuffer, IntBuffer, FloatBuffer or DoubleBuffer instead. Blame LWJGL")
+            )
+        }
     }
 
     actual fun glUniform1f(location: Int, x: Float) {

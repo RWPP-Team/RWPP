@@ -17,7 +17,7 @@ class ImageableFetcherFactory : Fetcher.Factory<Imageable> {
         data: Imageable,
         options: Options,
         imageLoader: ImageLoader
-    ): Fetcher? {
+    ): Fetcher {
         return ImageableFetcher(data)
     }
 }

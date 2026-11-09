@@ -216,7 +216,7 @@ internal object AeroReplaySeekState {
         get() {
             val start = startTick
             val endFrame = metadata?.stoppedFrame ?: return null
-            if (start < 0 || endFrame < start || endFrame == Int.MAX_VALUE) return null
+            if (start !in 0..endFrame || endFrame == Int.MAX_VALUE) return null
             return endFrame + 1 - start
         }
 
@@ -231,7 +231,7 @@ internal object AeroReplaySeekState {
         get() {
             val start = startTimeMillis
             val end = metadata?.gameTimeMillis ?: return 0
-            if (start < 0 || end < start) return 0
+            if (start !in 0..end) return 0
             return (currentTimeMillis - start).coerceIn(0, end - start)
         }
 
@@ -239,7 +239,7 @@ internal object AeroReplaySeekState {
         get() {
             val start = startTimeMillis
             val end = metadata?.gameTimeMillis ?: return null
-            return if (start >= 0 && end >= start) end - start else null
+            return if (start in 0..end) end - start else null
         }
 
     fun seekTo(requestedRelativeTick: Int) {

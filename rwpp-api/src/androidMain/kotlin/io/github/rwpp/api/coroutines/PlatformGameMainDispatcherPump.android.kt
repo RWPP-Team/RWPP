@@ -19,7 +19,8 @@ internal actual object PlatformGameMainDispatcherPump {
     private val handler = Handler(Looper.getMainLooper())
     private val schedulerRunning = AtomicBoolean()
     private val drainEnabled = AtomicBoolean()
-    @Volatile private var nativeLoopAccessor: NativeLoopAccessor? = null
+    @Volatile
+    private var nativeLoopAccessor: NativeLoopAccessor? = null
     private val drainTask = object : Runnable {
         override fun run() {
             if (!drainEnabled.get()) return

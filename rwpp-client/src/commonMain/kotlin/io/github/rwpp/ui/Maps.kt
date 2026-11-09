@@ -185,7 +185,7 @@ fun MapViewDialog(
                             item(key = "map-dialog-type-filter") {
                                 ResponsiveFilterChoices(
                                     label = readI18n("rwpp.multiplayer.room.mapType"),
-                                    items = mapTypeItems.map { it.getDisplayName() },
+                                    items = mapTypeItems.map { it.displayName },
                                     selectedIndex = selectedIndex0.coerceAtMost(mapTypeItems.lastIndex),
                                     onItemSelected = { selectedIndex0 = it },
                                 )
@@ -755,7 +755,7 @@ private fun MapDetailSidebar(
                 )
 
                 AeroBadge(
-                    text = mapType.getDisplayName().uppercase(),
+                    text = mapType.displayName.uppercase(),
                     color = MaterialTheme.colorScheme.primary
                 )
             }

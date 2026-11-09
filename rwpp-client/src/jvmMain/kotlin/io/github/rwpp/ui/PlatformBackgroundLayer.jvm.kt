@@ -22,6 +22,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.File
 import javax.imageio.ImageIO
+import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
 internal actual fun PlatformBackgroundLayer(path: String) {
@@ -37,7 +38,7 @@ internal actual fun PlatformBackgroundLayer(path: String) {
                         val frame = withContext(Dispatchers.IO) { runCatching { frames.next() }.getOrNull() } ?: break
                         value = frame.image.toPainter()
                         if (!frames.animated) break
-                        delay(frame.delayMillis)
+                        delay(frame.delayMillis.milliseconds)
                     }
                 } finally {
                     frames.close()

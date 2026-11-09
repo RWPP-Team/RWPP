@@ -4,17 +4,21 @@ import java.nio.file.*;
 import java.util.*;
 import java.util.regex.*;
 import java.util.zip.*;
+
 import javax.tools.ToolProvider;
 
-/** Builds an extension-owned resource APK and the matching library R classes. */
+/**
+ * Builds an extension-owned resource APK and the matching library R classes.
+ */
 public final class BundleAndroidResources {
     private static final String GLOBAL = "io.github.rwpp.extension.resources";
-    private record Library(String namespace, List<String> symbols) {}
+
     private static void run(List<String> args) throws Exception {
         Process p = new ProcessBuilder(args).redirectErrorStream(true).start();
         String output = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         if (p.waitFor() != 0) throw new IOException(String.join(" ", args) + "\n" + output);
     }
+
     public static void main(String[] args) throws Exception {
         Path out = Path.of(args[2]), generated = out.resolve("java");
         Files.createDirectories(generated);
@@ -38,7 +42,9 @@ public final class BundleAndroidResources {
                     Path target = unpack.resolve(entry.getName()).normalize();
                     if (!target.startsWith(unpack)) throw new IOException("Invalid AAR entry");
                     Files.createDirectories(target.getParent());
-                    try (InputStream input = zip.getInputStream(entry)) { Files.copy(input, target, StandardCopyOption.REPLACE_EXISTING); }
+                    try (InputStream input = zip.getInputStream(entry)) {
+                        Files.copy(input, target, StandardCopyOption.REPLACE_EXISTING);
+                    }
                 }
                 if (Files.isDirectory(unpack.resolve("res"))) {
                     Path flat = unpack.resolve("compiled.zip");
@@ -76,10 +82,12 @@ public final class BundleAndroidResources {
                             for (String[] member : type.getValue()) {
                                 if (member[0].equals("int") && member[2].startsWith(field[2] + "_")) {
                                     int position = Integer.decode(member[3]);
-                                    if (position < size) attributes[position] = value + "[" + globalR + ".styleable." + member[2] + "]";
+                                    if (position < size)
+                                        attributes[position] = value + "[" + globalR + ".styleable." + member[2] + "]";
                                 }
                             }
-                            if (Arrays.stream(attributes).anyMatch(Objects::isNull)) throw new IOException("Incomplete styleable: " + library.namespace + "." + field[2]);
+                            if (Arrays.stream(attributes).anyMatch(Objects::isNull))
+                                throw new IOException("Incomplete styleable: " + library.namespace + "." + field[2]);
                             value = "new int[]{" + String.join(",", attributes) + "}";
                         }
                     }
@@ -89,13 +97,20 @@ public final class BundleAndroidResources {
             }
             text.append("}\n");
             Path file = generated.resolve(library.namespace.replace('.', '/') + "/R.java");
-            Files.createDirectories(file.getParent()); Files.writeString(file, text);
+            Files.createDirectories(file.getParent());
+            Files.writeString(file, text);
         }
-        Path classes = out.resolve("classes"); Files.createDirectories(classes);
+        Path classes = out.resolve("classes");
+        Files.createDirectories(classes);
         List<String> javac = new ArrayList<>(List.of("--release", "8", "-d", classes.toString()));
-        try (var paths = Files.walk(generated)) { paths.filter(p -> p.toString().endsWith(".java")).forEach(p -> javac.add(p.toString())); }
+        try (var paths = Files.walk(generated)) {
+            paths.filter(p -> p.toString().endsWith(".java")).forEach(p -> javac.add(p.toString()));
+        }
         if (ToolProvider.getSystemJavaCompiler().run(null, System.out, System.err, javac.toArray(String[]::new)) != 0)
             throw new IOException("Could not compile extension resource symbols");
         System.out.println("Bundled Android resource namespaces: " + namespaces.size());
+    }
+
+    private record Library(String namespace, List<String> symbols) {
     }
 }

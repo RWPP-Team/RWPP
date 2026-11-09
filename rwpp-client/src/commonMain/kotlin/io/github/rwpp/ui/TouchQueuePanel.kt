@@ -124,13 +124,17 @@ internal fun TouchQueuePanel(
         Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             AeroHeader(button.label.substringBefore('\n'), tag = "PRODUCTION")
             Text(readI18n("rwpp.hud.queue.count", button.queued), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (button.pendingProduction > 0) Text(
+                readI18n("rwpp.production.pendingCount", button.pendingProduction),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 AeroButton(
                     readI18n("rwpp.hud.queue.add"), onClick = onAdd, enabled = button.canAdd,
                     modifier = Modifier.weight(1f), clickSound = Sounds.select
                 )
                 AeroButton(
-                    readI18n("rwpp.hud.queue.remove"), onClick = onRemove, enabled = button.queued > 0,
+                    readI18n("rwpp.hud.queue.remove"), onClick = onRemove, enabled = button.queued > 0 || button.pendingProduction > 0,
                     modifier = Modifier.weight(1f), clickSound = Sounds.cancel, isDanger = true
                 )
             }

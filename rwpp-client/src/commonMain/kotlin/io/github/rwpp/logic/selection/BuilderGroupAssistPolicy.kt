@@ -26,11 +26,11 @@ internal fun builderQueueIsSuffix(full: List<BuilderQueueSite>, suffix: List<Bui
 internal fun planBuilderQueueProtection(members: List<BuilderQueueMember>): BuilderGuardPlan? {
     val leaders = members.filter { (it.plan?.size ?: 0) >= 2 }
         .sortedWith(compareByDescending<BuilderQueueMember> { it.plan!!.size }.thenBy { it.id })
-    for (leader in leaders) {
+    for ((id, plan) in leaders) {
         val followers = members.filter {
-            it.id != leader.id && it.plan != null && builderQueueIsSuffix(leader.plan!!, it.plan)
+            it.id != id && it.plan != null && builderQueueIsSuffix(plan!!, it.plan)
         }.map { it.id }
-        if (followers.isNotEmpty()) return BuilderGuardPlan(leader.id, followers)
+        if (followers.isNotEmpty()) return BuilderGuardPlan(id, followers)
     }
     return null
 }

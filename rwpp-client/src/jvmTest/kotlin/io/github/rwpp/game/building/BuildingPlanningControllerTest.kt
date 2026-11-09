@@ -25,10 +25,12 @@ class BuildingPlanningControllerTest {
 
     @Test
     fun blueprintHitBoundsIncludeBuildingsAndTheSpaceBetweenThem() {
-        val session = BlueprintPlacementSession(listOf(
-            BuildingPlanningRelativeItem("a", 1, -40f, -20f, 12f),
-            BuildingPlanningRelativeItem("b", 1, 40f, 20f, 12f),
-        ), 100f, 200f)
+        val session = BlueprintPlacementSession(
+            listOf(
+                BuildingPlanningRelativeItem("a", 1, -40f, -20f, 12f),
+                BuildingPlanningRelativeItem("b", 1, 40f, 20f, 12f),
+            ), 100f, 200f
+        )
         assertTrue(session.contains(60f, 180f))
         assertTrue(session.contains(100f, 200f))
         assertFalse(session.contains(200f, 200f))

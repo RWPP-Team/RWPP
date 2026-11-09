@@ -34,6 +34,7 @@ import io.github.rwpp.widget.v2.*
 import io.github.rwpp.widget.v2.scrollbar.LazyColumnScrollbar
 import kotlinx.coroutines.delay
 import org.koin.compose.koinInject
+import kotlin.time.Duration.Companion.milliseconds
 
 private data class BuilderTypeOption(
     val type: UnitTypeInterface,
@@ -228,7 +229,7 @@ private fun NativeUnitTypePickerIcon(type: UnitTypeInterface) {
         var attempts = 0
         while (value == null && attempts++ < 25) {
             value = ActionImages.loadUnitType(type, Team.grayTeam, visible = true)
-            if (value == null) delay(120)
+            if (value == null) delay(120.milliseconds)
         }
     }
     if (image != null) {

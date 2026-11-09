@@ -32,6 +32,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 class NativeTcpSocket(private val runtime: ServerTransportBackend = TransportRuntime.backend as ServerTransportBackend) :
     Socket(), NativePacketSocket {
     override val transportName: String get() = "TCP"
+
     @Volatile
     private var channel: Channel? = null
     private var timeout = 0

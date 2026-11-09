@@ -51,7 +51,7 @@ internal fun sampleWorldTerrain(
     originX: Int, originY: Int, tilesWide: Int, tilesHigh: Int, resolution: Int,
     workspace: WorldTerrainRasterWorkspace = WorldTerrainRasterWorkspace()
 ): WorldTerrainRaster {
-    val width = tilesWide * resolution;
+    val width = tilesWide * resolution
     val size = width * tilesHigh * resolution
     workspace.reset(size)
     val coverage = workspace.coverage
@@ -59,13 +59,13 @@ internal fun sampleWorldTerrain(
     val opacity = workspace.opacity
     val cliffs = workspace.cliffs
     for (y in 0 until tilesHigh) for (x in 0 until tilesWide) for (layer in layers) {
-        val tx = x + originX;
+        val tx = x + originX
         val ty = y + originY
         if (tx !in 0 until layer.width || ty !in 0 until layer.height) continue
         val tile = layer.getTile(tx, ty) ?: continue
         val sample = sampler.sample(tile, resolution)
         for (sy in 0 until resolution) for (sx in 0 until resolution) {
-            val local = sy * resolution + sx;
+            val local = sy * resolution + sx
             val i = (y * resolution + sy) * width + x * resolution + sx
             val alpha = sample.opacity[local]
             coverage[i] = sample.waterCoverage[local] * alpha + coverage[i] * (1f - alpha)

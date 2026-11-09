@@ -138,7 +138,7 @@ internal fun writeSandboxMapWithTerrain(
         return
     }
 
-    val runtimeLayers = (0 until map.layers.size)
+    val runtimeLayers = map.layers.indices
         .map { map.layers[it] as? MapLayer ?: error("Unexpected native map layer") }
         .filterNot { it.name.equals("units", ignoreCase = true) }
     val layerLayouts = runtimeLayers.map { layer ->

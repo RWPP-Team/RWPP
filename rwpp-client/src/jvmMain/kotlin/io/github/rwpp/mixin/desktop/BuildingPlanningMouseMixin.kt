@@ -21,8 +21,10 @@ internal interface NativePlannerMouseAccess {
 abstract class NativePlannerMouseAccessMixin {
     @Invoker("processMouseGrab")
     abstract fun rwppPreparePlannerMouse(x: Int, y: Int, relative: Boolean)
+
     @Accessor("mouseX")
     abstract fun rwppPlannerMouseX(): Float
+
     @Accessor("mouseY")
     abstract fun rwppPlannerMouseY(): Float
 }

@@ -70,14 +70,22 @@ internal fun GameScreen.AeroGameTelemetry() {
                 val primaryColor = if (aeroObservingTeam(engine)) AeroAllyText else accent
                 val nextStatus = buildAnnotatedString {
                     withStyle(SpanStyle(color = primaryColor)) {
-                        append(aeroCreditsText(team.credits.toInt(), team.getResourceAmount(resource),
-                            team.getNegativeResourceAmount(resource)))
+                        append(
+                            aeroCreditsText(
+                                team.credits.toInt(), team.getResourceAmount(resource),
+                                team.getNegativeResourceAmount(resource)
+                            )
+                        )
                     }
                     if (secondary != null) {
                         append('\n')
                         withStyle(SpanStyle(color = AeroAllyText)) {
-                            append(aeroCreditsText(secondary.credits.toInt(), secondary.getResourceAmount(resource),
-                                secondary.getNegativeResourceAmount(resource)))
+                            append(
+                                aeroCreditsText(
+                                    secondary.credits.toInt(), secondary.getResourceAmount(resource),
+                                    secondary.getNegativeResourceAmount(resource)
+                                )
+                            )
                         }
                     }
                     append('\n')
@@ -187,7 +195,7 @@ internal fun GameScreen.AeroGameMessages(events: Boolean) {
     )
     var retained by remember { mutableStateOf<List<AnnotatedString>>(emptyList()) }
     if (messages.isNotEmpty()) retained = messages
-    val text = androidx.compose.ui.text.rememberTextMeasurer()
+    val text = rememberTextMeasurer()
     val color = MaterialTheme.colorScheme.onSurface
     val content = if (isEditMode && messages.isEmpty()) listOf(
         AnnotatedString(
@@ -198,7 +206,7 @@ internal fun GameScreen.AeroGameMessages(events: Boolean) {
         val width = with(androidx.compose.ui.platform.LocalDensity.current) { maxWidth.roundToPx() }
         val paragraph = text.measure(
             buildAnnotatedString { content.forEachIndexed { i, line -> if (i > 0) append("\n"); append(line) } },
-            androidx.compose.ui.text.TextStyle(
+            TextStyle(
                 color = color, fontSize = 12.sp,
                 shadow = androidx.compose.ui.graphics.Shadow(
                     Color.Black,

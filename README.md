@@ -20,31 +20,41 @@
 
 ## Introduction
 
-RWPP is the client and the headless server for Rusted Warfare. Both run as extensions of [RWML](https://github.com/RWPP-Team/RWML), which loads modifications on desktop and Android.
+RWPP is the client and the headless server for Rusted Warfare. Both run as extensions
+of [RWML](https://github.com/RWPP-Team/RWML), which loads modifications on desktop and Android.
 
-| Module | Role |
-| --- | --- |
-| `rwpp-api` | Game, event, network, command and configuration interfaces shared by both sides |
-| `rwpp-client` | Interface, input, audio, graphics and the JVM network backend |
-| `rwpp-server` | Headless server with a console and extension loading |
+| Module        | Role                                                                            |
+|---------------|---------------------------------------------------------------------------------|
+| `rwpp-api`    | Game, event, network, command and configuration interfaces shared by both sides |
+| `rwpp-client` | Interface, input, audio, graphics and the JVM network backend                   |
+| `rwpp-server` | Headless server with a console and extension loading                            |
 
-The client adds unit bans, IME input, blacklists, room list filters, additional room options, external resources and a new interface. The server runs without a display device and uses the same API.
+The client adds unit bans, IME input, blacklists, room list filters, additional room options, external resources and a
+new interface. The server runs without a display device and uses the same API.
 
 ## Installation
 
-RWPP is loaded by RWML. Install the [latest release](https://github.com/Minxyzgo/RWPP/releases/latest) and import the archive for the target platform through the launcher. The archive provides `io.github.rwpp.api` and `io.github.rwpp`. The two JAR files can also be imported separately.
+RWPP is loaded by RWML. Install the [latest release](https://github.com/Minxyzgo/RWPP/releases/latest) and import the
+archive for the target platform through the launcher. The archive provides `io.github.rwpp.api` and `io.github.rwpp`.
+The two JAR files can also be imported separately.
 
-Both extensions must come from the same release. The client declares a dependency on the API and registers its own interface framework.
+Both extensions must come from the same release. The client declares a dependency on the API and registers its own
+interface framework.
 
 ## Usage
 
-Restart the game after enabling the extensions. The client takes over the launcher and draws its interface above the game. Room options, the action panel and the information HUD follow the rules of the original game.
+Restart the game after enabling the extensions. The client takes over the launcher and draws its interface above the
+game. Room options, the action panel and the information HUD follow the rules of the original game.
 
-The server accepts KCP and TCP on the same port. The client prefers KCP and falls back to TCP when the handshake receives no reply. Console commands and startup options are listed in [rwpp-server/README.md](rwpp-server/README.md).
+The server accepts KCP and TCP on the same port. The client prefers KCP and falls back to TCP when the handshake
+receives no reply. Console commands and startup options are listed in [rwpp-server/README.md](rwpp-server/README.md).
 
 ## Extensions
 
-An extension depends on `rwml-core` and the mapped game library. Extensions that need shared game services also depend on `rwpp-api`. The host provides these libraries at runtime, so all three are compile-only dependencies. [rwpp-api/README.md](rwpp-api/README.md) describes the event channel, the command registry and the configuration services.
+An extension depends on `rwml-core` and the mapped game library. Extensions that need shared game services also depend
+on `rwpp-api`. The host provides these libraries at runtime, so all three are compile-only
+dependencies. [rwpp-api/README.md](rwpp-api/README.md) describes the event channel, the command registry and the
+configuration services.
 
 ## Credits
 

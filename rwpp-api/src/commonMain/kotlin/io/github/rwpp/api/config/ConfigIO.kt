@@ -57,6 +57,7 @@ internal fun <T : Config> T.copyConfigFrom(source: T) {
 
 internal object ConfigLoadState {
     private val failures = IdentityHashMap<Config, Throwable>()
+
     @Synchronized
     fun loaded(config: Config) {
         failures.remove(config)

@@ -80,7 +80,8 @@ object Logic : Initialization {
         val owner = EventOwner(RwppExtensionRuntime.extensionContext)
         GlobalEventChannel.filter(ModCheckEvent::class).subscribeAlways(owner) { event ->
             val room = appKoin.get<Game>().gameRoom
-            if (!room.option.canTransferMod) return@subscribeAlways
+            val option = room.option
+            if (room.isHost || !option.canTransferMod) return@subscribeAlways
             val required = event.requiredMods
             // Compare with the same name that the transfer protocol uses. The file name and the
             // mod title differ for many mods; mixing the two used to report every mod as missing.
@@ -94,6 +95,7 @@ object Logic : Initialization {
             // every following frame and survives a resync save.
             if (missingMods.isNotEmpty()) event.cancel()
             GameScope.launch {
+                if (room.isHost || room.option !== option) return@launch
                 val net = appKoin.get<Net>()
                 if (missingMods.isEmpty()) {
                     net.sendPacketToServer(ModPacket.RequestPacket())

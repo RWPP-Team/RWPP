@@ -7,8 +7,8 @@
 
 package io.github.rwpp.ui
 
-import android.os.Looper
 import android.os.Build
+import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import androidx.compose.runtime.snapshots.Snapshot
@@ -45,13 +45,13 @@ internal object AndroidHudSurface {
         // Vote for the active display cadence, including 60 Hz. Do not force a faster display
         // mode merely because a passive HUD is attached above the game's SurfaceView.
         if (Build.VERSION.SDK_INT >= 35) {
-            view.setRequestedFrameRate(view.display?.refreshRate ?: View.REQUESTED_FRAME_RATE_CATEGORY_NO_PREFERENCE)
+            view.requestedFrameRate = view.display?.refreshRate ?: View.REQUESTED_FRAME_RATE_CATEGORY_NO_PREFERENCE
         }
     }
 
     fun detach(view: View) {
         if (target.compareAndSet(view, null) && Build.VERSION.SDK_INT >= 35) {
-            view.setRequestedFrameRate(View.REQUESTED_FRAME_RATE_CATEGORY_NO_PREFERENCE)
+            view.requestedFrameRate = View.REQUESTED_FRAME_RATE_CATEGORY_NO_PREFERENCE
         }
     }
 

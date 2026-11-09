@@ -28,13 +28,13 @@ internal fun aeroViewerTeams(engine: GameEngine): List<Team> {
 }
 
 /** A unit is visible when any team in the selected player's ally group can see it. */
-internal fun aeroUnitVisible(engine: GameEngine, unit: GameUnit): Boolean {
+internal fun aeroUnitVisible(world: io.github.rwpp.graphics.NativeWorldFrame, unit: GameUnit): Boolean {
+    val engine = world.engine
     val teams = aeroViewerTeams(engine)
     if (teams.isEmpty()) {
-        val viewer = aeroPresentationTeam(engine) ?: return true
-        return unit.isVisibleToTeam(viewer)
+        return io.github.rwpp.graphics.nativeUnitVisible(world, unit)
     }
-    return teams.any { unit.isVisibleToTeam(it) }
+    return teams.any { io.github.rwpp.graphics.nativeUnitVisible(world, unit, it) }
 }
 
 /** Fog grid presented to native terrain, minimap and waypoint rendering. */
@@ -100,6 +100,7 @@ internal object AeroViewerFog {
     private var cached: Array<ByteArray>? = null
     private var published: Array<ByteArray>? = null
     private var computedAt = 0L
+
     // Two buffers alternate so the previous grid stays readable while the next one is merged.
     private var spare: Array<ByteArray>? = null
 

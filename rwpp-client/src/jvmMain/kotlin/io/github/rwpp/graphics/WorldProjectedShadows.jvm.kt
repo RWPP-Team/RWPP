@@ -73,7 +73,7 @@ internal object DesktopWorldProjectedShadows {
                     filled[y * key.width + x]
                 )
                 image.commitPixelData()
-                (image.loadedImage as? JavaBitmap)?.slickImage?.setFilter(org.newdawn.slick.Image.FILTER_LINEAR)
+                (image.loadedImage as? JavaBitmap)?.slickImage?.filter = org.newdawn.slick.Image.FILTER_LINEAR
             }
         }.getOrNull()
         frames[key] = result
@@ -113,6 +113,7 @@ internal object DesktopWorldProjectedShadows {
         }
         if (failed) return
         val engine = GameEngine.getInstance() ?: return
+        val world = nativeWorldFrame(engine) ?: run { clearBuildingMasks(); activeMap = null; return }
         val renderer = engine.graphics as? JavaCanvas ?: return
         if (activeMap !== engine.map) {
             clearBuildingMasks(); activeMap = engine.map
@@ -150,7 +151,7 @@ internal object DesktopWorldProjectedShadows {
                 for (index in objects.indices) {
                     val unit = items[index] as? OrderableUnit ?: continue
                     if (unit.dead || unit.buildProgress < 1f || unit.transportedBy != null || unit.attachedToUnit != null || unit.height < -1f ||
-                        !unit.isVisibleToTeam(engine.playerTeam) || unit.isVirtualUnit
+                        !nativeUnitVisible(world, unit) || unit.isVirtualUnit
                     ) continue
                     val texture = unit.bodyImage ?: continue
                     val bitmap = texture.loadedImage as? JavaBitmap ?: continue

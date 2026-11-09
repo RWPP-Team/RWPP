@@ -11,7 +11,7 @@ import android.graphics.Paint
 import java.lang.reflect.Field
 
 internal interface NativePaintFlagsAccess {
-    fun rwppPaintFlags(): Int;
+    fun rwppPaintFlags(): Int
     fun rwppPaintFlags(value: Int)
 }
 

@@ -7,9 +7,9 @@
 
 package io.github.rwpp.api.event.hooks
 
+import com.corrodinggames.rts.gameFramework.GameEngine
 import io.github.rwpp.api.event.GameEventPublisher
 import io.github.rwpp.api.event.events.ModReloadFailedEvent
-import com.corrodinggames.rts.gameFramework.GameEngine
 import io.github.rwpp.api.game.ai.NativeModMutationGate
 import java.lang.reflect.InvocationTargetException
 

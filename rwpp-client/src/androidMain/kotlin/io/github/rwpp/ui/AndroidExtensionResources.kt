@@ -73,7 +73,7 @@ internal object AndroidExtensionResources {
             override fun getAssets() = bundleResources.assets
             override fun getTheme(): Resources.Theme = extensionTheme
             override fun createConfigurationContext(overrideConfiguration: Configuration): Context =
-                AndroidExtensionResources.context(base.createConfigurationContext(overrideConfiguration))
+                context(base.createConfigurationContext(overrideConfiguration))
         }
     }
 }

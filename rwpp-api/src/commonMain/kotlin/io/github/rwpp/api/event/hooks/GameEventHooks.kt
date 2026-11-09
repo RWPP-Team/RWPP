@@ -19,9 +19,7 @@ import io.github.rwpp.api.event.events.ModCheckEvent
 import io.github.rwpp.api.event.events.TeamWipedOutEvent
 import io.github.rwpp.api.game.Game
 import io.github.rwpp.api.logging.logger
-import java.lang.reflect.Field
 import java.util.*
-import java.util.concurrent.ConcurrentHashMap
 
 private class TeamDefeatSnapshot {
     var team: Team? = null
@@ -123,20 +121,15 @@ internal object ClientEventCallbacks {
     }
 }
 
-internal object UnitMetadataEventCallbacks {
-    private val modNameFields = ConcurrentHashMap<Class<*>, Field>()
+/** Native mismatch maps are keyed by the server mod name; values are per-mod counters. */
+internal fun requiredModNames(mismatches: Map<*, *>): List<String> =
+    mismatches.keys.filterIsInstance<String>().filter { it.isNotBlank() }.distinct().sorted()
 
+internal object UnitMetadataEventCallbacks {
     fun publishModCheck(mismatches: HashMap<*, *>): Boolean {
-        val requiredMods = mismatches.values.mapNotNull { mismatch ->
-            mismatch?.let {
-                modNameFields.computeIfAbsent(it.javaClass) { type ->
-                    type.getDeclaredField("modName").apply { isAccessible = true }
-                }.get(it) as? String
-            }
-        }
-        // The native mismatch map is a HashMap. Its iteration order becomes the download and
-        // enable order on every client, so normalise it before the names leave this hook.
-        val event = ModCheckEvent(requiredMods.distinct().sorted())
+        // CustomUnitMetadataMissingUnitInfo has no modName field on either platform. Read
+        // the stable map key instead of reflecting an unrelated UnitMismatchInfo field.
+        val event = ModCheckEvent(requiredModNames(mismatches))
         if (hasNativeEventListeners(ModCheckEvent::class)) broadcastNativeEvent(event)
         return event.isCancelled
     }

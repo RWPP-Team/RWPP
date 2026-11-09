@@ -62,6 +62,19 @@ class DesktopNetworkHooksTest {
     }
 
     @Test
+    fun `vanilla preregistration clears a previous host's mod transfer option`() {
+        var current = RoomOption(canTransferMod = true, allModsSize = 5)
+        val result = applyPreregisterRoomOption(
+            packetType = InternalPacketType.PREREGISTER_INFO.type,
+            isHost = false,
+            option = null,
+            expectedProtocolVersion = current.protocolVersion,
+        ) { current = it }
+        assertEquals(PreregisterPacketResult.NATIVE_HANDLED, result)
+        assertEquals(RoomOption(), current)
+    }
+
+    @Test
     fun `protocol mismatch requests native packet cancellation after recording the option`() {
         val remoteOption = RoomOption(canTransferMod = true, allModsSize = 4, protocolVersion = -1)
         var appliedOption: RoomOption? = null

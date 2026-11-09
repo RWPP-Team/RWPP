@@ -7,8 +7,8 @@
 
 package io.github.rwpp.api.game.mode
 
-import com.corrodinggames.rts.gameFramework.CommandControllerCommand
 import com.corrodinggames.rts.game.units.WaypointType
+import com.corrodinggames.rts.gameFramework.CommandControllerCommand
 import io.github.rwpp.api.event.GlobalEventChannel
 import io.github.rwpp.api.event.events.CommandQueueEvent
 import io.github.rwpp.api.event.events.SimulationBeforeTickEvent
@@ -89,8 +89,8 @@ class SurvivalGameMode : GameMode {
             val entry = unitEntry.trim()
             val countEnd = entry.indexOf(' ')
             countEnd > 0 &&
-                entry.substring(0, countEnd).trim().toIntOrNull() != null &&
-                entry.substring(countEnd + 1).trim().isNotEmpty()
+                    entry.substring(0, countEnd).trim().toIntOrNull() != null &&
+                    entry.substring(countEnd + 1).trim().isNotEmpty()
         }
     }
 

@@ -21,7 +21,7 @@ class JdkTcpClientTransport internal constructor(
     private val messages: TransportMessages,
     private val backend: JdkTransportBackend,
 ) : ClientTransport {
-    private val lock = java.lang.Object()
+    private val lock = Object()
     private val outgoing = ArrayDeque<ByteArray>()
     private var queuedBytes = 0
     private val maxQueuedBytes = maxOf(config.maxTcpPayloadBytes, config.mtu * config.writeQueueMessages)
@@ -126,9 +126,9 @@ class JdkTcpClientTransport internal constructor(
                 val destination = synchronized(lock) { sink }
                     ?: return
                 try {
-                    callbacks?.execute(Runnable {
+                    callbacks?.execute {
                         if (!isLocallyClosed()) destination.message(payload)
-                    }) ?: return
+                    } ?: return
                 } catch (_: RuntimeException) {
                     fail(messages.inboundQueueFull())
                     return
@@ -176,9 +176,9 @@ class JdkTcpClientTransport internal constructor(
         runCatching { resources.first?.close() }
         val destination = resources.second ?: return
         runCatching {
-            resources.third?.executeTerminal(Runnable {
+            resources.third?.executeTerminal {
                 if (!isLocallyClosed()) destination.failure(reason)
-            })
+            }
         }
     }
 

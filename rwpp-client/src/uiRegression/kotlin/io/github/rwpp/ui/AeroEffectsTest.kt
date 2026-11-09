@@ -50,6 +50,10 @@ class AeroEffectsTest : DesktopComposeGraphicsTest() {
         val state = androidx.compose.runtime.mutableStateOf(
             WorldVisuals(
                 selected = listOf(
+                    SelectedVisual(
+                        Offset(420f, 80f), 18f, 1f, 1f, 0f, androidx.compose.ui.graphics.Color.Cyan,
+                        selected = false, healthVisible = false, secondary = 0.5f, secondaryRecharging = true
+                    ),
                     SelectedVisual(Offset(110f, 100f), 22f, 0.35f, 0.8f, 0.5f, androidx.compose.ui.graphics.Color.Cyan),
                     SelectedVisual(
                         Offset(60f, 260f),
@@ -100,6 +104,8 @@ class AeroEffectsTest : DesktopComposeGraphicsTest() {
         try {
             scene.setContent { androidx.compose.material3.MaterialTheme { AeroWorldEffectSurface(state.value) } }
             val first = render()
+            assertTrue(first.any { it == 0xff8b929b.toInt() }, "Recharging energy uses a gray row")
+            assertTrue(first.any { it == 0xffffcb74.toInt() }, "Usable secondary energy keeps its warm row")
             state.value = state.value.copy(phase = 0.5f)
             val second = render()
             assertTrue(first.count { it ushr 24 > 0 } > 300)

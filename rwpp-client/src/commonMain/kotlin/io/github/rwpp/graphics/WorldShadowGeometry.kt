@@ -17,7 +17,7 @@ internal fun solidBuildingShadowPixels(pixels: IntArray, width: Int, height: Int
 
     val points = ArrayList<Point>()
     for (y in 0 until height) {
-        var left = width;
+        var left = width
         var right = -1
         for (x in 0 until width) if ((pixels[y * width + x] ushr 24) >= 32) {
             left = minOf(left, x); right = maxOf(right, x)
@@ -46,10 +46,10 @@ internal fun solidBuildingShadowPixels(pixels: IntArray, width: Int, height: Int
     val result = IntArray(pixels.size) { (pixels[it] and -0x1000000) or 0x00ffffff }
     for (y in 0 until height) {
         val scan = y + 0.5f
-        var left = Float.POSITIVE_INFINITY;
+        var left = Float.POSITIVE_INFINITY
         var right = Float.NEGATIVE_INFINITY
         for (i in hull.indices) {
-            val a = hull[i];
+            val a = hull[i]
             val b = hull[(i + 1) % hull.size]
             if ((a.y <= scan && b.y > scan) || (b.y <= scan && a.y > scan)) {
                 val x = a.x + (scan - a.y) * (b.x - a.x) / (b.y - a.y)

@@ -54,7 +54,17 @@ class ContributorListScreen : Screen {
                     item("sponsors") {
                         CreditsSection(
                             "SPONSORS",
-                            listOf("铁锈盒子", "亚托莉", "AABBRST", "Toledo", "猫猫", "cheems", "Eresta", "zhou")
+                            listOf(
+                                "铁锈盒子",
+                                "亚托莉",
+                                "AABBRST",
+                                "Toledo",
+                                "猫猫",
+                                "cheems",
+                                "Eresta",
+                                "zhou",
+                                "小梦"
+                            )
                         )
                         AeroButton(
                             readI18n("rwpp.contributors.sponsorPrompt"),

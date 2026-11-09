@@ -51,7 +51,7 @@ internal class NativeAeroResourceHudSampler(private val intervalMillis: Long = 2
         // An observed team is somebody else's economy, so the rows keep the native alt colour.
         val observing = io.github.rwpp.graphics.aeroObservingTeam(engine)
         var firstTeam: Team? = null
-        if (engine.replayEngine.isPlayingReplay() || player?.isSpectator() == true) {
+        if (engine.replayEngine.isPlayingReplay || player?.isSpectator == true) {
             val selected: OrderableUnit? = ui.getFirstSelectedOrderableUnit()
             val team = selected?.team
             if (team != null) {
@@ -59,7 +59,7 @@ internal class NativeAeroResourceHudSampler(private val intervalMillis: Long = 2
                 appendTeamRows(team, secondaryTeam = observing)
             }
         } else if (player != null) {
-            if (player != Team.grayTeam && !player.isSpectator()) {
+            if (player != Team.grayTeam && !player.isSpectator) {
                 firstTeam = player
                 appendTeamRows(player, secondaryTeam = observing)
             }
@@ -81,7 +81,7 @@ internal class NativeAeroResourceHudSampler(private val intervalMillis: Long = 2
      * chain becomes one line instead of one line per resource.
      */
     private fun appendTeamRows(team: Team, secondaryTeam: Boolean) {
-        stored.copyFrom(team.getStoredResourcesAlias())
+        stored.copyFrom(team.storedResourcesAlias)
         for (candidate in CustomResource.getUsedResources()) {
             val resource = candidate as? CustomResource ?: continue
             if (resource.isGlobal() && (resource.displayWhenZero || resource.appendResourceWhenThisZero)) {
@@ -95,11 +95,11 @@ internal class NativeAeroResourceHudSampler(private val intervalMillis: Long = 2
         for (value in stored.values) {
             val entry = value as? StoredResource ?: continue
             entries.add(entry)
-            if (!entry.resource.isHidden()) entry.resource.appendResource?.let { chained.add(it) }
+            if (!entry.resource.isHidden) entry.resource.appendResource?.let { chained.add(it) }
         }
         for (entry in entries) {
             val resource = entry.resource
-            if (resource.isHidden() || resource in chained) continue
+            if (resource.isHidden || resource in chained) continue
             appendResourceGroup(rows, team, resource, entry.amount, stored, secondaryTeam)
         }
     }

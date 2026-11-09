@@ -79,6 +79,13 @@ internal fun executeHudAction(action: SpecialAction, units: List<Unit>, remove: 
             ui.cancelActiveAction()
             return@launch
         }
+        if (route == HudActionRoute.RemoveQueueAction &&
+            OverflowProductionQueue.cancelLast(engine, action, targets)
+        ) return@launch
+        if (route == HudActionRoute.QueueAction &&
+            OverflowProductionQueue.enqueue(engine, action, targets)
+        ) return@launch
+
         // Native placement remains selectable without funds; the engine validates payment when
         // actually issuing a build. Keep queue/target actions subject to their availability.
         if (!remove && action.actionType != ActionType.placeBuilding &&

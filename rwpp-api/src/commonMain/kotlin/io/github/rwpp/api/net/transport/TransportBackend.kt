@@ -38,6 +38,7 @@ object TransportRuntime : AutoCloseable {
     private var current: TransportBackend? = null
     val isInstalled: Boolean get() = current != null
     val backend: TransportBackend get() = checkNotNull(current) { "Install a client or server transport backend before networking" }
+
     @Synchronized
     fun install(backend: TransportBackend) {
         check(current == null || current === backend) { "A transport backend is already installed" }

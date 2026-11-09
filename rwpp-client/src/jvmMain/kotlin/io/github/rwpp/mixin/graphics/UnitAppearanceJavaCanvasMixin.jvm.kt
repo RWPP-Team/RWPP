@@ -11,102 +11,135 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
 import com.corrodinggames.rts.gameFramework.render.BitmapOrTexture
+import com.corrodinggames.rts.java.JavaCanvas
 import io.github.rwpp.graphics.UnitAppearanceRenderBridge
+import kim.der.asm.api.annotation.AsmInject
 import kim.der.asm.api.annotation.AsmMixin
-import kim.der.asm.api.annotation.Operation
-import kim.der.asm.api.annotation.WrapMethod
+import kim.der.asm.api.annotation.CallbackInfo
+import kim.der.asm.api.annotation.InjectionPoint
 
 /** JavaCanvas is the desktop renderer; CanvasDirect hooks do not see these native draw calls. */
 @AsmMixin("com/corrodinggames/rts/java/JavaCanvas")
 object UnitAppearanceJavaCanvasMixin {
-    @WrapMethod(
+    private val replacing = ThreadLocal.withInitial { false }
+    private inline fun replace(
+        callback: CallbackInfo, texture: BitmapOrTexture, source: Rect? = null,
+        draw: (UnitAppearanceRenderBridge.DrawOverride) -> Unit
+    ) {
+        if (replacing.get()) return
+        val appearance = UnitAppearanceRenderBridge.drawOverride(texture, source) ?: return
+        replacing.set(true)
+        try {
+            draw(appearance)
+        } finally {
+            replacing.set(false)
+        }
+        callback.cancel()
+    }
+
+    @AsmInject(
         method = "drawImageRotated(Lcom/corrodinggames/rts/gameFramework/render/BitmapOrTexture;FFFLandroid/graphics/Paint;)V",
-        require = 1,
+        target = InjectionPoint.HEAD, cancellable = true, require = 1,
     )
     fun rotated(
+        callback: CallbackInfo, self: Any,
         texture: BitmapOrTexture,
         x: Float,
         y: Float,
         angle: Float,
         paint: Paint?,
-        original: Operation<kotlin.Unit>,
     ) {
-        val appearance = UnitAppearanceRenderBridge.drawOverride(texture)
-        original.call(appearance?.texture ?: texture, x, y, angle, paint)
+        replace(callback, texture) { (self as JavaCanvas).drawImageRotated(it.texture, x, y, angle, paint) }
     }
 
-    @WrapMethod(
+    @AsmInject(
         method = "drawImageTopLeft(Lcom/corrodinggames/rts/gameFramework/render/BitmapOrTexture;FFLandroid/graphics/Paint;)V",
-        require = 1,
+        target = InjectionPoint.HEAD, cancellable = true, require = 1,
     )
     fun topLeft(
+        callback: CallbackInfo, self: Any,
         texture: BitmapOrTexture,
         x: Float,
         y: Float,
         paint: Paint?,
-        original: Operation<kotlin.Unit>,
     ) {
-        val appearance = UnitAppearanceRenderBridge.drawOverride(texture)
-        original.call(appearance?.texture ?: texture, x, y, paint)
+        replace(callback, texture) { (self as JavaCanvas).drawImageTopLeft(it.texture, x, y, paint) }
     }
 
-    @WrapMethod(
+    @AsmInject(
         method = "drawImage(Lcom/corrodinggames/rts/gameFramework/render/BitmapOrTexture;FFLandroid/graphics/Paint;)V",
-        require = 1,
+        target = InjectionPoint.HEAD, cancellable = true, require = 1,
     )
     fun image(
+        callback: CallbackInfo, self: Any,
         texture: BitmapOrTexture,
         x: Float,
         y: Float,
         paint: Paint?,
-        original: Operation<kotlin.Unit>,
     ) {
-        val appearance = UnitAppearanceRenderBridge.drawOverride(texture)
-        original.call(appearance?.texture ?: texture, x, y, paint)
+        replace(callback, texture) { (self as JavaCanvas).drawImage(it.texture, x, y, paint) }
     }
 
-    @WrapMethod(
+    @AsmInject(
         method = "drawImage(Lcom/corrodinggames/rts/gameFramework/render/BitmapOrTexture;Landroid/graphics/Rect;Landroid/graphics/Rect;Landroid/graphics/Paint;)V",
-        require = 1,
+        target = InjectionPoint.HEAD, cancellable = true, require = 1,
     )
     fun rect(
+        callback: CallbackInfo, self: Any,
         texture: BitmapOrTexture,
         source: Rect,
         destination: Rect,
         paint: Paint?,
-        original: Operation<kotlin.Unit>,
     ) {
-        val appearance = UnitAppearanceRenderBridge.drawOverride(texture, source)
-        original.call(appearance?.texture ?: texture, appearance?.source ?: source, destination, paint)
+        replace(callback, texture, source) {
+            (self as JavaCanvas).drawImage(
+                it.texture,
+                it.source ?: source,
+                destination,
+                paint
+            )
+        }
     }
 
-    @WrapMethod(
+    @AsmInject(
         method = "drawImage(Lcom/corrodinggames/rts/gameFramework/render/BitmapOrTexture;Landroid/graphics/Rect;Landroid/graphics/RectF;Landroid/graphics/Paint;)V",
-        require = 1,
+        target = InjectionPoint.HEAD, cancellable = true, require = 1,
     )
     fun rectF(
+        callback: CallbackInfo, self: Any,
         texture: BitmapOrTexture,
         source: Rect,
         destination: RectF,
         paint: Paint?,
-        original: Operation<kotlin.Unit>,
     ) {
-        val appearance = UnitAppearanceRenderBridge.drawOverride(texture, source)
-        original.call(appearance?.texture ?: texture, appearance?.source ?: source, destination, paint)
+        replace(callback, texture, source) {
+            (self as JavaCanvas).drawImage(
+                it.texture,
+                it.source ?: source,
+                destination,
+                paint
+            )
+        }
     }
 
-    @WrapMethod(
+    @AsmInject(
         method = "drawImageSoftware(Lcom/corrodinggames/rts/gameFramework/render/BitmapOrTexture;Landroid/graphics/Rect;Landroid/graphics/Rect;Landroid/graphics/Paint;)V",
-        require = 1,
+        target = InjectionPoint.HEAD, cancellable = true, require = 1,
     )
     fun software(
+        callback: CallbackInfo, self: Any,
         texture: BitmapOrTexture,
         source: Rect,
         destination: Rect,
         paint: Paint?,
-        original: Operation<kotlin.Unit>,
     ) {
-        val appearance = UnitAppearanceRenderBridge.drawOverride(texture, source)
-        original.call(appearance?.texture ?: texture, appearance?.source ?: source, destination, paint)
+        replace(callback, texture, source) {
+            (self as JavaCanvas).drawImageSoftware(
+                it.texture,
+                it.source ?: source,
+                destination,
+                paint
+            )
+        }
     }
 }

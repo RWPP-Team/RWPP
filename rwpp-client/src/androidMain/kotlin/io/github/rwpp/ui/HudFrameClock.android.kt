@@ -19,7 +19,6 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.EmptyCoroutineContext
 
-@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 internal actual fun isHudSecondaryPress(event: PointerEvent): Boolean = event.buttons.isSecondaryPressed
 
 /**
@@ -44,7 +43,8 @@ internal object HudFrameClock {
             try {
                 callback.run()
             } catch (failure: Throwable) {
-                Log.e(TAG, "Error running a HUD frame callback", failure)
+                callbacks.remove(callback)
+                warnHudFailure("HUD update", failure)
             }
         }
     }

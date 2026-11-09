@@ -29,6 +29,7 @@ internal class DatagramWriter(private val channel: Channel, private val optimize
     private var inflight = 0
     private var scheduled = false
     val rejectedDatagrams = AtomicLong()
+
     @Synchronized
     fun send(remote: InetSocketAddress, data: ByteArray): Boolean {
         if (!channel.isActive || queue.size >= 32768 || bytes + data.size > 64L * 1024 * 1024) {
@@ -88,6 +89,7 @@ class NettyKcpServerTransport(
     private var writer: DatagramWriter? = null
     private lateinit var listener: TransportListener
     private val shards = runtime.packets.take(minOf(config.messageThreads, runtime.packets.count())).map { Shard(it) }
+
     @Volatile
     override var localAddress: TransportAddress? = null
         private set
@@ -324,6 +326,7 @@ class NettyKcpServerTransport(
 
         @Synchronized
         fun hasWrites() = outgoing.isNotEmpty() && protocol.pendingSegments < config.sendWindow * 2
+
         @Synchronized
         fun sendQueued(): Boolean {
             var count = 0

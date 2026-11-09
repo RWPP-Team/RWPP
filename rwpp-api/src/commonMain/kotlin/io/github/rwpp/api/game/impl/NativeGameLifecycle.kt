@@ -49,6 +49,7 @@ internal object NativeGameLifecycle {
 
     internal class ClientRoomJoinTicket {
         val roomReady = CompletableDeferred<Unit>()
+
         @Volatile
         var expectedSocket: Socket? = null
         private var redirectPending = false
@@ -176,6 +177,7 @@ internal object NativeGameLifecycle {
     }
 
     fun onMultiplayerHostStarted(network: NetworkEngine) {
+        NativeGameFaults.onNewSession()
         val engine = GameEngine.getInstance()
         val game = appKoin.get<Game>()
         synchronized(lifecycleLock) {
@@ -195,6 +197,7 @@ internal object NativeGameLifecycle {
     }
 
     fun onSinglePlayerHostStarted(network: NetworkEngine) {
+        NativeGameFaults.onNewSession()
         val game = appKoin.get<Game>()
         game.state.multiplayer = false
         game.state.replay = false
@@ -215,6 +218,7 @@ internal object NativeGameLifecycle {
     }
 
     fun onJoinAttempt(address: String) {
+        NativeGameFaults.onNewSession()
         clientStartReadyAck.clear()
         NetworkGameLoadingState.finishMapLoad()
         val game = appKoin.get<Game>()
@@ -232,6 +236,7 @@ internal object NativeGameLifecycle {
     }
 
     fun onClientConnected(network: NetworkEngine, fallbackAddress: String? = null, socket: Socket? = null) {
+        NativeGameFaults.onNewSession()
         clientStartReadyAck.clear()
         NetworkGameLoadingState.finishMapLoad()
         val game = appKoin.get<Game>()
@@ -366,6 +371,7 @@ internal object NativeGameLifecycle {
         }
         val mapPath = engine.currentMapPath ?: return
         if (mapPath.startsWith("maps/menu_background/", ignoreCase = true)) return
+        NativeGameFaults.onNewSession()
 
         val game = appKoin.get<Game>()
         val replayLoading = synchronized(lifecycleLock) { replayLoadInProgress }

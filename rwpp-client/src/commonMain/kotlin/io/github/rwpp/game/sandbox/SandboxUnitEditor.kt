@@ -135,7 +135,7 @@ private fun <T> immutableSnapshotList(values: Collection<T>): List<T> =
 /** The custom field editor is deliberately limited to a local sandbox. */
 internal fun sandboxUnitDataUiAllowed(engine: GameEngine): Boolean =
     sandboxUnitDataUiAllowed(
-        singlePlayer = engine.isSinglePlayer(),
+        singlePlayer = engine.isSinglePlayer,
         networked = engine.networkEngine.networked,
         replaying = engine.replayEngine.isPlayingReplay,
         sandboxMode = engine.networkEngine.sandboxMode,
@@ -153,7 +153,7 @@ internal fun sandboxUnitDataUiAllowed(
 /** Native EditorUnit actions remain available in network sandboxes through the game's own command queue. */
 internal fun sandboxNativeEditorActionsAllowed(engine: GameEngine): Boolean =
     sandboxNativeEditorActionsAllowed(
-        singlePlayer = engine.isSinglePlayer(),
+        singlePlayer = engine.isSinglePlayer,
         sandboxMode = engine.networkEngine.sandboxMode,
         debugEditor = engine.debugEditorMode,
     )
@@ -261,7 +261,7 @@ private fun sandboxAttachmentSlotOptions(host: CustomUnit): List<SandboxAttachme
         val index = runCatching { slot.slotIndex.toInt() }.getOrNull() ?: return@mapNotNull null
         if (index < 0 || index > Short.MAX_VALUE) return@mapNotNull null
         val occupant = runCatching { host.getUnitInAttachmentSlot(slot) }.getOrNull()
-        val occupantLabel = (occupant as? OrderableUnit)?.let(::sandboxUnitLabel)
+        val occupantLabel = occupant?.let(::sandboxUnitLabel)
             ?: occupant?.let { "Unit #${it.id}" }
         SandboxAttachmentSlotOption(
             index = index,
@@ -350,7 +350,7 @@ internal fun sandboxAttachmentRejection(
     if (child.attachedToUnit != null) return SandboxAttachmentRejection.CHILD_ALREADY_ATTACHED
     if (child.transportedBy != null) return SandboxAttachmentRejection.CHILD_IS_TRANSPORTED
 
-    val seen = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<OrderableUnit, Boolean>())
+    val seen = Collections.newSetFromMap(IdentityHashMap<OrderableUnit, Boolean>())
     var cursor: OrderableUnit? = host
     while (cursor != null) {
         if (cursor === child) return SandboxAttachmentRejection.CYCLE
@@ -732,7 +732,7 @@ private fun sandboxMetadataLocalResources(metadata: CustomUnitMetadata): List<Pa
     return references.mapNotNull { reference ->
         reference ?: return@mapNotNull null
         val name = sandboxLocalResourceInternalName(reference) ?: return@mapNotNull null
-        val resource = reference.resource as? CustomResource ?: return@mapNotNull null
+        val resource = reference.resource ?: return@mapNotNull null
         name to resource
     }
 }
@@ -922,7 +922,7 @@ internal fun submitSandboxOpenTerrainEditor() {
         val ui = engine.interfaceEngine
         val access = ui as NativeSandboxTerrainInterfaceAccess
         val editor = access.rwppTerrainEditor()?.takeUnless { it.dead || it.removed }
-            ?: com.corrodinggames.rts.game.units.EditorUnit(false).also {
+            ?: EditorUnit(false).also {
                 it.setTeamDirect(engine.playerTeam)
                 access.rwppSetTerrainEditor(it)
             }
@@ -960,14 +960,14 @@ internal fun submitSandboxUnitData(
                 queueSandboxUnitEdit(selectionIds, field.commandId, value)
             }
         }
-        for (edit in stableResourceEdits) {
-            val payload = sandboxSplitResourceAmount(edit.value) ?: continue
+        for ((internalName, value) in stableResourceEdits) {
+            val payload = sandboxSplitResourceAmount(value) ?: continue
             val applicable = resolveSandboxEditableUnits(selectionIds).filterIsInstance<CustomUnit>()
-                .filter { sandboxCanApplyUnitResource(it, edit.internalName) }
+                .filter { sandboxCanApplyUnitResource(it, internalName) }
             if (applicable.isNotEmpty()) {
                 queueSandboxUnitEdit(
                     applicable.map { it.id },
-                    sandboxUnitResourceActionId(edit.internalName),
+                    sandboxUnitResourceActionId(internalName),
                     payload.commandFloat,
                     payload.commandStepRate,
                     payload.targetPointX,
@@ -1279,8 +1279,8 @@ internal interface NativeSandboxEditorPayloadAccess {
 }
 
 internal interface NativeSandboxTerrainInterfaceAccess {
-    fun rwppTerrainEditor(): com.corrodinggames.rts.game.units.EditorUnit?
-    fun rwppSetTerrainEditor(editor: com.corrodinggames.rts.game.units.EditorUnit)
+    fun rwppTerrainEditor(): EditorUnit?
+    fun rwppSetTerrainEditor(editor: EditorUnit)
 }
 
 internal interface NativeSandboxTerrainTabAccess {

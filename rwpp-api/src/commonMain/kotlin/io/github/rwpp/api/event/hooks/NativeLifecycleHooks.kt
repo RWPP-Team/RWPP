@@ -45,6 +45,7 @@ internal object NativeNetworkLifecycleCallbacks {
      * handshake. A frame hook that returns early must never be the only trigger.
      */
     fun acknowledgeClientReady(target: Any) {
+        io.github.rwpp.api.game.impl.ClientTimelineGuard.poll(target as NetworkEngine)
         NativeGameLifecycle.acknowledgeClientReadyAfterMapLoad(GameEngine.getInstance())
     }
 
@@ -126,12 +127,14 @@ internal object NativeNetworkLifecycleCallbacks {
     }
 
     fun onNetworkPacketStarting(target: Any, packet: Packet) {
+        if (io.github.rwpp.api.game.impl.ClientPacketSessionGuard.isStale(target as NetworkEngine, packet)) return
         if (packet.type == 178) NativeGameLifecycle.onNativeRedirect(packet.connection)
         if (packet.type == 120) NativeGameLifecycle.onClientNetworkGameStarting(target as NetworkEngine)
     }
 
     fun confirmClientRoom(target: Any, packet: Packet) {
         val network = target as NetworkEngine
+        if (io.github.rwpp.api.game.impl.ClientPacketSessionGuard.isStale(network, packet)) return
         if (packet.type == 106) NativeGameLifecycle.onServerInfoReceived(network)
         val clientRoster = packet.type == 115 && !network.isServer
         val relayHost = packet.type == 170 && network.isServer && network.usingRelayServer

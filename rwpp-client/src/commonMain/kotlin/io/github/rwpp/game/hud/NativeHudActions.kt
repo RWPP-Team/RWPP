@@ -62,8 +62,8 @@ internal fun nativeHudActionLayout(
     width: Int, baseHeight: Int, defaultColumns: Int,
     actions: List<HudActionSize>, gap: Int = 4
 ): List<HudActionRect> {
-    var x = 0;
-    var y = 0;
+    var x = 0
+    var y = 0
     var rowHeight = 0
     return actions.map { spec ->
         val columns = spec.columns.takeIf { it > 0 } ?: defaultColumns.coerceAtLeast(1)

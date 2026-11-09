@@ -4,7 +4,6 @@ import java.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertTrue
 
 class RoomListPayloadTest {
     private fun room(uuid: String, name: String): String =

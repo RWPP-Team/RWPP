@@ -48,9 +48,7 @@ internal fun aeroCustomSecondaryIsShield(
     showShieldBar: Boolean,
 ): Boolean {
     val energyBranch = maxEnergy > 0f && currentEnergy < maxEnergy && showEnergyBar
-    if (energyBranch) return false
-
-    return maxShield > 0f && shield < maxShield && showShieldBar
+    return !energyBranch && maxShield > 0f && shield < maxShield && showShieldBar
 }
 
 /** Whether ExperimentalHoverTank.getSecondaryBarFill() is returning its native shield bar. */

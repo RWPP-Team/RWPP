@@ -7,12 +7,15 @@
 
 package io.github.rwpp.api.mixin.network
 
+import com.corrodinggames.rts.gameFramework.GameEngine
 import com.corrodinggames.rts.gameFramework.network.Packet
 import io.github.rwpp.api.event.hooks.NativeNetworkLifecycleCallbacks
 import kim.der.asm.api.annotation.AsmInject
 import kim.der.asm.api.annotation.AsmMixin
 import kim.der.asm.api.annotation.CallbackInfo
 import kim.der.asm.api.annotation.InjectionPoint
+import kim.der.asm.api.annotation.At
+import kim.der.asm.api.annotation.ModifyExpressionValue
 
 @AsmMixin("com/corrodinggames/rts/gameFramework/network/NetworkEngine")
 object NativeNetworkLifecycleMixin {
@@ -87,6 +90,16 @@ object NativeNetworkLifecycleMixin {
     )
     fun confirmClientRoom(target: Any, packet: Packet) =
         NativeNetworkLifecycleCallbacks.confirmClientRoom(target, packet)
+
+    /** Skip the native ready-state branch until the server has registered this client. */
+    @ModifyExpressionValue(
+        method = "update(F)V",
+        at = At(InjectionPoint.FIELD, target = "clientReadyStateSent:Z"),
+        ordinal = 0,
+        require = 1,
+    )
+    fun deferReadyStateDuringRegistration(sent: Boolean): Boolean =
+        sent || GameEngine.getInstance().networkEngine.localTeam == null
 
     /** Packet 120 arrives on the receive worker before the native map-load callback runs. */
     @kim.der.asm.api.annotation.ModifyReturnValue(method = "shouldGameBePaused()Z", require = 1)

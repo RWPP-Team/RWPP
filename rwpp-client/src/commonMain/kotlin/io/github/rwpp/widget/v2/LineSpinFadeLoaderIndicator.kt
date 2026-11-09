@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import kotlinx.coroutines.delay
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlin.time.Duration.Companion.milliseconds
 
 enum class LinearAnimationType(val animDuration: Int, val circleDelay: Long) {
     CIRCULAR(500, 100L),
@@ -49,11 +50,11 @@ fun LineSpinFadeLoaderIndicator(
 
             when (linearAnimationType) {
                 LinearAnimationType.CIRCULAR -> {
-                    delay(linearAnimationType.circleDelay * index)
+                    delay((linearAnimationType.circleDelay * index).milliseconds)
                 }
 
                 LinearAnimationType.SKIP_AND_REPEAT -> {
-                    delay(linearAnimationType.circleDelay * index) // The constant value, here 250L, must be the same animation duration for this pattern to run
+                    delay((linearAnimationType.circleDelay * index).milliseconds) // The constant value, here 250L, must be the same animation duration for this pattern to run
                 }
             }
 

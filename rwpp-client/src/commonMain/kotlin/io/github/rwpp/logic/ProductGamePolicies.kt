@@ -20,8 +20,6 @@ import io.github.rwpp.api.event.events.*
 import io.github.rwpp.appKoin
 import io.github.rwpp.config.Settings
 import io.github.rwpp.game.chat.shouldClearChatAfterGameQuit
-import io.github.rwpp.game.units.comp.EntityRangeUnitComp
-import io.github.rwpp.graphics.drawCollisionBounds
 import io.github.rwpp.ui.UI
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -31,7 +29,6 @@ import org.koin.core.annotation.Single
 @Single(binds = [Initialization::class])
 class ProductGamePolicies(
     private val settings: Settings,
-    private val unitDrawing: EntityRangeUnitComp,
 ) : Initialization {
     private val commandUnits by lazy {
         CommandControllerCommand::class.java.getDeclaredField("units").apply { isAccessible = true }
@@ -39,14 +36,6 @@ class ProductGamePolicies(
 
     override fun init() {
         val owner = EventOwner(RwppExtensionRuntime.extensionContext)
-        GlobalEventChannel.filter(UnitDrawEvent::class).subscribeAlways(owner) { draw ->
-            unitDrawing.onDraw(draw.unit, draw.graphics, draw.deltaTime)
-            if (settings.showCollisionBoxes) drawCollisionBounds(draw.unit, draw.graphics)
-        }
-        GlobalEventChannel.filter(UnitOverlayBarEvent::class).subscribeAlways(owner) { draw ->
-            unitDrawing.onDrawBar(draw.unit, draw.graphics, draw.rect, draw.paint)
-            draw.cancel()
-        }
         GlobalEventChannel.filter(ReloadModEvent::class).subscribeAlways(owner) {
             // Pending recipes may refer to textures disposed by the native mod loader.
             io.github.rwpp.graphics.ActionImages.clear()

@@ -99,9 +99,7 @@ internal fun resolveExactMatchReplayLinks(
     }
     .groupBy { it.replayFileName!! }
     .filterValues { it.size == 1 }
-    .values
-    .map { entry -> entry.single().id to entry.single().replayFileName!! }
-    .toMap()
+    .values.associate { entry -> entry.single().id to entry.single().replayFileName!! }
 
 internal fun normalizeReplayAssociationMapName(value: String): String = value
     .trim()

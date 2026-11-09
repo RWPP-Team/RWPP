@@ -59,7 +59,7 @@ internal object AeroOrderCapture {
         if (effect != null) captured.get()?.let { if (it.size < 16) it.add(effect) }
     }
 
-    fun run(x: Float, y: Float, attack: Boolean, command: () -> kotlin.Unit) {
+    fun run(x: Float, y: Float, attack: Boolean, command: () -> Unit) {
         val clickEffectsEnabled = runCatching { appKoin.get<Settings>().aeroOrderClickEffects }.getOrDefault(false)
         if (!clickEffectsEnabled) {
             command()

@@ -8,7 +8,7 @@
 package io.github.rwpp.api.config
 
 import java.io.File
-import java.util.Properties
+import java.util.*
 
 internal actual object ConfigStorage {
     private val propertiesCache = mutableMapOf<String, Properties>()

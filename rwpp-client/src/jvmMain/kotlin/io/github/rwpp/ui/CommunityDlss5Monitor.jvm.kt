@@ -75,8 +75,8 @@ internal fun windowsControllerCommand(
     extra: Map<String, String> = emptyMap(),
     timeoutSeconds: Long = 8
 ): String {
-    val command = "[Console]::OutputEncoding=[Text.UTF8Encoding]::new(\$false); " +
-            "\$ErrorActionPreference='Stop'; \$ProgressPreference='SilentlyContinue'; " + script
+    val command = $$"[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); " +
+            $$"$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; " + script
     // Windows PowerShell parses -Command quotes differently from the native argv convention.
     val encoded = Base64.getEncoder().encodeToString(command.toByteArray(Charsets.UTF_16LE))
     val powershell = windowsPowerShellExecutable()
@@ -97,25 +97,25 @@ internal fun windowsControllerCommand(
     }
 }
 
-private val queryScript = """
-    foreach (${'$'}p in @(Get-Process -Name UniversalDLSS5 -ErrorAction SilentlyContinue)) {
-        if ([string]::Equals(${'$'}p.Path, ${'$'}env:RWPP_DLSS_CONTROLLER_EXE, [StringComparison]::OrdinalIgnoreCase)) {
-            'PROCESS' + "`t" + ${'$'}p.Id + "`t" + ${'$'}p.StartTime.ToFileTimeUtc()
+private val queryScript = $$"""
+    foreach ($p in @(Get-Process -Name UniversalDLSS5 -ErrorAction SilentlyContinue)) {
+        if ([string]::Equals($p.Path, $env:RWPP_DLSS_CONTROLLER_EXE, [StringComparison]::OrdinalIgnoreCase)) {
+            'PROCESS' + "`t" + $p.Id + "`t" + $p.StartTime.ToFileTimeUtc()
         }
     }
-    ${'$'}runtime = (Get-ItemProperty -LiteralPath 'HKCU:\Software\UniversalDLSS5' -Name RuntimePath -ErrorAction SilentlyContinue).RuntimePath
-    if ([string]::IsNullOrWhiteSpace(${'$'}runtime)) {
-        ${'$'}runtime = Join-Path ${'$'}env:LOCALAPPDATA 'UniversalDLSS5\runtime'
+    $runtime = (Get-ItemProperty -LiteralPath 'HKCU:\Software\UniversalDLSS5' -Name RuntimePath -ErrorAction SilentlyContinue).RuntimePath
+    if ([string]::IsNullOrWhiteSpace($runtime)) {
+        $runtime = Join-Path $env:LOCALAPPDATA 'UniversalDLSS5\runtime'
     }
-    if (Test-Path -LiteralPath (Join-Path ${'$'}runtime 'nvngx_dlssnr.dll') -PathType Leaf) { 'RUNTIME' }
-    if (Test-Path -LiteralPath (Join-Path (Split-Path ${'$'}env:RWPP_DLSS_CONTROLLER_EXE) 'runtime\nvngx_dlssnr.dll') -PathType Leaf) { 'RUNTIME' }
-    if (${'$'}env:RWPP_DLSS_HELPER) {
+    if (Test-Path -LiteralPath (Join-Path $runtime 'nvngx_dlssnr.dll') -PathType Leaf) { 'RUNTIME' }
+    if (Test-Path -LiteralPath (Join-Path (Split-Path $env:RWPP_DLSS_CONTROLLER_EXE) 'runtime\nvngx_dlssnr.dll') -PathType Leaf) { 'RUNTIME' }
+    if ($env:RWPP_DLSS_HELPER) {
         try {
-            Add-Type -Path ${'$'}env:RWPP_DLSS_HELPER
-            ${'$'}s = [RwppDlssControl]::Read([int]${'$'}env:RWPP_DLSS_GAME_PID)
-            if (${'$'}s.Attached) {
-                ${'$'}message = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(${'$'}s.Message))
-                'NEURAL' + "`t" + ${'$'}s.State + "`t" + ${'$'}s.Api + "`t" + ([int]${'$'}s.Active) + "`t" + ${'$'}s.NeuralFrames + "`t" + ${'$'}s.ProcessedFrames + "`t" + ${'$'}s.GpuMs.ToString([Globalization.CultureInfo]::InvariantCulture) + "`t" + ${'$'}s.FailureStage + "`t" + ${'$'}message
+            Add-Type -Path $env:RWPP_DLSS_HELPER
+            $s = [RwppDlssControl]::Read([int]$env:RWPP_DLSS_GAME_PID)
+            if ($s.Attached) {
+                $message = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($s.Message))
+                'NEURAL' + "`t" + $s.State + "`t" + $s.Api + "`t" + ([int]$s.Active) + "`t" + $s.NeuralFrames + "`t" + $s.ProcessedFrames + "`t" + $s.GpuMs.ToString([Globalization.CultureInfo]::InvariantCulture) + "`t" + $s.FailureStage + "`t" + $message
             }
         } catch { 'NEURAL_ERROR' }
     }
@@ -174,21 +174,21 @@ internal actual fun closeCommunityDlss5(controllerDirectory: String): String = t
     val targets = findCommunityDlss5Processes(controllerDirectory)
     if (targets.isEmpty()) readI18n("rwpp.dlss5.monitor.stopped")
     else {
-        val script = """
-            ${'$'}p = Get-Process -Id ([int]${'$'}env:RWPP_DLSS_PID) -ErrorAction SilentlyContinue
-            if (${'$'}null -eq ${'$'}p) { exit 0 }
-            if (-not [string]::Equals(${'$'}p.Path, ${'$'}env:RWPP_DLSS_CONTROLLER_EXE, [StringComparison]::OrdinalIgnoreCase) -or
-                ${'$'}p.StartTime.ToFileTimeUtc().ToString() -ne ${'$'}env:RWPP_DLSS_STARTED) { throw 'Process identity changed' }
-            ${'$'}deadline = [DateTime]::UtcNow.AddSeconds(4)
+        val script = $$"""
+            $p = Get-Process -Id ([int]$env:RWPP_DLSS_PID) -ErrorAction SilentlyContinue
+            if ($null -eq $p) { exit 0 }
+            if (-not [string]::Equals($p.Path, $env:RWPP_DLSS_CONTROLLER_EXE, [StringComparison]::OrdinalIgnoreCase) -or
+                $p.StartTime.ToFileTimeUtc().ToString() -ne $env:RWPP_DLSS_STARTED) { throw 'Process identity changed' }
+            $deadline = [DateTime]::UtcNow.AddSeconds(4)
             do {
-                ${'$'}p.Refresh()
-                if (${'$'}p.HasExited) { exit 0 }
-                if (${'$'}p.MainWindowHandle -ne 0) { break }
+                $p.Refresh()
+                if ($p.HasExited) { exit 0 }
+                if ($p.MainWindowHandle -ne 0) { break }
                 Start-Sleep -Milliseconds 100
-            } while ([DateTime]::UtcNow -lt ${'$'}deadline)
-            Add-Type -Path ${'$'}env:RWPP_DLSS_HELPER
-            [RwppDlssControl]::RequestControllerClose(${'$'}p.Id, [long]${'$'}env:RWPP_DLSS_STARTED, ${'$'}env:RWPP_DLSS_CONTROLLER_EXE)
-            if (-not ${'$'}p.WaitForExit(4000)) { throw 'Controller is still detaching' }
+            } while ([DateTime]::UtcNow -lt $deadline)
+            Add-Type -Path $env:RWPP_DLSS_HELPER
+            [RwppDlssControl]::RequestControllerClose($p.Id, [long]$env:RWPP_DLSS_STARTED, $env:RWPP_DLSS_CONTROLLER_EXE)
+            if (-not $p.WaitForExit(4000)) { throw 'Controller is still detaching' }
         """.trimIndent()
         targets.forEach { process ->
             windowsControllerCommand(

@@ -180,7 +180,12 @@ class GameModeSession(
                 } catch (speedFailure: Throwable) {
                     failure = failure.append(speedFailure)
                 }
-                failure?.let { throw GameModeException("One or more game modes failed to release their resources.", it) }
+                failure?.let {
+                    throw GameModeException(
+                        "One or more game modes failed to release their resources.",
+                        it
+                    )
+                }
             } finally {
                 changing = false
             }
@@ -197,12 +202,18 @@ class GameModeSession(
         val ordered = activeModes.filter { it.mode.transformsMap }
         val explicitBase = activeModes.firstOrNull { it.mode.kind == GameModeKind.BASE }?.mode
         if (explicitBase == null) {
-            validateObservedBaseConflicts(activeModes.map { it.mode }, findBaseForNativeType(map.mapInfoObject?.getProperty("type")))
+            validateObservedBaseConflicts(
+                activeModes.map { it.mode },
+                findBaseForNativeType(map.mapInfoObject?.getProperty("type"))
+            )
         }
         ordered.forEach { it.mode.transformMap(map, it.context) }
         ordered.forEach { it.mode.validateMap(map, it.context) }
         if (explicitBase == null) {
-            validateObservedBaseConflicts(activeModes.map { it.mode }, findBaseForNativeType(map.mapInfoObject?.getProperty("type")))
+            validateObservedBaseConflicts(
+                activeModes.map { it.mode },
+                findBaseForNativeType(map.mapInfoObject?.getProperty("type"))
+            )
         }
     }
 
@@ -247,7 +258,7 @@ class GameModeSession(
         val removedDependents = affected.flatMap { old ->
             active.values.filter { state ->
                 state.mode.id !in replacing &&
-                    plan.none { it.id == old.mode.id } && old.mode.id in state.mode.requires
+                        plan.none { it.id == old.mode.id } && old.mode.id in state.mode.requires
             }.map { it.mode.id }
         }.distinct()
         if (removedDependents.isNotEmpty()) {
@@ -318,7 +329,10 @@ class GameModeSession(
             } catch (restoreFailure: Throwable) {
                 failure.addSuppressedSafely(restoreFailure)
             }
-            throw GameModeException("Could not activate replacement mode '${mode.id}'; prior modes were restored when possible.", failure)
+            throw GameModeException(
+                "Could not activate replacement mode '${mode.id}'; prior modes were restored when possible.",
+                failure
+            )
         }
     }
 
@@ -348,7 +362,8 @@ class GameModeSession(
             }
             mode.requires.sorted().forEach { requiredId ->
                 if (requiredId in alreadyActive) return@forEach
-                val required = if (requiredId == root.id) root else registry.get(requiredId) ?: replacedModes[requiredId]
+                val required =
+                    if (requiredId == root.id) root else registry.get(requiredId) ?: replacedModes[requiredId]
                     ?: throw MissingGameModeException(requiredId)
                 visit(required)
             }
@@ -363,7 +378,12 @@ class GameModeSession(
     private fun validateCombined(modes: List<GameMode>) {
         val byId = LinkedHashMap<String, GameMode>()
         modes.forEach { mode ->
-            check(byId.put(mode.id, mode) == null) { "Game mode '${mode.id}' appears more than once in an activation transaction." }
+            check(
+                byId.put(
+                    mode.id,
+                    mode
+                ) == null
+            ) { "Game mode '${mode.id}' appears more than once in an activation transaction." }
         }
         val bases = modes.filter { it.kind == GameModeKind.BASE }
         if (bases.size > 1) {
@@ -410,7 +430,8 @@ class GameModeSession(
                 if (mode.id in active || existing.any { it.mode.id == mode.id } || created.any { it.mode.id == mode.id }) return@forEach
                 val owner = EventOwner()
                 val context = GameModeContext(gameRoom, this, owner)
-                val state = ActiveMode(mode, context, activationCounter.incrementAndGet(), automatic = mode.id != rootId)
+                val state =
+                    ActiveMode(mode, context, activationCounter.incrementAndGet(), automatic = mode.id != rootId)
                 try {
                     mode.onEnable(context)
                 } catch (failure: Throwable) {
@@ -439,7 +460,10 @@ class GameModeSession(
             } catch (restoreFailure: Throwable) {
                 restoreFailure.addSuppressedSafely(closeState(renewed))
                 failure = failure.append(
-                    GameModeException("Failed to restore game mode '${old.mode.id}' after a transaction rollback.", restoreFailure),
+                    GameModeException(
+                        "Failed to restore game mode '${old.mode.id}' after a transaction rollback.",
+                        restoreFailure
+                    ),
                 )
             }
         }
@@ -533,7 +557,12 @@ class GameModeSession(
         if (type.isNullOrBlank()) return null
         return (active.values.map(ActiveMode::mode) + registry.all())
             .distinctBy(GameMode::id)
-            .firstOrNull { it.kind == GameModeKind.BASE && it.nativeMapInfoType?.equals(type, ignoreCase = true) == true }
+            .firstOrNull {
+                it.kind == GameModeKind.BASE && it.nativeMapInfoType?.equals(
+                    type,
+                    ignoreCase = true
+                ) == true
+            }
     }
 
     private fun requireRegistered(id: String): GameMode = registry.get(id) ?: throw MissingGameModeException(id)

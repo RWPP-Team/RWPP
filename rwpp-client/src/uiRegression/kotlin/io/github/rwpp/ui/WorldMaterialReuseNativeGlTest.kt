@@ -110,6 +110,7 @@ class WorldMaterialReuseNativeGlTest {
                 mapWidthInTiles = MASK_SIZE
                 mapHeightInTiles = MASK_SIZE
                 fogOfWarEnabled = false
+                mapLoaded = true
             }
             terrainMask = createTerrainMask(renderer!!, water = false)
             replacementTerrainMask = createTerrainMask(renderer!!, water = true)
@@ -129,6 +130,8 @@ class WorldMaterialReuseNativeGlTest {
             setField(WorldGraphicsEnhancements, "cachedSettings", testSettings)
 
             val engine = allocateUnsafe(AccessEngine::class.java) as GameEngine
+            field(GameEngine::class.java, "gameUpdateLock").set(engine, Any())
+            engine.gameLoopActive = true
             engine.graphics = renderer!!
             engine.screenWidth = SIZE.toFloat()
             engine.screenHeight = SIZE.toFloat()

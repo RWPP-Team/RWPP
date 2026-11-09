@@ -54,6 +54,12 @@ internal object ReplayFiles {
         "Cannot open replay ${replay.name}"
     }
 
+    fun readMapSidecar(replay: Replay, read: (InputStream) -> ByteArray): ByteArray? {
+        val sidecar = file(replay, ".map")
+        if (!fileExists(sidecar)) return null
+        return FileLoader.openByPath(sidecar)?.use(read)
+    }
+
     /** Reads and validates complete end metadata while streaming past the potentially large save block. */
     fun readTimelineMetadata(replayName: String): ReplayTimelineMetadata? {
         val source = try {
