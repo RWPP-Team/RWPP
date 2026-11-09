@@ -60,7 +60,7 @@ class RoomWorkspaceLayoutRenderTest : DesktopComposeGraphicsTest() {
         val label get() = "${width}x${height}-d${density.toString().replace('.', 'p')}"
     }
 
-    private class RenderedRoom(val viewport: Viewport) : AutoCloseable {
+    private class RenderedRoom(val viewport: Viewport, val steamInvite: Boolean = false) : AutoCloseable {
         val dispatcher = RenderThreadDispatcher()
         val recomposer = FrameRecomposer(dispatcher)
         val scene = CanvasLayersComposeScene(
@@ -77,6 +77,7 @@ class RoomWorkspaceLayoutRenderTest : DesktopComposeGraphicsTest() {
         var frameTimeNanos = 0L
         var mapClicks = 0
         var optionsClicks = 0
+        var inviteClicks = 0
         var startClicks = 0
         var exitClicks = 0
         val chatFocus = androidx.compose.ui.focus.FocusRequester()
@@ -133,6 +134,8 @@ class RoomWorkspaceLayoutRenderTest : DesktopComposeGraphicsTest() {
                                 isHost = true,
                                 onSelectMap = { mapClicks++ },
                                 onOptions = { optionsClicks++ },
+                                onInviteSteam = if (steamInvite) ({ inviteClicks++ }) else null,
+                                steamInviteLabel = "Steam Invite",
                                 onStart = { startClicks++ },
                                 sectorInfoLabel = "SECTOR INFO",
                                 hostAccessLabel = "HOST ACCESS",
@@ -378,7 +381,7 @@ class RoomWorkspaceLayoutRenderTest : DesktopComposeGraphicsTest() {
     fun desktopRoomKeepsBoundedPanesAndRoutesMapControls() {
         listOf(Viewport(1280, 720), Viewport(1366, 768)).forEach { viewport ->
             assertFalse(viewport.compact, "$viewport should use the bounded Middle/Large workspace")
-            val room = RenderedRoom(viewport)
+            val room = RenderedRoom(viewport, steamInvite = true)
             try {
                 room.setContent()
                 room.render(7)
@@ -439,13 +442,19 @@ class RoomWorkspaceLayoutRenderTest : DesktopComposeGraphicsTest() {
 
                 click(
                     room, Offset(
-                        mapActions.left + mapActions.width * 0.25f,
+                        mapActions.left + mapActions.width / 6f,
                         mapActions.top + 21f * viewport.density
                     )
                 )
                 click(
                     room, Offset(
-                        mapActions.left + mapActions.width * 0.75f,
+                        mapActions.left + mapActions.width * 0.5f,
+                        mapActions.top + 21f * viewport.density
+                    )
+                )
+                click(
+                    room, Offset(
+                        mapActions.left + mapActions.width * 5f / 6f,
                         mapActions.top + 21f * viewport.density
                     )
                 )
@@ -457,6 +466,7 @@ class RoomWorkspaceLayoutRenderTest : DesktopComposeGraphicsTest() {
                 )
                 assertEquals(1, room.mapClicks, "desktop map picker action reaches its callback at $viewport")
                 assertEquals(1, room.optionsClicks, "desktop room options action reaches its callback at $viewport")
+                assertEquals(1, room.inviteClicks, "Steam Invite sits to the right of Options at $viewport")
                 assertEquals(1, room.startClicks, "desktop Start action reaches its callback at $viewport")
                 assertEquals(
                     0, room.pageScrollState.value,

@@ -24,7 +24,6 @@ private val placementCountPaint by lazy {
         isAntiAlias = true
         color = Color.WHITE
         textAlign = Paint.Align.CENTER
-        setShadowLayer(2f, 1f, 1f, Color.BLACK)
     }
 }
 

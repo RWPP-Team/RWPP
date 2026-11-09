@@ -163,6 +163,8 @@ internal fun RoomMapPane(
     optionsLabel: String,
     actionsModifier: Modifier = Modifier,
     modifier: Modifier = Modifier,
+    onInviteSteam: (() -> Unit)? = null,
+    steamInviteLabel: String = "",
 ) {
     if (compact) {
         AeroPanel(modifier.fillMaxWidth().wrapContentHeight()) {
@@ -205,6 +207,8 @@ internal fun RoomMapPane(
                         onSelectMap = onSelectMap,
                         onOptions = onOptions,
                         onStart = onStart,
+                        onInviteSteam = onInviteSteam,
+                        steamInviteLabel = steamInviteLabel,
                     )
                 }
             }
@@ -265,6 +269,8 @@ internal fun RoomMapPane(
                         onSelectMap = onSelectMap,
                         onOptions = onOptions,
                         onStart = onStart,
+                        onInviteSteam = onInviteSteam,
+                        steamInviteLabel = steamInviteLabel,
                     )
                 }
             }
@@ -282,13 +288,15 @@ internal fun RoomMapActionBar(
     onOptions: () -> Unit,
     onStart: () -> Unit,
     modifier: Modifier = Modifier,
+    onInviteSteam: (() -> Unit)? = null,
+    steamInviteLabel: String = "",
 ) {
     Column(
         modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp),
     ) {
         BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val stackActions = compact && maxWidth < 280.dp
+            val stackActions = compact && maxWidth < 280.dp && onInviteSteam == null
             val mapText = selectMapLabel + if (compact) "" else " (M)"
             val optionsText = optionsLabel + if (compact) "" else " (O)"
             if (stackActions) {
@@ -303,6 +311,12 @@ internal fun RoomMapActionBar(
                 ) {
                     AeroButton(mapText, onSelectMap, Modifier.weight(1f), clickSound = Sounds.openPopup)
                     AeroButton(optionsText, onOptions, Modifier.weight(1f), clickSound = Sounds.openPopup)
+                    if (onInviteSteam != null) {
+                        AeroButton(
+                            steamInviteLabel, onInviteSteam,
+                            Modifier.weight(1f), clickSound = Sounds.openPopup,
+                        )
+                    }
                 }
             }
         }

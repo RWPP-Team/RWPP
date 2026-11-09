@@ -34,6 +34,7 @@ import com.corrodinggames.rts.game.Team
 import com.corrodinggames.rts.game.ai.AI
 import com.corrodinggames.rts.game.units.UnitTypeInterface
 import com.corrodinggames.rts.gameFramework.network.GameSetupMapType
+import io.github.rwpp.AppContext
 import io.github.rwpp.LocalWindowManager
 import io.github.rwpp.api.config.ConfigIO
 import io.github.rwpp.api.coroutines.GameScope
@@ -47,6 +48,7 @@ import io.github.rwpp.api.game.mode.*
 import io.github.rwpp.api.game.sendChatMessageOrCommand
 import io.github.rwpp.api.game.team.*
 import io.github.rwpp.api.i18n.readI18n
+import io.github.rwpp.api.logging.logger
 import io.github.rwpp.config.RoomPreset
 import io.github.rwpp.config.RoomPresetPlayer
 import io.github.rwpp.config.Settings
@@ -108,6 +110,7 @@ class BattleRoomScreen : Screen {
         val game = koinInject<Game>()
         val room = game.gameRoom
         val gameState = game.state
+        val desktop = koinInject<AppContext>().isDesktop()
         val compact = LocalWindowManager.current == WindowManager.Small
 
         var lastSelectedIndex by remember { mutableIntStateOf(0) }
@@ -347,8 +350,12 @@ class BattleRoomScreen : Screen {
                             startLabel = readI18n("rwpp.common.start"),
                             selectMapLabel = readI18n("rwpp.multiplayer.room.selectMap"),
                             optionsLabel = readI18n("rwpp.multiplayer.room.option"),
+                            steamInviteLabel = readI18n("rwpp.multiplayer.room.inviteSteam"),
                             onSelectMap = { showMapSelectView = true },
                             onOptions = { optionVisible = true },
+                            onInviteSteam = if (desktop && gameState.multiplayer && room.isHost) {
+                                { inviteSteamPlayers() }
+                            } else null,
                             onStart = {
                                 val unpreparedPlayers = game.gameRoom.getPlayers().filter { !it.ready }
                                 if (unpreparedPlayers.isNotEmpty()) {
@@ -424,6 +431,15 @@ class BattleRoomScreen : Screen {
             }
         }
         ContentView()
+    }
+
+    private fun inviteSteamPlayers() {
+        GameScope.launch {
+            val opened = runCatching { openRoomSteamInvite() }
+                .onFailure { logger().warn("Could not open the Steam invite dialog", it) }
+                .getOrDefault(false)
+            if (!opened) UI.showWarning(readI18n("rwpp.multiplayer.room.steamUnavailable"))
+        }
     }
 
     @Composable
