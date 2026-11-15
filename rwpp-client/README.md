@@ -10,10 +10,10 @@ API 与 client 是两个扩展，client 声明 `dependsOn=io.github.rwpp.api` �
 
 地图预览由客户端加载。暂停菜单支持音量、FPS 和本地存读档；HUD 支持组件动作、拖动、缩放与布局保存。
 
-无 UI 扩展可复用轻量网络归档：
+无 UI 扩展可复用 `networkRuntimeJar` 任务生成的轻量网络归档。
 
 ```kotlin
-implementation("io.github.rwpp:rwpp-client-jvm:2.0.0:network") { isTransitive = false }
+implementation(files("libs/rwpp-client-2.0.0-network.jar"))
 ```
 
 扩展加载时安装 `TransportRuntime.installIfAbsent { JdkTransportBackend() }`。该归档不包含 Compose、音频或 Netty。

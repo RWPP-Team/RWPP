@@ -158,11 +158,11 @@ publishing {
         pom {
             name.set("RWPP API")
             description.set(project.description.toString())
-            url.set("https://github.com/RWPP-Team/RWML")
+            url.set("https://github.com/RWPP-Team/RWPP")
             licenses {
                 license {
                     name.set("RWPP-Team Shield License 1.0.0")
-                    url.set("https://github.com/RWPP-Team/RWML/blob/master/LICENSE.md")
+                    url.set("https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md")
                 }
             }
             developers {
@@ -175,9 +175,9 @@ publishing {
                 }
             }
             scm {
-                connection.set("scm:git://github.com/RWPP-Team/RWML.git")
-                developerConnection.set("scm:git:ssh://github.com/RWPP-Team/RWML.git")
-                url.set("https://github.com/RWPP-Team/RWML")
+                connection.set("scm:git:https://github.com/RWPP-Team/RWPP.git")
+                developerConnection.set("scm:git:ssh://git@github.com/RWPP-Team/RWPP.git")
+                url.set("https://github.com/RWPP-Team/RWPP")
             }
         }
     }

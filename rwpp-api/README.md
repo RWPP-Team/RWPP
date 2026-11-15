@@ -17,10 +17,12 @@
 
 ```kotlin
 dependencies {
-    compileOnly("io.github.rwpp-team:rwpp-api:1.0.2")
+    compileOnly("io.github.rwpp-team:rwpp-api:2.0.0")
     compileOnly("io.github.rwpp-team:game-lib:v3-1.15")
 }
 ```
+
+`rwpp-api` 通过 Maven Central 分发。映射游戏库使用 RWML 构建生成的本地 Maven 仓库。
 
 扩展描述符声明 `dependsOn=io.github.rwpp.api`。客户端安装独立 API 扩展；服务端由宿主内置提供，无需重复打包。
 

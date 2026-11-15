@@ -9,7 +9,7 @@
   <a href="https://www.jetbrains.com/lp/compose-multiplatform/"><img alt="Compose Multiplatform 1.13.0-beta01" src="https://img.shields.io/badge/Compose%20Multiplatform-1.13.0--beta01-brightgreen"></a>
   <img alt="Android" src="https://img.shields.io/badge/Android-green">
   <img alt="Desktop" src="https://img.shields.io/badge/Desktop-tomato">
-  <a href="./LICENSE.md"><img alt="License" src="https://img.shields.io/github/license/Minxyzgo/RWPP"></a>
+  <a href="./LICENSE.md"><img alt="License" src="https://img.shields.io/github/license/RWPP-Team/RWPP"></a>
 </div>
 
 <p align="center">🇨🇳 简体中文 | 🇺🇸 <a href="./README.md">English</a></p>
@@ -29,26 +29,27 @@ RWPP 是 Rusted Warfare 的客户端与无界面服务端。两者都以 [RWML](
 | `rwpp-client` | 界面、输入、声音、图形与 JVM 网络后端      |
 | `rwpp-server` | 带控制台与扩展加载能力的无界面服务端       |
 
-客户端提供单位禁用、输入法支持、黑名单、房间列表筛选、更多房间选项、外部资源与新界面。服务端不依赖显示设备，并使用同一套 API。
+客户端提供 Aero 界面、可配置的局内 HUD、多人房间工具，以及存档与回放浏览。无界面服务端使用同一套游戏 API。
 
 ## 安装
 
-RWPP 由 RWML 加载。先安装[最新版本](https://github.com/Minxyzgo/RWPP/releases/latest)，再通过启动器导入对应平台的整合归档。归档同时提供
-`io.github.rwpp.api` 与 `io.github.rwpp`，两个 JAR 也可以分别导入。
+先安装 [RWML](https://github.com/RWPP-Team/RWML/releases/latest)，再从 [RWPP 2.0.0 发布页](https://github.com/RWPP-Team/RWPP/releases/tag/v2.0.0)
+下载桌面或 Android 扩展整合包，在 RWML 启动器中导入。整合包包含 `io.github.rwpp.api` 与 `io.github.rwpp`，两个 JAR 也可以分别导入。
 
 两个扩展必须来自同一个发行版本。客户端声明对 API 的依赖，并独立注册自己的界面框架。
 
 ## 使用
 
-启用扩展后重启游戏。客户端接管启动流程，并把界面绘制在游戏画面之上。房间选项、动作面板与信息 HUD 均遵循原版游戏规则。
+启用扩展后，从 RWML 启动器启动游戏。Android 启动器先准备扩展，再加载游戏引擎。引擎就绪后，RWPP 打开自己的菜单，并在游戏画面上绘制 HUD。
 
 服务端在同一端口提供 KCP 与 TCP。客户端优先使用 KCP，握手无回应时回退
 TCP。控制台命令与启动选项见 [rwpp-server/README.md](rwpp-server/README.md)。
 
 ## 扩展开发
 
-扩展依赖 `rwml-core` 与映射后的游戏库。需要共用游戏服务时再引入 `rwpp-api`
-。这三个库在运行时由宿主提供，扩展只以编译期依赖的方式引用它们。[rwpp-api/README.md](rwpp-api/README.md) 说明事件通道、命令注册与配置服务。
+扩展依赖 `rwml-core` 与映射后的游戏库。需要共用游戏服务时，从 Maven Central 引入
+`io.github.rwpp-team:rwpp-api:2.0.0`。三个库均由宿主在运行时提供，扩展只需声明编译期依赖。
+[rwpp-api/README.md](rwpp-api/README.md) 说明事件通道、命令注册与配置服务。
 
 ## 致谢
 

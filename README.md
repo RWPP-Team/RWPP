@@ -9,7 +9,7 @@
   <a href="https://www.jetbrains.com/lp/compose-multiplatform/"><img alt="Compose Multiplatform 1.13.0-beta01" src="https://img.shields.io/badge/Compose%20Multiplatform-1.13.0--beta01-brightgreen"></a>
   <img alt="Android" src="https://img.shields.io/badge/Android-green">
   <img alt="Desktop" src="https://img.shields.io/badge/Desktop-tomato">
-  <a href="./LICENSE.md"><img alt="License" src="https://img.shields.io/github/license/Minxyzgo/RWPP"></a>
+  <a href="./LICENSE.md"><img alt="License" src="https://img.shields.io/github/license/RWPP-Team/RWPP"></a>
 </div>
 
 <p align="center">🇺🇸 English | 🇨🇳 <a href="./README.zh.md">简体中文</a></p>
@@ -29,22 +29,22 @@ of [RWML](https://github.com/RWPP-Team/RWML), which loads modifications on deskt
 | `rwpp-client` | Interface, input, audio, graphics and the JVM network backend                   |
 | `rwpp-server` | Headless server with a console and extension loading                            |
 
-The client adds unit bans, IME input, blacklists, room list filters, additional room options, external resources and a
-new interface. The server runs without a display device and uses the same API.
+The client adds the Aero interface and a configurable in-game HUD, multiplayer room tools, and saved-game and replay
+browsers. The headless server uses the same game API.
 
 ## Installation
 
-RWPP is loaded by RWML. Install the [latest release](https://github.com/Minxyzgo/RWPP/releases/latest) and import the
-archive for the target platform through the launcher. The archive provides `io.github.rwpp.api` and `io.github.rwpp`.
-The two JAR files can also be imported separately.
+Install [RWML](https://github.com/RWPP-Team/RWML/releases/latest) first. Download the Desktop or Android extension pack
+from the [RWPP 2.0.0 release](https://github.com/RWPP-Team/RWPP/releases/tag/v2.0.0) and import it in the RWML launcher.
+The pack installs `io.github.rwpp.api` and `io.github.rwpp`. You can also import the two JAR files separately.
 
 Both extensions must come from the same release. The client declares a dependency on the API and registers its own
 interface framework.
 
 ## Usage
 
-Restart the game after enabling the extensions. The client takes over the launcher and draws its interface above the
-game. Room options, the action panel and the information HUD follow the rules of the original game.
+Enable the extensions and start the game from the RWML launcher. On Android, the launcher prepares the extensions
+before the engine loads. RWPP then opens its own menu and draws the HUD above the game.
 
 The server accepts KCP and TCP on the same port. The client prefers KCP and falls back to TCP when the handshake
 receives no reply. Console commands and startup options are listed in [rwpp-server/README.md](rwpp-server/README.md).
@@ -52,7 +52,7 @@ receives no reply. Console commands and startup options are listed in [rwpp-serv
 ## Extensions
 
 An extension depends on `rwml-core` and the mapped game library. Extensions that need shared game services also depend
-on `rwpp-api`. The host provides these libraries at runtime, so all three are compile-only
+on `io.github.rwpp-team:rwpp-api:2.0.0` from Maven Central. The host provides these libraries at runtime, so all three are compile-only
 dependencies. [rwpp-api/README.md](rwpp-api/README.md) describes the event channel, the command registry and the
 configuration services.
 
