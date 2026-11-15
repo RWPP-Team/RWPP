@@ -50,11 +50,13 @@ class AndroidEventPathRegressionTest {
 
     @Test
     fun lateNetworkInitializationRemovesOnlyTheLegacyQRoomListEntry() {
+        val roomListProviders = mutableMapOf<String, Any>()
         val net = Proxy.newProxyInstance(Net::class.java.classLoader, arrayOf(Net::class.java)) { proxy, method, args ->
             when (method.name) {
                 "hashCode" -> System.identityHashCode(proxy)
                 "equals" -> proxy === args?.get(0)
                 "toString" -> "offline network fixture"
+                "getRoomListProvider" -> roomListProviders
                 else -> error("unexpected native network call ${method.name}")
             }
         } as Net
@@ -82,6 +84,7 @@ class AndroidEventPathRegressionTest {
         initialization.init()
         initialization.init()
         assertEquals(1, preferences.allServerConfig.count { it.name == "Official Room List" })
+        assertTrue(roomListProviders.containsKey(io.github.rwpp.net.RcnRoomList.PROVIDER))
         assertFalse(preferences.allServerConfig.contains(legacyQRoomList))
         assertTrue(preferences.allServerConfig.contains(userRoomListWithSameName))
         assertEquals(1, preferences.allServerConfig.count { it.name == "Q Room List" })

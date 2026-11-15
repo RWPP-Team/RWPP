@@ -8,6 +8,7 @@
 package io.github.rwpp.mixin.hud
 
 import android.graphics.Paint
+import com.corrodinggames.rts.gameFramework.GameEngine
 import com.corrodinggames.rts.gameFramework.gui.PromptResult
 import com.corrodinggames.rts.gameFramework.render.BitmapOrTexture
 import com.corrodinggames.rts.gameFramework.render.GraphicsEngine
@@ -236,7 +237,13 @@ object NativeCommandMessageBoxMixin {
     )
     fun message(callback: CallbackInfo, self: Any, title: String?, message: String?) {
         // loadCallback is the native dialog presenter too; Aero owns presentation from here.
-        UI.showNativeMessage(title, message)
+        val network = (self as GameEngine).networkEngine
+        val multiplayer = network != null && network.networked && !network.singlePlayerServer
+        if (title == "Briefing" && message != null && !multiplayer) {
+            UI.showBriefing(message)
+        } else {
+            UI.showNativeMessage(title, message)
+        }
         callback.cancel()
     }
 
@@ -248,6 +255,8 @@ object NativeCommandMessageBoxMixin {
     )
     fun duplicateAlert(callback: CallbackInfo, self: Any, message: String?, duration: Int) {
         // Native kick handling emits both a message box and an alert for the identical result.
-        if (message != null && UI.warning?.nativeMessage == message) callback.cancel()
+        if (message != null && (UI.warning?.nativeMessage == message || UI.briefing?.nativeMessage == message)) {
+            callback.cancel()
+        }
     }
 }

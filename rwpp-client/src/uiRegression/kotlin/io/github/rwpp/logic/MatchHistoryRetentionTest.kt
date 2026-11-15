@@ -80,6 +80,43 @@ class MatchHistoryRetentionTest {
         assertTrue(history.allMatches().isEmpty())
     }
 
+    @Test
+    fun individualDeletionPersistsOnlyTheChosenMatchAndRollsBackOnFailure() {
+        val first = entry("first", 2).copy(replayFileName = "first.replay")
+        val second = entry("second", 1).copy(replayFileName = "second.replay")
+        val progress = CampaignMissionProgress(first.mapPath, attempts = 2, wins = 2)
+        val history = MatchHistory(mutableListOf(first, second), mutableListOf(progress))
+        val io = MemoryIO()
+        val maintenance = maintenance(history, Settings(), io)
+
+        io.failHistory = true
+        assertTrue(maintenance.deleteMatch(first.id).isFailure)
+        assertEquals(listOf(first, second), history.allMatches())
+        assertEquals(0L, maintenance.revisions.value)
+
+        io.failHistory = false
+        assertEquals(1, maintenance.deleteMatch(first.id).getOrThrow())
+        assertEquals(listOf(second), history.allMatches())
+        assertEquals(listOf(progress), history.campaignMissions)
+        assertEquals(1L, maintenance.revisions.value)
+        assertEquals(0, maintenance.deleteMatch(first.id).getOrThrow())
+        assertEquals(1, io.writes.size)
+    }
+
+    @Test
+    fun deletedActiveCampaignRecordStaysDeletedWhenTheMatchEnds() {
+        val entry = entry("active", 0).copy(outcome = MatchOutcome.IN_PROGRESS)
+        val history = MatchHistory()
+        history.recordMatchStarted(entry)
+        val maintenance = maintenance(history, Settings(), MemoryIO())
+
+        assertEquals(1, maintenance.deleteMatch(entry.id).getOrThrow())
+        history.recordMatchFinished(entry.id, MatchOutcome.WIN, 2_000L, now + 2_000L, deletedEntry = entry)
+
+        assertTrue(history.allMatches().isEmpty())
+        assertEquals(1, history.campaignMissions.single().wins)
+    }
+
     private fun maintenance(history: MatchHistory, settings: Settings, io: ConfigIO): MatchHistoryMaintenance {
         val game = Proxy.newProxyInstance(Game::class.java.classLoader, arrayOf(Game::class.java)) { _, method, _ ->
             error("Unexpected game access: ${method.name}")

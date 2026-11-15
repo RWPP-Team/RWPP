@@ -18,8 +18,10 @@ import io.github.rwpp.appKoin
 import io.github.rwpp.config.Settings
 import io.github.rwpp.widget.v2.AeroSettingDropDown
 import io.github.rwpp.widget.v2.AeroSettingGroup
+import io.github.rwpp.widget.v2.AeroSettingSlider
 import io.github.rwpp.widget.v2.AeroSettingToggle
 import org.koin.compose.koinInject
+import kotlin.math.roundToInt
 
 /** Both settings entry points edit the existing persisted fields. No migration or reset. */
 @Composable
@@ -38,6 +40,19 @@ internal fun ClientHudSettings(settings: Settings) {
                 readI18n("rwpp.settings.improvedHealthBar"),
                 settings.improvedHealthBar
             ) { settings.improvedHealthBar = it }
+            var mapTextScale by remember(settings) { mutableFloatStateOf(settings.mapTextScale.coerceIn(0.5f, 2f)) }
+            AeroSettingSlider(
+                label = readI18n("rwpp.settings.mapTextScale"),
+                value = mapTextScale,
+                onValueChange = { mapTextScale = it; settings.mapTextScale = it },
+                valueRange = 0.5f..2f,
+                valueFormat = { "${(it * 100).roundToInt()}%" },
+            )
+            AeroSettingToggle(
+                label = readI18n("rwpp.settings.mapTextFixedWorldSize"),
+                defaultValue = settings.mapTextFixedWorldSize,
+                subLabel = readI18n("rwpp.settings.mapTextFixedWorldSize.hint"),
+            ) { settings.mapTextFixedWorldSize = it }
             if (koinInject<AppContext>().isDesktop()) {
                 val rates = remember { listOf(30, 60, 90, 120, 144, 240, 300) }
                 var selectedRate by remember {
@@ -51,6 +66,18 @@ internal fun ClientHudSettings(settings: Settings) {
                     selectedIndex = selectedRate,
                     onItemSelected = { index, _ -> selectedRate = index; settings.hudRefreshRate = rates[index] },
                 )
+            }
+        }
+        AeroSettingGroup("SURVIVAL") {
+            var showPoints by remember { mutableStateOf(settings.showSurvivalSpawnPoints) }
+            AeroSettingToggle(readI18n("rwpp.survival.showSpawnPoints"), showPoints) {
+                settings.showSurvivalSpawnPoints = it
+                showPoints = it
+            }
+            if (showPoints) {
+                AeroSettingToggle(readI18n("rwpp.survival.showWaveAtSpawn"), settings.showSurvivalWaveAtSpawn) {
+                    settings.showSurvivalWaveAtSpawn = it
+                }
             }
         }
         AeroSettingGroup("AERO EFFECTS") {

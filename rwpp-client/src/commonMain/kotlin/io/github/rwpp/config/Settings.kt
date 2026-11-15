@@ -51,6 +51,11 @@ data class Settings(
     @Volatile var suppressDeathSmoke: Boolean = false,
     @Volatile var terrainEdgeBuilding: Boolean = true,
     @Volatile var overflowProductionQueue: Boolean = false,
+    @Volatile var showSurvivalSpawnPoints: Boolean = false,
+    @Volatile var showSurvivalWaveAtSpawn: Boolean = false,
+    @Volatile var mapTextScale: Float = 1f,
+    @Volatile var mapTextFixedWorldSize: Boolean = false,
+    var commandTooltipScale: Float = 1f,
     var savedBlueprints: List<SavedBlueprint> = emptyList(),
     /** One-time migration version so legacy default-false configs become enabled exactly once. */
     var terrainEdgeBuildingPreferenceVersion: Int = 0,

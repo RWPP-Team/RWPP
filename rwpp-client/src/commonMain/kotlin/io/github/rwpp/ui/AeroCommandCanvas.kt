@@ -35,6 +35,7 @@ import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
@@ -44,8 +45,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
 import com.corrodinggames.rts.game.units.OrderableUnit
 import com.corrodinggames.rts.game.units.actions.ActionType
+import com.corrodinggames.rts.game.units.actions.IndirectedAction
 import com.corrodinggames.rts.game.units.actions.SpecialAction
 import com.corrodinggames.rts.game.units.actions.SpecialActionCategory
+import com.corrodinggames.rts.game.units.custom.price.CustomPrice
+import com.corrodinggames.rts.game.units.custom.resources.CustomResource
+import com.corrodinggames.rts.game.units.custom.resources.StoredResource
 import com.corrodinggames.rts.gameFramework.GameEngine
 import com.corrodinggames.rts.gameFramework.InputControllerButton
 import com.corrodinggames.rts.gameFramework.gui.BattleInterface
@@ -86,6 +91,8 @@ internal data class CommandButton(
     val active: Boolean = false,
     val demoBlocked: Boolean = false,
     val pendingProduction: Int = 0,
+    val opensBuildingPlacement: Boolean = false,
+    val opensTouchQueue: Boolean = false,
 )
 
 internal enum class HudActionGlyph { WAYPOINT, RALLY, UPGRADE }
@@ -107,16 +114,68 @@ internal fun sameCommandVisuals(a: CommandFrame, b: CommandFrame): Boolean =
                 x.identity == y.identity && x.clickSound === y.clickSound && x.dimmed == y.dimmed &&
                 x.hotkey == y.hotkey && x.category == y.category && x.techLevel == y.techLevel &&
                 x.usable == y.usable && x.flash == y.flash && x.active == y.active &&
-                x.demoBlocked == y.demoBlocked && x.pendingProduction == y.pendingProduction
+                x.demoBlocked == y.demoBlocked && x.pendingProduction == y.pendingProduction &&
+                x.opensBuildingPlacement == y.opensBuildingPlacement && x.opensTouchQueue == y.opensTouchQueue
     }
 
-internal data class CommandTooltip(val anchor: Rect, val title: String, val text: String)
+internal data class CommandTooltip(val anchor: Rect, val title: String, val text: String, val pointerY: Float? = null)
+
+internal fun hudActionInfo(
+    action: SpecialAction,
+    source: com.corrodinggames.rts.game.units.Unit?,
+): Pair<String, String> {
+    val wrapped = action as? IndirectedAction
+    val command = wrapped?.wrappedAction ?: action
+    val owner = wrapped?.targetUnit ?: source
+    val title = command.getTooltipTitle(owner).orEmpty()
+    val showsPrice = command.actionCategory != SpecialActionCategory.infoOnlyStockpile
+    val price = if (showsPrice) command.customPrice?.tooltipCostText() else null
+    val streaming = if (showsPrice) command.secondaryPrice?.tooltipCostText() else null
+    return title to listOfNotNull(
+        price?.let { readI18n("rwpp.hud.tooltip.cost", it) },
+        streaming?.let { readI18n("rwpp.hud.tooltip.streamingCost", it) },
+        BattleInterface.getSpecialActionQueueTimeText(action, false),
+        command.getDisplayDescriptionForUnit(owner),
+    ).filter(String::isNotBlank).joinToString("\n")
+}
+
+private fun CustomPrice.tooltipCostText(): String? {
+    val amounts = buildList {
+        if (credits > 0) add(CustomResource.CREDITS.formatAmountWithLabel(credits.toDouble(), false, false))
+        if (energy > 0) add(CustomResource.ENERGY.formatAmountWithLabel(energy.toDouble(), false, false))
+        if (hp > 0) add(CustomResource.HP.formatAmountWithLabel(hp.toDouble(), false, false))
+        if (shield > 0) add(CustomResource.SHIELD.formatAmountWithLabel(shield.toDouble(), false, false))
+        if (ammo > 0) add(CustomResource.AMMO.formatAmountWithLabel(ammo.toDouble(), false, false))
+        for (value in customResources.values) {
+            val entry = value as? StoredResource ?: continue
+            if (entry.amount > 0) add(entry.resource.formatAmountWithLabel(entry.amount, false, false))
+        }
+    }
+    return amounts.joinToString(" | ").takeIf(String::isNotEmpty)
+}
 internal object CommandPointer {
     var inPanel = false
 }
 
 internal object CommandHover {
     val current = mutableStateOf<CommandTooltip?>(null)
+    var overTooltip by mutableStateOf(false)
+    @Volatile var tooltipBounds: Rect? = null
+
+    fun leaveConsole(point: Offset?) {
+        if (point == null || tooltipBounds?.contains(point) != true) clear()
+    }
+
+    fun leaveTooltip(point: Offset?) {
+        overTooltip = false
+        if (point == null || current.value?.anchor?.contains(point) != true) clear()
+    }
+
+    fun clear() {
+        current.value = null
+        overTooltip = false
+        tooltipBounds = null
+    }
 }
 
 /** Hover bookkeeping for the information HUD; kept out of composition state to avoid redraw churn. */
@@ -334,6 +393,7 @@ private class CommandButtonFrameBuilder {
                             old, label, action.buttonWidthScale, action.buttonColumnSpan, enabled, progress, queued,
                             image, showInfo, glyph, canAdd, clickSound, identity, dimmed, hotkey,
                             category, techLevel, usable, flash, active, demoBlocked, cooldown, pending,
+                            action.actionType == ActionType.placeBuilding, queuePanel,
                         ),
                     )
                 ) old else CommandButton(
@@ -361,6 +421,8 @@ private class CommandButtonFrameBuilder {
                     active = active,
                     demoBlocked = demoBlocked,
                     pendingProduction = pending,
+                    opensBuildingPlacement = action.actionType == ActionType.placeBuilding,
+                    opensTouchQueue = queuePanel,
                 )
             )
         }
@@ -380,12 +442,7 @@ private class CommandButtonFrameBuilder {
         productionSelection: HudProductionSelection,
     ): HudActionCallbacks {
         val identity = "${System.identityHashCode(primary)}:${action.actionIdString}"
-        val info: () -> Pair<String, String> = {
-            action.getTooltipTitle(primary) to listOfNotNull(
-                BattleInterface.getSpecialActionQueueTimeText(action, false),
-                action.getDisplayDescriptionForUnit(primary),
-            ).joinToString("\n")
-        }
+        val info = { hudActionInfo(action, primary) }
         val activate: (Boolean) -> Unit = { remove ->
             val engine = GameEngine.getInstance()
             val unlocked = hudActionUnlockedForSelection(action, selection)
@@ -461,13 +518,16 @@ private fun sameCommandButtonVisuals(
     demoBlocked: Boolean,
     cooldown: Float,
     pendingProduction: Int,
+    opensBuildingPlacement: Boolean,
+    opensTouchQueue: Boolean,
 ): Boolean = button.label == label && button.heightScale == heightScale && button.columns == columns &&
         button.enabled == enabled && button.progress == progress && button.cooldown == cooldown && button.queued == queued && button.image === image &&
         button.showInfo == showInfo && button.glyph == glyph && button.canAdd == canAdd &&
         button.clickSound === clickSound && button.identity == identity && button.dimmed == dimmed &&
         button.hotkey == hotkey && button.category == category && button.techLevel == techLevel &&
         button.usable == usable && button.flash == flash && button.active == active &&
-        button.demoBlocked == demoBlocked && button.pendingProduction == pendingProduction
+        button.demoBlocked == demoBlocked && button.pendingProduction == pendingProduction &&
+        button.opensBuildingPlacement == opensBuildingPlacement && button.opensTouchQueue == opensTouchQueue
 
 private data class CommandHotkey(
     val label: String,
@@ -541,6 +601,7 @@ internal fun CommandSurface(
     frame: State<CommandFrame>, editing: Boolean = false, modifier: Modifier = Modifier,
     visibility: CommandVisibility? = null,
     plannerOwnsBlank: () -> Boolean = io.github.rwpp.game.building.BuildingPlanningController::wantsDesktopMouse,
+    placementActive: () -> Boolean = { false },
 ) {
     val geometry = remember { CommandGeometry() }
     val text = rememberTextMeasurer()
@@ -551,6 +612,7 @@ internal fun CommandSurface(
         )
     }
     var anchor by remember { mutableStateOf(Rect.Zero) }
+    val consoleCoordinates = remember { arrayOfNulls<LayoutCoordinates>(1) }
     var pressed by remember { mutableStateOf(false) }
     var pressedIndex by remember { mutableIntStateOf(-1) }
     val animations =
@@ -560,15 +622,27 @@ internal fun CommandSurface(
     var scrollbarGrabOffset by remember { mutableFloatStateOf(0f) }
     val hoverState = remember { CommandHoverState() }
 
+    fun tooltip(point: Offset, info: Pair<String, String>): CommandTooltip {
+        val y = consoleCoordinates[0]?.takeIf { it.isAttached }?.localToRoot(point)?.y
+        return CommandTooltip(anchor, info.first, info.second, y)
+    }
+
     /**
      * The native HUD shows action information on hover. Blank console space and the title strip
      * show the selected unit instead; a button without information closes the panel.
      */
     fun showHoverInfo(point: Offset, force: Boolean = false) {
+        if (placementActive()) {
+            hoverState.frame = null
+            CommandHover.clear()
+            return
+        }
         val currentFrame = frame.value
         val index = geometry.hit(point)
+        val button = index?.let(currentFrame.buttons::getOrNull)
         val target = when {
-            index != null && currentFrame.buttons.getOrNull(index)?.showInfo == true -> index
+            button?.opensTouchQueue == true && button.identity == HudQueuePopupTouch.selectedIdentity -> -2
+            index != null && button?.showInfo == true -> index
             index == null -> -1
             else -> -2
         }
@@ -577,8 +651,8 @@ internal fun CommandSurface(
         hoverState.target = target
         hoverState.point = point
         CommandHover.current.value = when {
-            target >= 0 -> currentFrame.buttons[target].info().let { CommandTooltip(anchor, it.first, it.second) }
-            target == -1 -> currentFrame.info().let { CommandTooltip(anchor, it.first, it.second) }
+            target >= 0 -> tooltip(point, currentFrame.buttons[target].info())
+            target == -1 -> tooltip(point, currentFrame.info())
             else -> null
         }
     }
@@ -589,11 +663,11 @@ internal fun CommandSurface(
         hoverState.target = -2
     }
 
-    fun clearHoverInfo() {
+    fun leaveHoverInfo(point: Offset) {
         invalidateHoverInfo()
         hoverState.point = null
         hoverState.mouse = false
-        CommandHover.current.value = null
+        CommandHover.leaveConsole(consoleCoordinates[0]?.takeIf { it.isAttached }?.localToRoot(point))
     }
 
     // A selection change replaces the frame while the pointer rests on the panel.
@@ -633,10 +707,11 @@ internal fun CommandSurface(
     DisposableEffect(Unit) {
         onDispose {
             visibility?.ids = emptySet()
-            CommandHover.current.value = null; CommandPointer.inPanel = false; HudQueuePopupTouch.actionAt = null
+            CommandHover.clear(); CommandPointer.inPanel = false; HudQueuePopupTouch.actionAt = null
         }
     }
     Canvas(modifier.onGloballyPositioned {
+        consoleCoordinates[0] = it
         anchor = it.boundsInRoot()
         val window = it.boundsInWindow()
         HudQueuePopupTouch.actionAt = { point ->
@@ -725,6 +800,9 @@ internal fun CommandSurface(
                         }
 
                         PointerEventType.Release -> {
+                            val touchRelease = change.type != PointerType.Mouse
+                            var openingPlacement = false
+                            var openingQueue = false
                             if (draggingScrollbar) {
                                 if (change.type == PointerType.Mouse) {
                                     geometry.dragScrollbar(point.y, scrollbarGrabOffset, minimumThumbHeight)
@@ -732,16 +810,19 @@ internal fun CommandSurface(
                                 draggingScrollbar = false
                             } else if (!dragged && down != null) geometry.hit(point)?.let { index ->
                                 if (geometry.hit(down) == index) geometry.frame.buttons[index].let {
-                                    // A mouse already owns the panel through hover; only touch
-                                    // still needs the tap to open or close it.
-                                    if (!hoverState.mouse) {
+                                    openingPlacement = !secondary && it.enabled && it.opensBuildingPlacement
+                                    openingQueue = !secondary && it.opensTouchQueue
+                                    if (openingPlacement || openingQueue) {
+                                        CommandHover.clear()
+                                        invalidateHoverInfo()
+                                    } else if (touchRelease) {
                                         if (!secondary && it.showInfo) {
                                             val info = it.info()
-                                            CommandHover.current.value = CommandTooltip(anchor, info.first, info.second)
+                                            CommandHover.current.value = tooltip(point, info)
                                         } else CommandHover.current.value = null
                                         invalidateHoverInfo()
                                     }
-                                    if (it.enabled || secondary) {
+                                    if (it.enabled || secondary || openingQueue) {
                                         io.github.rwpp.sound.Sounds.playSound(if (secondary) io.github.rwpp.sound.Sounds.cancel else it.clickSound)
                                         it.activate(secondary)
                                     }
@@ -749,16 +830,18 @@ internal fun CommandSurface(
                             }
                             if (!dragged && down != null && geometry.hit(point) == null) {
                                 HudQueuePopupTouch.dismiss()
-                                if (point.y < geometry.top && down.y < geometry.top && !hoverState.mouse) {
+                                if (point.y < geometry.top && down.y < geometry.top && touchRelease) {
                                     val info = geometry.frame.info()
-                                    CommandHover.current.value = CommandTooltip(anchor, info.first, info.second)
+                                    CommandHover.current.value = tooltip(point, info)
                                     invalidateHoverInfo()
-                                } else if (!hoverState.mouse) {
+                                } else if (touchRelease) {
                                     CommandHover.current.value = null
                                     invalidateHoverInfo()
                                 }
                             }
-                            if (hoverState.mouse && !dragged) showHoverInfo(point, force = true)
+                            if (!touchRelease && !dragged && !openingPlacement && !openingQueue) {
+                                showHoverInfo(point, force = true)
+                            }
                             pressed = false
                             down = null; last = null; change.consume()
                         }
@@ -784,7 +867,7 @@ internal fun CommandSurface(
 
                         PointerEventType.Exit -> {
                             hoveredIndex = -1; CommandPointer.inPanel = false
-                            if (hoverState.mouse) clearHoverInfo()
+                            if (change.type == PointerType.Mouse) leaveHoverInfo(point)
                         }
                     }
                 }
@@ -1122,10 +1205,12 @@ internal fun GameScreen.AeroCommandConsole() {
             )
             if (showSandboxControls) SandboxForceBuildToggle()
             Box(Modifier.fillMaxWidth().weight(1f)) {
-                CommandSurface(model, isEditMode, Modifier.fillMaxSize(), visibility)
+                CommandSurface(model, isEditMode, Modifier.fillMaxSize(), visibility, placementActive = {
+                    GameEngine.getInstance()?.interfaceEngine?.activeSpecialAction?.actionType == ActionType.placeBuilding
+                })
                 val index = commands.indexOfFirst { it == queueAction }
                 TouchQueuePopup(
-                    model.value.buttons.getOrNull(index),
+                    model.value.buttons.getOrNull(index).takeUnless { isEditMode || showPauseMenu },
                     onAdd = { queueAction?.let { executeHudAction(it, selectedUnits, false) } },
                     onRemove = { queueAction?.let { executeHudAction(it, selectedUnits, true) } },
                     onClose = productionSelection::clear
@@ -1331,55 +1416,6 @@ private fun AeroUnitGroupRow(groups: List<NativeHudGroup>) {
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-internal fun CommandTooltipLayer() {
-    val text = rememberTextMeasurer()
-    val colors = MaterialTheme.colorScheme
-    val current = CommandHover.current.value
-    var retained by remember { mutableStateOf<CommandTooltip?>(null) }
-    if (current != null) retained = current
-    val animated =
-        runCatching { io.github.rwpp.appKoin.get<io.github.rwpp.config.Settings>().hudAnimations }.getOrDefault(true)
-    val alpha by androidx.compose.animation.core.animateFloatAsState(
-        if (current != null) 1f else 0f,
-        androidx.compose.animation.core.tween(if (animated) 180 else 0)
-    )
-    Box(Modifier.fillMaxSize()) {
-        val tooltip = retained
-        val content = text.measure(
-            AnnotatedString(tooltip?.text.orEmpty()),
-            TextStyle(color = colors.onSurface, fontSize = 11.sp),
-            maxLines = 10,
-            constraints = Constraints(maxWidth = with(androidx.compose.ui.platform.LocalDensity.current) { 284.dp.roundToPx() })
-        )
-        Canvas(
-            Modifier.align(Alignment.TopCenter).padding(top = 8.dp)
-                .width(310.dp)
-                .height(if (current != null || alpha > 0f) (with(androidx.compose.ui.platform.LocalDensity.current) { content.size.height.toDp() } + 46.dp) else 0.dp)
-                .graphicsLayer { this.alpha = alpha; translationY = (1f - alpha) * -8.dp.toPx() }) {
-            val cut = 10.dp.toPx()
-            val path = Path().apply {
-                moveTo(cut, 0f); lineTo(size.width, 0f); lineTo(size.width, size.height - cut)
-                lineTo(size.width - cut, size.height); lineTo(0f, size.height); lineTo(0f, cut); close()
-            }
-            drawPath(path, colors.surfaceContainerLowest.copy(alpha = hudPanelAlpha(0.94f)))
-            drawPath(path, colors.primary.copy(alpha = 0.7f), style = Stroke(1.dp.toPx()))
-            drawText(
-                text, tooltip?.title.orEmpty(), topLeft = Offset(12.dp.toPx(), 8.dp.toPx()),
-                style = TextStyle(color = colors.primary, fontSize = 13.sp), maxLines = 1,
-                size = Size(size.width - 44.dp.toPx(), 20.dp.toPx()), overflow = TextOverflow.Ellipsis
-            )
-            drawText(
-                text,
-                "×",
-                topLeft = Offset(size.width - 24.dp.toPx(), 8.dp.toPx()),
-                style = TextStyle(color = colors.primary, fontSize = 14.sp)
-            )
-            drawText(content, topLeft = Offset(12.dp.toPx(), 33.dp.toPx()))
         }
     }
 }

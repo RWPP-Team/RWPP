@@ -51,6 +51,8 @@ object UI : Initialization, IUserInterface {
         internal set
     var warning by mutableStateOf<Warning?>(null)
         internal set
+    internal var briefing by mutableStateOf<Warning?>(null)
+        private set
     var dialogContent by mutableStateOf<(@Composable (dismiss: () -> Unit) -> Unit)?>(null)
         internal set
     var chatMessages by mutableStateOf(AnnotatedString(""))
@@ -84,6 +86,19 @@ object UI : Initialization, IUserInterface {
         if (text.isBlank()) return
         synchronized(UI) {
             warning = Warning(text, title == "Kicked", nativeMessage = message)
+        }
+    }
+
+    internal fun showBriefing(message: String) {
+        if (message.isNotBlank()) synchronized(UI) {
+            briefing = Warning(message, nativeMessage = message)
+        }
+    }
+
+    internal fun dismissWarning(closing: Warning) {
+        synchronized(UI) {
+            if (briefing === closing) briefing = null
+            if (warning === closing) warning = null
         }
     }
 

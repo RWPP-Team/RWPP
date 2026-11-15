@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateList
@@ -69,7 +70,8 @@ class ModsScreen : Screen {
     override fun Content() {
         val navigator = LocalScreenNavigator.current
         val game = koinInject<Game>()
-        val compact = koinInject<AppContext>().isAndroid() || LocalWindowManager.current == WindowManager.Small
+        val android = koinInject<AppContext>().isAndroid()
+        val compact = android || LocalWindowManager.current == WindowManager.Small
 
         var deletedMod by remember { mutableStateOf(false) }
         val mods = remember {
@@ -189,9 +191,9 @@ class ModsScreen : Screen {
             }
 
         }
-        val actions: @Composable () -> Unit = {
+        val actions: @Composable (Modifier) -> Unit = { modifier ->
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 AeroButton(
@@ -251,61 +253,73 @@ class ModsScreen : Screen {
             } else UI.showWarning(readI18n("rwpp.mod.removeInfo"))
         }
         AeroScaledContainer {
-            AeroPanel(modifier = Modifier.fillMaxSize().padding(if (compact) 6.dp else 10.dp)) {
-                ResponsiveSelectionBody(
-                    compact = compact,
-                    modifier = Modifier.fillMaxSize().padding(if (compact) 6.dp else 12.dp),
-                    compactContent = {
-                        item(key = "mods-header") { header() }
-                        item(key = "mods-filter") { filters() }
-                        item(key = "mods-enabled") { AeroHeader(title = "ENABLED", tag = "${enabledMods.size} ITEMS") }
-                        items(count = enabledMods.size, key = { "enabled-${enabledMods[it].modId}" }) { index ->
-                            ModCard(enabledMods[index], true, { toggle(it, true) }, ::delete)
-                        }
-                        item(key = "mods-disabled") {
-                            AeroHeader(
-                                title = "DISABLED",
-                                tag = "${disabledMods.size} ITEMS"
-                            )
-                        }
-                        items(count = disabledMods.size, key = { "disabled-${disabledMods[it].modId}" }) { index ->
-                            ModCard(disabledMods[index], false, { toggle(it, false) }, ::delete)
-                        }
-                        item(key = "mods-actions") { actions() }
-                    },
-                    desktopContent = {
-                        Column(Modifier.fillMaxSize()) {
-                            header()
-                            Spacer(Modifier.height(8.dp))
-                            filters()
-                            AeroDivider(Modifier.padding(vertical = 8.dp))
-                            ResponsiveTwoPane(
-                                compact = false, modifier = Modifier.weight(1f).fillMaxWidth(),
-                                first = {
-                                    ModListColumn(
-                                        "ENABLED",
-                                        enabledMods,
-                                        true,
-                                        Modifier.fillMaxSize(),
-                                        onToggle = { toggle(it, true) },
-                                        onDelete = ::delete
-                                    )
-                                },
-                                second = {
-                                    ModListColumn(
-                                        "DISABLED",
-                                        disabledMods,
-                                        false,
-                                        Modifier.fillMaxSize(),
-                                        onToggle = { toggle(it, false) },
-                                        onDelete = ::delete
-                                    )
-                                })
-                            AeroDivider(Modifier.padding(vertical = 8.dp))
-                            actions()
+            Scaffold(
+                containerColor = Color.Transparent,
+                contentWindowInsets = WindowInsets(0),
+                bottomBar = {
+                    if (android) {
+                        AeroPanel(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp)) {
+                            actions(Modifier.padding(8.dp))
                         }
                     }
-                )
+                },
+            ) { padding ->
+                AeroPanel(Modifier.fillMaxSize().padding(padding).padding(if (compact) 6.dp else 10.dp)) {
+                    ResponsiveSelectionBody(
+                        compact = compact,
+                        modifier = Modifier.fillMaxSize().padding(if (compact) 6.dp else 12.dp),
+                        compactContent = {
+                            item(key = "mods-header") { header() }
+                            item(key = "mods-filter") { filters() }
+                            item(key = "mods-enabled") { AeroHeader(title = "ENABLED", tag = "${enabledMods.size} ITEMS") }
+                            items(count = enabledMods.size, key = { "enabled-${enabledMods[it].modId}" }) { index ->
+                                ModCard(enabledMods[index], true, { toggle(it, true) }, ::delete)
+                            }
+                            item(key = "mods-disabled") {
+                                AeroHeader(
+                                    title = "DISABLED",
+                                    tag = "${disabledMods.size} ITEMS"
+                                )
+                            }
+                            items(count = disabledMods.size, key = { "disabled-${disabledMods[it].modId}" }) { index ->
+                                ModCard(disabledMods[index], false, { toggle(it, false) }, ::delete)
+                            }
+                            if (!android) item(key = "mods-actions") { actions(Modifier) }
+                        },
+                        desktopContent = {
+                            Column(Modifier.fillMaxSize()) {
+                                header()
+                                Spacer(Modifier.height(8.dp))
+                                filters()
+                                AeroDivider(Modifier.padding(vertical = 8.dp))
+                                ResponsiveTwoPane(
+                                    compact = false, modifier = Modifier.weight(1f).fillMaxWidth(),
+                                    first = {
+                                        ModListColumn(
+                                            "ENABLED",
+                                            enabledMods,
+                                            true,
+                                            Modifier.fillMaxSize(),
+                                            onToggle = { toggle(it, true) },
+                                            onDelete = ::delete
+                                        )
+                                    },
+                                    second = {
+                                        ModListColumn(
+                                            "DISABLED",
+                                            disabledMods,
+                                            false,
+                                            Modifier.fillMaxSize(),
+                                            onToggle = { toggle(it, false) },
+                                            onDelete = ::delete
+                                        )
+                                    })
+                                AeroDivider(Modifier.padding(vertical = 8.dp))
+                                actions(Modifier)
+                            }
+                        }
+                    )
+                }
             }
         }
     }

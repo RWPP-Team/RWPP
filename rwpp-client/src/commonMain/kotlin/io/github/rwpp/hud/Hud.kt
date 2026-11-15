@@ -43,7 +43,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import io.github.rwpp.api.config.ConfigIO
 import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.config.HudComponentData
 import io.github.rwpp.config.Settings
@@ -63,6 +62,10 @@ class HudComponentState(
     var height by mutableFloatStateOf(0f)
     private var viewportWidth = 0f
     private var viewportHeight = 0f
+
+    fun maximumScale(): Float = if (width > 0f && height > 0f && viewportWidth > 0f && viewportHeight > 0f) {
+        minOf(3f, viewportWidth / width, viewportHeight / height).coerceAtLeast(0.5f)
+    } else 3f
 
     fun updateViewport(width: Float, height: Float, legacyWidth: Float = width, legacyHeight: Float = height) {
         if (data.relativeX == null) data.relativeX = hudRelativePosition(data.xDp, legacyWidth, this.width * scale)
@@ -108,7 +111,7 @@ private const val HUD_CONSOLE_MOVE_ZONE_HEIGHT_DP = 48f
 private const val HUD_CONSOLE_MOVE_ZONE_TOP_DP = 12f
 
 /** A component exists for one kind of game session; others never offer or render it. */
-enum class HudComponentMode { ALWAYS, OBSERVER, SANDBOX }
+enum class HudComponentMode { ALWAYS, OBSERVER, SANDBOX, SURVIVAL }
 
 class HudComponentTemplate(
     val name: String,
@@ -132,6 +135,7 @@ private enum class HudSettingsScope {
     COMMAND_CONSOLE,
     CHAT_MESSAGES,
     STATUS_READOUT,
+    SURVIVAL,
     COMPONENT
 }
 
@@ -139,6 +143,7 @@ private fun hudSettingsScopeFor(componentId: String) = when (componentId) {
     "hud_console_vertical" -> HudSettingsScope.COMMAND_CONSOLE
     "chat" -> HudSettingsScope.CHAT_MESSAGES
     "telemetry" -> HudSettingsScope.STATUS_READOUT
+    "survival_wave" -> HudSettingsScope.SURVIVAL
     else -> HudSettingsScope.COMPONENT
 }
 
@@ -168,15 +173,16 @@ private fun HudSettingToggle(
 @Composable
 private fun HudEditorSettingsDialog(
     scope: HudSettingsScope,
+    component: HudComponentState?,
     onDismiss: () -> Unit
 ) {
     val settings = koinInject<Settings>()
-    val configIO = koinInject<ConfigIO>()
     val title = when (scope) {
         HudSettingsScope.WORLD_EFFECTS -> "BATTLEFIELD EFFECTS"
         HudSettingsScope.COMMAND_CONSOLE -> "COMMAND CONSOLE SETTINGS"
         HudSettingsScope.CHAT_MESSAGES -> "CHAT MESSAGE SETTINGS"
         HudSettingsScope.STATUS_READOUT -> "STATUS READOUT SETTINGS"
+        HudSettingsScope.SURVIVAL -> "SURVIVAL SETTINGS"
         HudSettingsScope.COMPONENT -> "IN-GAME HUD SETTINGS"
     }
 
@@ -323,6 +329,16 @@ private fun HudEditorSettingsDialog(
                                 title = "CONTROLS",
                                 tag = "Controls",
                             ) {
+                                var tooltipScale by remember(settings) {
+                                    mutableFloatStateOf(settings.commandTooltipScale.coerceIn(0.5f, 2f))
+                                }
+                                AeroSettingSlider(
+                                    label = readI18n("rwpp.hud.editor.settings.commandTooltipScale"),
+                                    value = tooltipScale,
+                                    onValueChange = { tooltipScale = it; settings.commandTooltipScale = it },
+                                    valueRange = 0.5f..2f,
+                                    valueFormat = { "${(it * 100).roundToInt()}%" },
+                                )
                                 HudSettingToggle(
                                     "rwpp.settings.minimapUsePlayerColors",
                                     settings.minimapUsePlayerColors
@@ -402,6 +418,20 @@ private fun HudEditorSettingsDialog(
                             }
                         }
 
+                        HudSettingsScope.SURVIVAL -> if (component != null && component.maximumScale() > 0.5f) {
+                            val maxScale = component.maximumScale()
+                            AeroSettingSlider(
+                                label = readI18n("rwpp.survival.hudScale"),
+                                value = component.scale.coerceIn(0.5f, maxScale),
+                                onValueChange = {
+                                    component.scale = it
+                                    component.data.scale = it
+                                },
+                                valueRange = 0.5f..maxScale,
+                                valueFormat = { "${(it * 100).roundToInt()}%" },
+                            )
+                        }
+
                         HudSettingsScope.COMPONENT -> Unit
                     }
                 }
@@ -473,14 +503,14 @@ fun HudEditor(
     var horizontalGuidelineY by remember { mutableStateOf<Float?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
     var showLayoutFiles by remember { mutableStateOf(false) }
-    var settingsScope by remember { mutableStateOf<HudSettingsScope?>(null) }
+    var settingsComponent by remember { mutableStateOf<HudComponentState?>(null) }
     val density = LocalDensity.current
     val latestSaveConfig = rememberUpdatedState(onSaveConfig)
     LaunchedEffect(isEditMode) {
         if (!isEditMode) {
             showAddDialog = false
             showLayoutFiles = false
-            settingsScope = null
+            settingsComponent = null
         }
     }
 
@@ -511,7 +541,7 @@ fun HudEditor(
                         maxWidthDp = maxWidthDp,
                         maxHeightDp = maxHeightDp,
                         snapThresholdDp = snapThresholdDp,
-                        onOpenSettings = { settingsScope = hudSettingsScopeFor(state.data.id) },
+                        onOpenSettings = { settingsComponent = state },
                         onSnapGuidesChange = { vX, hY ->
                             verticalGuidelineX = vX
                             horizontalGuidelineY = hY
@@ -572,7 +602,7 @@ fun HudEditor(
                                                     }
                                                 }
 
-                                                PointerEventType.Move -> {
+                                                PointerEventType.Move, PointerEventType.Enter, PointerEventType.Exit -> {
                                                     if (activePointerId == change.id && change.type == PointerType.Mouse) {
                                                         val delta = rootPosition - lastPosition
                                                         lastPosition = rootPosition
@@ -713,8 +743,11 @@ fun HudEditor(
                 }
             }
         }
-        settingsScope?.let { scope ->
-            HudEditorSettingsDialog(scope, onDismiss = { settingsScope = null })
+        settingsComponent?.let { component ->
+            HudEditorSettingsDialog(hudSettingsScopeFor(component.data.id), component, onDismiss = {
+                settingsComponent = null
+                latestSaveConfig.value()
+            })
         }
     }
 }

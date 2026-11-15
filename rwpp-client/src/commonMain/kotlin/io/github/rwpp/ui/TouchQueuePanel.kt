@@ -32,6 +32,7 @@ import com.corrodinggames.rts.game.units.actions.PingMapAction
 import com.corrodinggames.rts.gameFramework.GameEngine
 import io.github.rwpp.api.coroutines.GameScope
 import io.github.rwpp.api.i18n.readI18n
+import io.github.rwpp.logic.GameVisualSettings
 import io.github.rwpp.sound.Sounds
 import io.github.rwpp.widget.v2.AeroButton
 import io.github.rwpp.widget.v2.AeroHeader
@@ -120,9 +121,18 @@ internal fun TouchQueuePanel(
     onRemove: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val (title, details) = remember(button.info) { button.info() }
+    val tooltipScale = commandTooltipScale()
     AeroPanel(modifier.fillMaxWidth().padding(vertical = 4.dp).pointerInput(Unit) { detectTapGestures {} }) {
         Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            AeroHeader(button.label.substringBefore('\n'), tag = "PRODUCTION")
+            Column(
+                Modifier.weight(1f, fill = false).fillMaxWidth().heightIn(max = 168.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                AeroHeader(title.ifBlank { button.label.substringBefore('\n') }, tag = "PRODUCTION")
+                if (details.isNotBlank()) Text(details, fontSize = (11f * tooltipScale).sp)
+            }
             Text(readI18n("rwpp.hud.queue.count", button.queued), color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (button.pendingProduction > 0) Text(
                 readI18n("rwpp.production.pendingCount", button.pendingProduction),
@@ -144,7 +154,7 @@ internal fun TouchQueuePanel(
 
 /** Observes touches without consuming them or adding a full-screen Compose hit target. */
 internal object HudQueuePopupTouch {
-    var active = false
+    var active by mutableStateOf(false)
     var popup = Rect.Zero
     var selectedIdentity: String? = null
     var actionAt: ((Offset) -> String?)? = null
@@ -182,8 +192,7 @@ internal fun TouchQueuePopup(button: CommandButton?, onAdd: () -> Unit, onRemove
             HudQueuePopupTouch.onDismiss = null
         }
     }
-    val animated =
-        runCatching { io.github.rwpp.appKoin.get<io.github.rwpp.config.Settings>().hudAnimations }.getOrDefault(true)
+    val animated = GameVisualSettings.get()?.hudAnimations != false
     // Match the construction tooltip: short fade + eight-dp vertical translation, no Aero scan/glitch.
     val alpha by animateFloatAsState(if (button != null) 1f else 0f, tween(if (animated) 180 else 0))
     val gap = with(LocalDensity.current) { 8.dp.roundToPx() }
@@ -207,11 +216,14 @@ internal fun TouchQueuePopup(button: CommandButton?, onAdd: () -> Unit, onRemove
         properties = PopupProperties(focusable = false, dismissOnBackPress = false, dismissOnClickOutside = false)
     ) {
         (button ?: retained)?.let { shown ->
-            TouchQueuePanel(
-                shown, onAdd = { if (button != null) onAdd() },
-                onRemove = { if (button != null) onRemove() },
-                modifier = Modifier.widthIn(max = 280.dp).fillMaxWidth()
-                    .graphicsLayer { this.alpha = alpha; translationY = (1f - alpha) * -8.dp.toPx() })
+            key(shown.identity) {
+                TouchQueuePanel(
+                    shown, onAdd = { if (button != null) onAdd() },
+                    onRemove = { if (button != null) onRemove() },
+                    modifier = Modifier.widthIn(max = 280.dp).fillMaxWidth()
+                        .graphicsLayer { this.alpha = alpha; translationY = (1f - alpha) * -8.dp.toPx() },
+                )
+            }
         }
     }
 }

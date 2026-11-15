@@ -82,6 +82,7 @@ import io.github.rwpp.widget.autoClearFocus
 import io.github.rwpp.widget.generalProportion
 import io.github.rwpp.widget.v2.*
 import io.github.rwpp.widget.v2.scrollbar.LazyColumnScrollbar
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
@@ -154,6 +155,16 @@ class MultiplayerScreen : Screen {
 
     var hostDialogVisible by mutableStateOf(false)
     var filterSurfaceDialogVisible by mutableStateOf(false)
+
+    private fun openRoomList(config: ServerConfig) {
+        if (!isShowingRoomList || selectedServerConfig !== config) {
+            currentViewList = emptyList()
+            throwable = null
+        }
+        selectedServerConfig = config
+        isShowingRoomList = true
+        refresh.trySend(Unit)
+    }
 
     private fun beginJoinAttempt() {
         if (isConnecting) return
@@ -297,20 +308,24 @@ class MultiplayerScreen : Screen {
                     if (isRefreshing) continue
                     throwable = null
                     isRefreshing = true
+                    val roomList = selectedServerConfig.takeIf { isShowingRoomList }
                     try {
-                        val roomList = selectedServerConfig
-                        if (isShowingRoomList && roomList != null) {
-                            if (roomList.customRoomListProvider == null) {
+                        if (roomList != null) {
+                            val provider = roomList.customRoomListProvider
+                            val rooms = if (provider == null) {
                                 // Show the last successful list immediately; the refresh below
                                 // replaces it without ever showing a timeout error.
                                 net.cachedRoomList()?.let { cached ->
                                     if (cached.isNotEmpty()) currentViewList = cached
                                 }
-                                currentViewList = getRoomListFromSourceUrl(
+                                getRoomListFromSourceUrl(
                                     roomList.ip.split(";")
                                 )
                             } else {
-                                currentViewList = net.roomListProvider[roomList.customRoomListProvider!!]!!()
+                                net.roomListProvider.getValue(provider)()
+                            }
+                            if (isShowingRoomList && selectedServerConfig === roomList) {
+                                currentViewList = rooms
                             }
                         } else {
                             for (s in allServerData) {
@@ -328,11 +343,16 @@ class MultiplayerScreen : Screen {
                             }
                         }
 
-                    } catch (e: Throwable) {
-                        throwable = e
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        if (isShowingRoomList && selectedServerConfig === roomList) {
+                            throwable = e
+                        }
+                        logger().warn("Multiplayer refresh failed", e)
+                    } finally {
+                        isRefreshing = false
                     }
-
-                    isRefreshing = false
                 }
             }
         }
@@ -391,7 +411,11 @@ class MultiplayerScreen : Screen {
                             if (isShowingRoomList) {
                                 AeroIconButton(
                                     painter = rememberVectorPainter(Icons.AutoMirrored.Filled.ArrowBack),
-                                    onClick = { isShowingRoomList = false }
+                                    onClick = {
+                                        isShowingRoomList = false
+                                        currentViewList = emptyList()
+                                        throwable = null
+                                    }
                                 )
                             } else {
                                 AeroIconButton(
@@ -572,7 +596,14 @@ class MultiplayerScreen : Screen {
                                         state = lazyListState
                                     ) {
                                         if (isShowingRoomList) {
-                                            if (realList.isEmpty()) {
+                                            if (throwable != null) {
+                                                item {
+                                                    Text(
+                                                        readI18n("rwpp.multiplayer.roomListFailed"),
+                                                        color = MaterialTheme.colorScheme.error,
+                                                    )
+                                                }
+                                            } else if (realList.isEmpty() && !isRefreshing) {
                                                 item {
                                                     Text(
                                                         readI18n("rwpp.multiplayer.roomListEmpty"),
@@ -1022,10 +1053,7 @@ class MultiplayerScreen : Screen {
                                 configIO.setGameConfig("lastNetworkIP", ip)
                                 beginJoinAttempt()
                             } else if (serverData.config.type == ServerType.RoomList) {
-                                selectedServerConfig = serverData.config
-                                isShowingRoomList = true
-                                currentViewList = listOf()
-                                refresh.trySend(Unit)
+                                openRoomList(serverData.config)
                             }
                         },
                     borderColor = cardBorderColor

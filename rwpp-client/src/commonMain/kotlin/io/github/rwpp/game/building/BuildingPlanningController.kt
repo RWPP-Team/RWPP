@@ -204,7 +204,11 @@ private data class BlueprintTouchDrag(
     var lastX: Float, var lastY: Float,
 )
 
-private data class BuildingSelection(val units: List<GameUnit>, val truncated: Boolean)
+private data class ReclaimResult(val issued: Int, val queueLimited: Boolean)
+private data class BlueprintOrder(
+    val placement: BuildingPlanningWorldPlacement<CapturedBuilding>,
+    val builder: OrderableUnit,
+)
 private data class CapturedBlueprintSelection(val items: List<CapturedBuilding>, val truncated: Boolean)
 private data class CapturedBlueprintSource(
     val type: UnitTypeInterface,
@@ -300,7 +304,7 @@ internal object BuildingPlanningController {
         GameScope.launch(GameMainDispatcher) { toggleModeOnGameThread() }
     }
 
-    /** Start a native left-button/touch drag to capture existing and unfinished buildings. */
+    /** Start a native left-button/touch drag to copy placed units and pending construction. */
     fun beginBlueprintSelection() {
         GameScope.launch(GameMainDispatcher) {
             awaitPointerRelease = false
@@ -320,14 +324,16 @@ internal object BuildingPlanningController {
             val engine = GameEngine.getInstance()
             if (engine.map == null || !canIssueNativeCommands(engine)) return@launch
             val types = appKoin.get<Game>().getAllUnitTypes().associateBy { it.internalName }
-            val captured = items.map { item ->
-                val type = types[item.typeInternalName]
-                if (type == null || !type.isBuilding) {
-                    statusKey = "rwpp.planning.blueprintUnavailable"
-                    publish()
-                    return@launch
-                }
+            val placeable = blueprintPlacementTypes(engine, types.values)
+            val captured = items.mapNotNull { item ->
+                val type = types[item.typeInternalName] ?: return@mapNotNull null
+                if (!type.isBuilding && (item.typeInternalName to item.techLevel) !in placeable) return@mapNotNull null
                 CapturedBuilding(type, item.typeInternalName, item.techLevel, item.offsetX, item.offsetY, 12f)
+            }
+            if (captured.isEmpty()) {
+                statusKey = "rwpp.planning.blueprintUnavailable"
+                publish()
+                return@launch
             }
             if (!ensureBuilderGroup(allowEmpty = true)) return@launch
             gesture = null
@@ -348,7 +354,7 @@ internal object BuildingPlanningController {
     fun beginReclaimSelection() {
         GameScope.launch(GameMainDispatcher) {
             awaitPointerRelease = false
-            if (!ensureBuilderGroup()) return@launch
+            if (!ensureBuilderGroup(reclaim = true)) return@launch
             gesture = null
             mode = BuildingPlanningMode.RECLAIM_AREA
             reclaimCompleted = false
@@ -554,7 +560,7 @@ internal object BuildingPlanningController {
         publish()
     }
 
-    private fun ensureBuilderGroup(allowEmpty: Boolean = false): Boolean {
+    private fun ensureBuilderGroup(allowEmpty: Boolean = false, reclaim: Boolean = false): Boolean {
         val engine = runCatching { GameEngine.getInstance() }.getOrNull()
         if (engine != null) {
             if (previousMap !== engine.map || previousPlayerTeam !== engine.playerTeam) {
@@ -564,28 +570,14 @@ internal object BuildingPlanningController {
             }
             if (allowEmpty) engine.interfaceEngine.cancelActiveAction()
             // Resolve the selection at activation, rather than reusing an earlier frame's group.
-            var selected = selectedBuildCapableUnits(engine)
-            if (selected.isEmpty()) {
-                val zoom = engine.zoomScale.coerceAtLeast(0.01f)
-                selected = nativeUnitSnapshot().filterIsInstance<OrderableUnit>().filter {
-                    !it.dead && it.team === engine.playerTeam && it.transportedBy == null &&
-                            it.attachedToUnit == null && it.isBuilder && hasNativeBuildCapability(it) &&
-                            io.github.rwpp.logic.selection.intersectsSelectionViewport(
-                                it.x,
-                                it.y - it.height,
-                                it.radius,
-                                engine.cameraRenderX,
-                                engine.cameraRenderY,
-                                engine.gameAreaWidth / zoom,
-                                engine.screenHeight / zoom
-                            )
-                }
-                if (selected.isNotEmpty()) {
-                    engine.interfaceEngine.clearUnitSelection()
-                    selected.forEach(engine.interfaceEngine::selectUnit)
-                }
+            val group = screenPlanningUnits(engine).filter {
+                if (reclaim) hasReclaimAction(it) else hasNativeBuildCapability(it)
             }
-            builderIds = selected.map { it.id }.distinct()
+            if (group.isNotEmpty() && group.none { it.selected }) {
+                engine.interfaceEngine.clearUnitSelection()
+                group.forEach(engine.interfaceEngine::selectUnit)
+            }
+            builderIds = group.map { it.id }.distinct()
             if (builderIds.isNotEmpty()) {
                 engine.interfaceEngine.cancelActiveAction()
                 awaitPointerRelease = true
@@ -909,12 +901,18 @@ internal object BuildingPlanningController {
         worldRect: BuildingPlanningScreenRect,
         gestureMode: BuildingPlanningMode = mode,
     ) {
+        val viewport = planningViewport(engine)
+        val rect = BuildingPlanningScreenRect(
+            max(worldRect.left, viewport.left), max(worldRect.top, viewport.top),
+            min(worldRect.right, viewport.right), min(worldRect.bottom, viewport.bottom),
+        )
+        if (rect.left >= rect.right || rect.top >= rect.bottom) return
         when (gestureMode) {
             BuildingPlanningMode.SELECT_BLUEPRINT -> {
-                val captured = captureBlueprint(engine, worldRect)
+                val captured = captureBlueprint(engine, rect)
                 capturedBlueprint = captured.items
                 if (!GameEngine.isDesktopVersion()) logger().info(
-                    "Blueprint touch capture: buildings={}, builders={}",
+                    "Blueprint touch capture: items={}, builders={}",
                     captured.items.size,
                     builders.size
                 )
@@ -931,7 +929,7 @@ internal object BuildingPlanningController {
                     touchPlacementWaitForRelease = false
                     placementSession = BlueprintPlacementSession(captured.items.map {
                         BuildingPlanningRelativeItem(it, it.techLevel, it.offsetX, it.offsetY, it.radius)
-                    }, (worldRect.left + worldRect.right) / 2f, (worldRect.top + worldRect.bottom) / 2f)
+                    }, (rect.left + rect.right) / 2f, (rect.top + rect.bottom) / 2f)
                     invalidPlacements = captured.items.size
                     statusKey = "rwpp.planning.independentMove"
                 }
@@ -939,12 +937,11 @@ internal object BuildingPlanningController {
             }
 
             BuildingPlanningMode.RECLAIM_AREA -> {
-                val targets = collectBuildings(engine, worldRect)
-                lastActionCount = 0
-                lastActionCount = issueReclaim(engine, builders, targets.units)
+                val result = issueReclaim(engine, builders, rect)
+                lastActionCount = result.issued
                 statusKey = when {
+                    result.queueLimited -> "rwpp.planning.reclaimLimit"
                     lastActionCount == 0 -> "rwpp.planning.noReclaimTargets"
-                    targets.truncated -> "rwpp.planning.reclaimLimit"
                     else -> "rwpp.planning.reclaimed"
                 }
                 publish()
@@ -1031,32 +1028,37 @@ internal object BuildingPlanningController {
         )
     }
 
-    private fun independentPlacementAllowed(
+    private fun planBlueprintOrders(
         engine: GameEngine,
-        placement: BuildingPlanningWorldPlacement<CapturedBuilding>
-    ): Boolean {
-        val unit = placement.value.previewUnit ?: return false
-        unit.setTeamDirect(engine.playerTeam)
-        unit.setTechLevel(placement.techLevel)
-        return resolveBuilders(engine, builderIds).any { builder ->
-            findNativeBuildAction(builder, placement.value.type, placement.techLevel) != null &&
-                    engine.interfaceEngine.checkPlacementPosition(unit, placement.x, placement.y, false, false, builder)
+        placements: List<BuildingPlanningWorldPlacement<CapturedBuilding>>,
+        builders: List<OrderableUnit>,
+    ): List<BlueprintOrder> {
+        val buildersByType = placements.map { it.value.type to it.techLevel }.distinct().associateWith { (type, tech) ->
+            builders.filter { findNativeBuildAction(it, type, tech) != null }
+        }
+        val candidates = placements.map { placement ->
+            placement to buildersByType.getValue(placement.value.type to placement.techLevel)
+        }.sortedBy { it.second.size }
+        val reserved = mutableMapOf<Long, Int>()
+        return candidates.mapNotNull { (placement, capable) ->
+            val unit = placement.value.previewUnit ?: return@mapNotNull null
+            unit.setTeamDirect(engine.playerTeam)
+            unit.setTechLevel(placement.techLevel)
+            val builder = capable.asSequence()
+                .filter { it.waypointCount + reserved.getOrDefault(it.id, 0) < MAX_PLANNING_TARGETS }
+                .sortedWith(planningWorkerPriority(reserved, placement.x, placement.y))
+                .firstOrNull {
+                    engine.interfaceEngine.checkPlacementPosition(unit, placement.x, placement.y, false, false, it)
+                } ?: return@mapNotNull null
+            reserved[builder.id] = reserved.getOrDefault(builder.id, 0) + 1
+            BlueprintOrder(placement, builder)
         }
     }
 
     private fun refreshIndependentPlacementValidity(engine: GameEngine) {
-        val placements = placementSession?.placements() ?: return
+        val session = placementSession ?: return
         val builders = resolveBuilders(engine, builderIds)
-        val reserved = mutableMapOf<Long, Int>()
-        invalidPlacements = placements.count { placement ->
-            val capable = builders.filter {
-                it.waypointCount + (reserved[it.id] ?: 0) < MAX_PLANNING_TARGETS &&
-                        findNativeBuildAction(it, placement.value.type, placement.techLevel) != null
-            }
-            val allowed = capable.isNotEmpty() && independentPlacementAllowed(engine, placement)
-            if (allowed) capable.forEach { reserved[it.id] = (reserved[it.id] ?: 0) + 1 }
-            !allowed
-        }
+        invalidPlacements = session.items.size - planBlueprintOrders(engine, session.placements(), builders).size
     }
 
     /** Render every captured type directly. This never calls native placement input or line expansion. */
@@ -1065,17 +1067,20 @@ internal object BuildingPlanningController {
         val engine = GameEngine.getInstance()
         val session = placementSession ?: return
         val builders = resolveBuilders(engine, builderIds)
-        session.placements().forEach { placement ->
+        val placements = session.placements()
+        val orders = planBlueprintOrders(engine, placements, builders)
+        invalidPlacements = session.items.size - orders.size
+        val buildersByPlacement = IdentityHashMap<BuildingPlanningWorldPlacement<CapturedBuilding>, OrderableUnit>()
+        orders.forEach { buildersByPlacement[it.placement] = it.builder }
+        placements.forEach { placement ->
             val unit = placement.value.previewUnit ?: return@forEach
             unit.setTeamDirect(engine.playerTeam)
             unit.setTechLevel(placement.techLevel)
             unit.angle = if (unit.isBuilding) -90f else 0f
-            val builder =
-                builders.firstOrNull { findNativeBuildAction(it, placement.value.type, placement.techLevel) != null }
+            val builder = buildersByPlacement[placement]
             // Compact sprite rendering skips the native placement grid, which dereferences
             // activeSpecialAction. The independent mode draws its own footprint instead.
-            val allowed =
-                engine.interfaceEngine.checkPlacementPosition(unit, placement.x, placement.y, true, true, builder)
+            engine.interfaceEngine.checkPlacementPosition(unit, placement.x, placement.y, true, true, builder)
             unit.x = placement.x
             unit.y = placement.y
             val tile = unit.getMinimapPosition(engine.map, android.graphics.Point())
@@ -1086,10 +1091,9 @@ internal object BuildingPlanningController {
             val bottom = (tile.y + footprint.bottom + 1) * engine.map.tileHeight.toFloat()
             drawPlanningRect(
                 engine, worldRectToScreenRect(engine, BuildingPlanningScreenRect(left, top, right, bottom)),
-                if (allowed && builder != null) BLUEPRINT_PAINT else BLOCKED_BLUEPRINT_PAINT
+                if (builder != null) BLUEPRINT_PAINT else BLOCKED_BLUEPRINT_PAINT
             )
         }
-        refreshIndependentPlacementValidity(engine)
         publish()
     }
 
@@ -1098,14 +1102,9 @@ internal object BuildingPlanningController {
             if (mode != BuildingPlanningMode.PLACE_BLUEPRINT) return@launch
             val engine = GameEngine.getInstance()
             val session = placementSession ?: return@launch
-            val candidates = nativeUnitSnapshot().filterIsInstance<OrderableUnit>().filter {
-                !it.dead && it.team === engine.playerTeam && it.transportedBy == null &&
-                        it.attachedToUnit == null && hasNativeBuildCapability(it)
+            val matched = screenPlanningUnits(engine).filter { builder ->
+                session.items.any { findNativeBuildAction(builder, it.value.type, it.techLevel) != null }
             }
-            val matched = session.items.mapNotNull { item ->
-                candidates.filter { findNativeBuildAction(it, item.value.type, item.techLevel) != null }
-                    .minByOrNull { distanceSquared(it.x, it.y, session.originX, session.originY) }
-            }.distinctBy { it.id }
             builderIds = matched.map { it.id }
             engine.interfaceEngine.clearUnitSelection()
             matched.forEach(engine.interfaceEngine::selectUnit)
@@ -1126,15 +1125,9 @@ internal object BuildingPlanningController {
         if (blocked || mode != BuildingPlanningMode.PLACE_BLUEPRINT) return
         val engine = GameEngine.getInstance()
         val session = placementSession ?: return
-        refreshIndependentPlacementValidity(engine)
-        if (invalidPlacements != 0) {
-            statusKey = "rwpp.planning.independentBlocked"
-            publish()
-            return
-        }
         val builders = resolveBuilders(engine, builderIds)
         issueBlueprint(engine, builders)
-        if (lastActionCount != session.items.size) {
+        if (lastActionCount == 0) {
             publish()
             return
         }
@@ -1191,16 +1184,19 @@ internal object BuildingPlanningController {
     }
 
     private fun captureBlueprint(engine: GameEngine, rect: BuildingPlanningScreenRect): CapturedBlueprintSelection {
+        val placeable = blueprintPlacementTypes(engine, appKoin.get<Game>().getAllUnitTypes())
         val sources = ArrayList<CapturedBlueprintSource>()
-        val selected = matchingBuildings(engine, rect)
-        selected.forEach { unit ->
+        nativeUnitSnapshot().forEach { unit ->
+            if (!isOwnPlanningUnit(engine, unit) || !planningRectContains(rect, unit)) return@forEach
             val type = runCatching { unit.unitTypeInterface }.getOrNull() ?: return@forEach
             val name = runCatching { type.internalName }.getOrNull()?.takeIf(String::isNotBlank)
                 ?: return@forEach
+            val tech = unit.techLevel
+            if (!type.isBuilding && (name to tech) !in placeable) return@forEach
             sources += CapturedBlueprintSource(
                 type = type,
                 typeName = name,
-                techLevel = runCatching { unit.techLevel }.getOrDefault(1),
+                techLevel = tech,
                 worldX = unit.x,
                 worldY = unit.y,
                 radius = unit.radius.coerceAtLeast(12f),
@@ -1249,17 +1245,39 @@ internal object BuildingPlanningController {
         )
     }
 
-    private fun matchingBuildings(engine: GameEngine, rect: BuildingPlanningScreenRect): List<GameUnit> =
-        nativeUnitSnapshot().asSequence()
-            .filter { !it.dead && it.team === engine.playerTeam && runCatching { it.isBuilding }.getOrDefault(false) }
-            .filter { buildingPlanningRectTouchesPoint(rect, it.x, it.y, it.radius.coerceAtLeast(0f)) }
-            .toList()
+    private fun blueprintPlacementTypes(engine: GameEngine, types: Iterable<UnitTypeInterface>): Set<Pair<String, Int>> =
+        buildSet {
+            fun addActions(actions: List<*>) {
+                for (action in actions.filterIsInstance<SpecialAction>()) {
+                    if (action.actionType != ActionType.placeBuilding) continue
+                    val type = action.unitType ?: continue
+                    add(type.internalName to action.techLevel)
+                }
+            }
+            for (type in types) {
+                for (level in 1..3) type.getSpecialActionList(level)?.let(::addActions)
+            }
+            // Some custom units expose their placement menu only on live instances.
+            screenPlanningUnits(engine).forEach { addActions(it.specialActions) }
+        }
 
-    private fun collectBuildings(engine: GameEngine, rect: BuildingPlanningScreenRect): BuildingSelection {
-        val units = matchingBuildings(engine, rect).distinctBy { unit ->
-            "${runCatching { unit.unitTypeInterface?.internalName }.getOrNull()}:${unit.techLevel}:${unit.x.toInt()}:${unit.y.toInt()}"
-        }.sortedWith(compareBy({ it.y }, { it.x }, { it.id }))
-        return BuildingSelection(units.take(MAX_PLANNING_TARGETS), units.size > MAX_PLANNING_TARGETS)
+    private fun planningViewport(engine: GameEngine): BuildingPlanningScreenRect {
+        val zoom = engine.zoomScale.takeIf { it > 0f && it.isFinite() } ?: 1f
+        val x = engine.cameraRenderX
+        val y = engine.cameraRenderY
+        return BuildingPlanningScreenRect(x, y, x + engine.gameAreaWidth / zoom, y + engine.screenHeight / zoom)
+    }
+
+    private fun planningRectContains(rect: BuildingPlanningScreenRect, unit: GameUnit): Boolean =
+        buildingPlanningRectTouchesPoint(rect, unit.x, unit.y - unit.height, unit.radius.coerceAtLeast(0f))
+
+    private fun isOwnPlanningUnit(engine: GameEngine, unit: GameUnit): Boolean =
+        !unit.dead && unit.team === engine.playerTeam && unit.transportedBy == null && unit.attachedToUnit == null
+
+    private fun screenPlanningUnits(engine: GameEngine): List<OrderableUnit> {
+        val viewport = planningViewport(engine)
+        return nativeUnitSnapshot().filterIsInstance<OrderableUnit>()
+            .filter { isOwnPlanningUnit(engine, it) && !it.isUnselectable && planningRectContains(viewport, it) }
     }
 
     private fun activeNativeBlueprints(): List<Blueprint> = runCatching {
@@ -1272,30 +1290,67 @@ internal object BuildingPlanningController {
     private fun issueReclaim(
         engine: GameEngine,
         builders: List<OrderableUnit>,
-        targets: List<GameUnit>,
-    ): Int {
-        if (!canIssueNativeCommands(engine)) return 0
-        val access = engine.interfaceEngine as? NativeInterfaceAccess ?: return 0
-        var issued = 0
-        val reserved = mutableMapOf<Long, Int>()
-        targets.take(MAX_PLANNING_TARGETS).forEach { target ->
-            val capable = builders.filter { builder ->
-                !builder.dead && builder.team === engine.playerTeam &&
-                        builder.waypointCount + (reserved[builder.id] ?: 0) < MAX_PLANNING_TARGETS &&
-                        runCatching { builder.canReclaimUnit(target) }.getOrDefault(false)
+        rect: BuildingPlanningScreenRect,
+    ): ReclaimResult {
+        if (!canIssueNativeCommands(engine)) return ReclaimResult(0, false)
+        val access = engine.interfaceEngine as? NativeInterfaceAccess ?: return ReclaimResult(0, false)
+        val viewport = planningViewport(engine)
+        val actions = builders.filter { planningRectContains(viewport, it) }.associateWith { builder ->
+            reclaimActions(builder).filter { io.github.rwpp.game.hud.hudActionUnlocked(it, builder) }
+        }.filterValues { it.isNotEmpty() }
+        val targets = nativeUnitSnapshot().asSequence()
+            .filter { target ->
+                !target.dead && target.transportedBy == null && target.attachedToUnit == null &&
+                        !target.isUnselectableAsTarget && planningRectContains(rect, target) &&
+                        (target.team === engine.playerTeam || target.isVisibleToPlayer) &&
+                        (!engine.playerTeam.isEnemy(target.team) || target.isVisibleToAllPlayers)
             }
-            if (capable.isEmpty()) return@forEach
-            val command = runCatching { access.rwppCreatePlanningCommand() }.getOrNull() ?: return@forEach
-            if (!configurePlanningCommand(command, capable)) return@forEach
-            runCatching {
+            .mapNotNull { target ->
+                val capable = actions.keys.filter { builder ->
+                    builder !== target && builder.canReclaimUnit(target) &&
+                            (target.resourceRate > 0f || actions.getValue(builder).any { it.canTargetUnit(target) }) &&
+                            (builder.canActIndependently() || builder.getReclaimRange(target).let { range ->
+                                distanceSquared(builder.x, builder.y, target.x, target.y) <= range.toFloat() * range
+                            })
+                }
+                capable.takeIf { it.isNotEmpty() }?.let { target to it }
+            }
+            .sortedWith(compareBy({ it.second.size }, { it.first.y }, { it.first.x }, { it.first.id }))
+            .toList()
+        var issued = 0
+        var queueLimited = false
+        val reserved = mutableMapOf<Long, Int>()
+        for ((target, capable) in targets) {
+            val builder = capable.asSequence()
+                .filter { it.waypointCount + reserved.getOrDefault(it.id, 0) < MAX_PLANNING_TARGETS }
+                .minWithOrNull(planningWorkerPriority(reserved, target.x, target.y))
+            if (builder == null) {
+                queueLimited = true
+                continue
+            }
+            val command = runCatching { access.rwppCreatePlanningCommand() }.getOrNull() ?: continue
+            val configured = configurePlanningCommand(command, listOf(builder)) && runCatching {
                 command.setReclaimWaypoint(target)
                 command.queueOrder = true
-            }.onFailure { return@forEach }
-            capable.forEach { reserved[it.id] = (reserved[it.id] ?: 0) + 1 }
+            }.isSuccess
+            if (!configured) {
+                engine.commandController.localPendingCommands.remove(command)
+                engine.commandController.networkPendingCommands.remove(command)
+                continue
+            }
+            reserved[builder.id] = reserved.getOrDefault(builder.id, 0) + 1
             issued++
         }
-        return issued
+        return ReclaimResult(issued, queueLimited)
     }
+
+    private fun planningWorkerPriority(reserved: Map<Long, Int>, x: Float, y: Float): Comparator<OrderableUnit> =
+        compareBy(
+            { it.waypointCount + reserved.getOrDefault(it.id, 0) },
+            { !it.selected },
+            { distanceSquared(it.x, it.y, x, y) },
+            { it.id },
+        )
 
     private fun issueBlueprint(engine: GameEngine, builders: List<OrderableUnit>) {
         lastActionCount = 0
@@ -1304,61 +1359,55 @@ internal object BuildingPlanningController {
             return
         }
         val access = engine.interfaceEngine as? NativeInterfaceAccess ?: return
-        val placements = placementSession?.placements() ?: return
-        val created = ArrayList<CommandControllerCommand>()
-        val reserved = mutableMapOf<Long, Int>()
-        var configured = 0
-        for ((value, techLevel, x, y) in placements) {
-            val capable = builders.filter { builder ->
-                !builder.dead && builder.team === engine.playerTeam &&
-                        (builder.canBeGivenBuildOrders() || isLocalSandboxEditor(builder)) &&
-                        builder.waypointCount + (reserved[builder.id] ?: 0) < MAX_PLANNING_TARGETS &&
-                        findNativeBuildAction(builder, value.type, techLevel) != null
-            }
-            if (capable.isEmpty()) break
-            val command = runCatching { access.rwppCreatePlanningCommand() }.getOrNull() ?: break
-            created += command
-            if (!configurePlanningCommand(command, capable)) break
-            val success = runCatching {
+        val session = placementSession ?: return
+        val orders = planBlueprintOrders(engine, session.placements(), builders)
+        for ((placement, builder) in orders) {
+            val (value, techLevel, x, y) = placement
+            val command = runCatching { access.rwppCreatePlanningCommand() }.getOrNull() ?: continue
+            val configured = configurePlanningCommand(command, listOf(builder)) && runCatching {
                 command.setBuildWaypoint(x, y, value.type, techLevel)
                 command.queueOrder = true
-                if (capable.any(::isLocalSandboxEditor)) {
+                if (isLocalSandboxEditor(builder)) {
                     command.hasSystemAction = true
                     command.systemActionId = 5
                 }
             }.isSuccess
-            if (!success) break
-            capable.forEach { reserved[it.id] = (reserved[it.id] ?: 0) + 1 }
-            configured++
+            if (configured) {
+                lastActionCount++
+            } else {
+                engine.commandController.localPendingCommands.remove(command)
+                engine.commandController.networkPendingCommands.remove(command)
+            }
         }
-        if (configured != placements.size) {
-            // Nothing dispatches until this game-thread callback finishes. Roll back only our
-            // own newly created batch if any item fails; unrelated native orders stay intact.
-            val owned = Collections.newSetFromMap(IdentityHashMap<CommandControllerCommand, Boolean>())
-                .apply { addAll(created) }
-            engine.commandController.localPendingCommands.removeAll { it in owned }
-            engine.commandController.networkPendingCommands.removeAll { it in owned }
-            statusKey = "rwpp.planning.independentBlocked"
-            return
+        invalidPlacements = session.items.size - lastActionCount
+        statusKey = when {
+            lastActionCount == 0 -> "rwpp.planning.independentBlocked"
+            invalidPlacements > 0 -> "rwpp.planning.placedPartial"
+            else -> "rwpp.planning.placed"
         }
-        lastActionCount = configured
-        statusKey = "rwpp.planning.placed"
     }
 
     private fun selectedBuildCapableUnits(engine: GameEngine): List<OrderableUnit> {
         // The battle panel caches its action selection until its next render; use live UI selection.
         val selected = engine.interfaceEngine.selectedUnits
+        val viewport = planningViewport(engine)
         return selected.filterIsInstance<OrderableUnit>()
-            .filter { !it.dead && it.team === engine.playerTeam && hasNativeBuildCapability(it) }
+            .filter { isOwnPlanningUnit(engine, it) && planningRectContains(viewport, it) && hasNativeBuildCapability(it) }
             .distinctBy { it.id }
     }
 
     private fun resolveBuilders(engine: GameEngine, ids: List<Long>): List<OrderableUnit> =
         ids.distinct().mapNotNull { id ->
             runCatching { GameObject.getOrderableUnitFromId(id, true) }.getOrNull()?.takeIf {
-                it.id == id && !it.dead && it.team === engine.playerTeam && hasNativeBuildCapability(it)
+                it.id == id && isOwnPlanningUnit(engine, it) &&
+                        if (mode == BuildingPlanningMode.RECLAIM_AREA) hasReclaimAction(it) else hasNativeBuildCapability(it)
             }
         }
+
+    private fun reclaimActions(unit: OrderableUnit): List<SpecialAction> =
+        unit.specialActions.filterIsInstance<SpecialAction>().filter { it.actionType == ActionType.reclaimTarget }
+
+    private fun hasReclaimAction(unit: OrderableUnit): Boolean = reclaimActions(unit).isNotEmpty()
 
     private fun hasNativeBuildCapability(unit: OrderableUnit): Boolean {
         if (isLocalSandboxEditor(unit)) return true
@@ -1497,7 +1546,8 @@ internal object BuildingPlanningController {
             lastActionCount = lastActionCount,
             dragRect = rect,
             invalidPlacements = invalidPlacements,
-            canConfirm = mode == BuildingPlanningMode.PLACE_BLUEPRINT && placementSession != null && invalidPlacements == 0,
+            canConfirm = mode == BuildingPlanningMode.PLACE_BLUEPRINT &&
+                    (placementSession?.items?.size ?: 0) > invalidPlacements,
         )
         showStatusIfChanged()
     }

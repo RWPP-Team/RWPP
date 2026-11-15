@@ -15,6 +15,11 @@ internal object GameVisualSettings {
     @Volatile
     private var cached: Settings? = null
     fun get(): Settings? = cached ?: runCatching { appKoin.get<Settings>() }.getOrNull()?.also { cached = it }
+    fun mapTextScale(zoom: Float): Float {
+        val settings = get() ?: return 1f
+        val base = settings.mapTextScale.takeIf { it.isFinite() }?.coerceIn(0.5f, 2f) ?: 1f
+        return if (settings.mapTextFixedWorldSize && zoom.isFinite() && zoom > 0f) base * zoom else base
+    }
     fun frameLimit(native: Int): Int = get()?.gameFrameLimit?.takeIf { it > 0 }?.coerceIn(15, 360) ?: native
     fun frameDuration(native: Long): Long = get()?.gameFrameLimit?.takeIf { it > 0 }
         ?.coerceIn(15, 360)?.let { 1_000_000_000L / it } ?: native

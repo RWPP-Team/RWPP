@@ -48,7 +48,7 @@ import io.github.rwpp.api.game.Game
 import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.coil.ImageableFetcherFactory
 import io.github.rwpp.coil.ImageableKeyer
-import io.github.rwpp.core.Logic
+import io.github.rwpp.config.CoreData
 import io.github.rwpp.event.OnDispose
 import io.github.rwpp.platform.BackHandler
 import io.github.rwpp.screen.Screen
@@ -70,7 +70,7 @@ var LocalWindowManager = staticCompositionLocalOf { WindowManager.Large }
 @Composable
 fun App() {
     LaunchedEffect(Unit) {
-        Logic.checkUpdate()
+        appKoin.get<CoreData>().lastPlayTime = System.currentTimeMillis()
     }
 
     setSingletonImageLoaderFactory { context ->
@@ -136,6 +136,7 @@ fun App() {
             appUiScope.launch {
                 if (e.state != appKoin.get<Game>().state.state) return@launch
                 if (e.state == State.Menu) {
+                    UI.briefing?.let(UI::dismissWarning)
                     screenPending = false
                     var index = navigator.backStack.indexOfFirst { it is GameScreen }
                     val prev = navigator.backStack.getOrNull(index - 1)
@@ -145,7 +146,7 @@ fun App() {
                     val current = navigator.current
                     if (current !is GameScreen && !screenPending) {
                         screenPending = true
-                        navigator.push<GameScreen>()
+                        navigator.push(scope.get<GameScreen>().apply { showPauseMenu = false })
                     }
                 }
             }
@@ -189,119 +190,125 @@ fun App() {
                             AeroChatDialog(onDismiss = dismiss)
                         }
 
-                        var warningDialogVisible by remember { mutableStateOf(false) }
-
-                        LaunchedEffect(UI.warning) {
-                            warningDialogVisible = UI.warning != null
-                        }
-
-                        AnimatedAlertDialog(
-                            warningDialogVisible,
-                            isDanger = true,
-                            onDismissRequest = {
-                                warningDialogVisible = false
-                                UI.warning = null
-                            }
-                        ) { dismiss ->
-                            AeroPanel(
-                                modifier = Modifier
-                                    .widthIn(max = 500.dp)
-                                    .fillMaxWidth(0.92f)
-                                    .heightIn(max = dialogMaxHeight)
-                                    .autoClearFocus(),
-                                borderColor = MaterialTheme.colorScheme.error
-                            ) {
-                                Column(
+                        val briefing = UI.briefing
+                        val activeWarning = briefing ?: UI.warning
+                        val isBriefing = briefing != null
+                        key(activeWarning) {
+                            AnimatedAlertDialog(
+                                visible = activeWarning != null,
+                                enableDismiss = !isBriefing,
+                                isDanger = true,
+                                onDismissRequest = {
+                                    activeWarning?.let(UI::dismissWarning)
+                                }
+                            ) { dismiss ->
+                                AeroPanel(
                                     modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(16.dp),
-                                    verticalArrangement = Arrangement.SpaceBetween
+                                        .widthIn(max = 500.dp)
+                                        .fillMaxWidth(0.92f)
+                                        .heightIn(max = dialogMaxHeight)
+                                        .autoClearFocus(),
+                                    borderColor = MaterialTheme.colorScheme.error
                                 ) {
-                                    Column {
-                                        AeroHeaderWithCloseButton(
-                                            title = "SYSTEM ALERT",
-                                            tag = "WARN.SYS",
-                                            color = MaterialTheme.colorScheme.error,
-                                            onDismissRequest = dismiss
-                                        )
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        AeroDivider(color = MaterialTheme.colorScheme.error.copy(alpha = 0.5f))
-                                    }
-
+                                    // Hug the copy: a constant 90% panel leaves the alert mostly empty
+                                    // and covers the battlefield the player is being told about.
                                     Column(
                                         modifier = Modifier
-                                            .weight(1f)
                                             .fillMaxWidth()
-                                            .padding(vertical = 12.dp)
-                                            .verticalScroll(rememberScrollState()),
-                                        verticalArrangement = Arrangement.Center,
-                                        horizontalAlignment = Alignment.CenterHorizontally
+                                            .padding(16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
-                                        AeroSciFiWarningIndicator(
-                                            size = 120.dp,
-                                            accentColor = MaterialTheme.colorScheme.error
-                                        )
-
-                                        Spacer(modifier = Modifier.height(20.dp))
-
-                                        Box(
-                                            modifier = Modifier
-                                                .background(
-                                                    color = MaterialTheme.colorScheme.error.copy(alpha = 0.12f),
-                                                    shape = RoundedCornerShape(2.dp)
+                                        Column {
+                                            if (isBriefing) {
+                                                AeroHeader("BRIEFING", color = MaterialTheme.colorScheme.error)
+                                            } else {
+                                                AeroHeaderWithCloseButton(
+                                                    title = "SYSTEM ALERT",
+                                                    tag = "WARN.SYS",
+                                                    color = MaterialTheme.colorScheme.error,
+                                                    onDismissRequest = dismiss
                                                 )
-                                                .border(
-                                                    width = 1.dp,
-                                                    color = MaterialTheme.colorScheme.error.copy(alpha = 0.4f),
-                                                    shape = RoundedCornerShape(2.dp)
-                                                )
-                                                .padding(horizontal = 10.dp, vertical = 3.dp)
-                                        ) {
-                                            Text(
-                                                text = "/// HAZARD LEVEL: CRITICAL ///",
-                                                color = MaterialTheme.colorScheme.error,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                fontFamily = FontFamily.Monospace,
-                                                letterSpacing = 2.sp
-                                            )
+                                            }
+                                            Spacer(modifier = Modifier.height(12.dp))
+                                            AeroDivider(color = MaterialTheme.colorScheme.error.copy(alpha = 0.5f))
                                         }
 
-                                        Spacer(modifier = Modifier.height(16.dp))
-
-                                        Box(
+                                        // fill = false keeps a short message compact while a long one
+                                        // scrolls inside the panel cap, so 确认 stays on screen.
+                                        Column(
                                             modifier = Modifier
+                                                .weight(1f, fill = false)
                                                 .fillMaxWidth()
-                                                .padding(horizontal = 8.dp)
-                                                .background(
-                                                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
-                                                    shape = AeroSciFiTheme.ChamferAeroShape(8f)
-                                                )
-                                                .border(
-                                                    width = 1.dp,
-                                                    color = MaterialTheme.colorScheme.error.copy(alpha = 0.35f),
-                                                    shape = AeroSciFiTheme.ChamferAeroShape(8f)
-                                                )
-                                                .padding(16.dp),
-                                            contentAlignment = Alignment.Center
+                                                .verticalScroll(rememberScrollState()),
+                                            verticalArrangement = Arrangement.Center,
+                                            horizontalAlignment = Alignment.CenterHorizontally
                                         ) {
-                                            Text(
-                                                text = UI.warning?.reason?.ifEmpty { "UNKNOWN SYSTEM EXCEPTION DETECTED" }
-                                                    ?: "",
-                                                color = MaterialTheme.colorScheme.onSurface,
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                fontFamily = FontFamily.Monospace,
-                                                textAlign = TextAlign.Center
+                                            AeroSciFiWarningIndicator(
+                                                size = 120.dp,
+                                                accentColor = MaterialTheme.colorScheme.error
                                             )
-                                        }
-                                    }
 
-                                    AeroButton(
-                                        text = readI18n("rwpp.common.acknowledge"),
-                                        isDanger = true,
-                                        clickSound = Sounds.closePopup,
-                                        onClick = dismiss
-                                    )
+                                            Spacer(modifier = Modifier.height(20.dp))
+
+                                            Box(
+                                                modifier = Modifier
+                                                    .background(
+                                                        color = MaterialTheme.colorScheme.error.copy(alpha = 0.12f),
+                                                        shape = RoundedCornerShape(2.dp)
+                                                    )
+                                                    .border(
+                                                        width = 1.dp,
+                                                        color = MaterialTheme.colorScheme.error.copy(alpha = 0.4f),
+                                                        shape = RoundedCornerShape(2.dp)
+                                                    )
+                                                    .padding(horizontal = 10.dp, vertical = 3.dp)
+                                            ) {
+                                                Text(
+                                                    text = "/// HAZARD LEVEL: CRITICAL ///",
+                                                    color = MaterialTheme.colorScheme.error,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    letterSpacing = 2.sp
+                                                )
+                                            }
+
+                                            Spacer(modifier = Modifier.height(16.dp))
+
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 8.dp)
+                                                    .background(
+                                                        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
+                                                        shape = AeroSciFiTheme.ChamferAeroShape(8f)
+                                                    )
+                                                    .border(
+                                                        width = 1.dp,
+                                                        color = MaterialTheme.colorScheme.error.copy(alpha = 0.35f),
+                                                        shape = AeroSciFiTheme.ChamferAeroShape(8f)
+                                                    )
+                                                    .padding(16.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = activeWarning?.reason?.ifEmpty { "UNKNOWN SYSTEM EXCEPTION DETECTED" }
+                                                        ?: "",
+                                                    color = MaterialTheme.colorScheme.onSurface,
+                                                    style = MaterialTheme.typography.bodyLarge,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    textAlign = TextAlign.Center
+                                                )
+                                            }
+                                        }
+
+                                        AeroButton(
+                                            text = readI18n("rwpp.common.acknowledge"),
+                                            isDanger = true,
+                                            clickSound = Sounds.closePopup,
+                                            onClick = dismiss
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -325,8 +332,9 @@ fun App() {
                                 ) {
                                     Column(
                                         modifier = Modifier
-                                            .fillMaxSize()
-                                            .padding(16.dp)
+                                            .fillMaxWidth()
+                                            .padding(16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
                                         AeroHeaderWithCloseButton(
                                             title = activeQuestion?.title ?: "SYSTEM QUERY",
@@ -343,7 +351,7 @@ fun App() {
 
                                         Column(
                                             modifier = Modifier
-                                                .weight(1f)
+                                                .weight(1f, fill = false)
                                                 .fillMaxWidth()
                                                 .verticalScroll(rememberScrollState()),
                                             verticalArrangement = Arrangement.spacedBy(16.dp),

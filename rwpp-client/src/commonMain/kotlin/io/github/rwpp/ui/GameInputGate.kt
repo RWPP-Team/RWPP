@@ -21,6 +21,12 @@ fun gameInputBlockedByNavigator(): Boolean =
 fun navigatorHoldsGameScreen(): Boolean =
     UI.liveNavigator?.backStack?.any { it is GameScreen } ?: false
 
+internal fun navigatorPausesGameplay(): Boolean {
+    val stack = UI.liveNavigator?.backStack?.toList() ?: return false
+    val current = stack.lastOrNull()
+    return if (current is GameScreen) current.showPauseMenu else stack.any { it is GameScreen }
+}
+
 /**
  * Reads the stack inside composition so a settings dialog pushed over gameplay keeps
  * the background layer hidden. The wallpaper is drawn in the window layer, which sits

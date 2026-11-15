@@ -21,4 +21,5 @@ data class HudComponentDataList(
     var observerStatisticsInitialized: Boolean = false,
     /** Adds the touch selection panel once; a later removal must stay removed. */
     var touchControlsInitialized: Boolean = false,
+    var survivalHudInitialized: Boolean = false,
 ) : Config

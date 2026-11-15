@@ -11,16 +11,18 @@ import io.github.rwpp.api.State
 import io.github.rwpp.api.game.Game
 import io.github.rwpp.appKoin
 import io.github.rwpp.logic.hud.GameUiPauseState
+import io.github.rwpp.ui.UI
+import io.github.rwpp.ui.navigatorPausesGameplay
 import kim.der.asm.api.annotation.AsmMixin
 import kim.der.asm.api.annotation.ModifyReturnValue
 
-/** Single-player simulation must also pause when the native pause menu is replaced by Compose. */
+/** Compose menus and mission briefings keep the single-player simulation paused. */
 @AsmMixin("com/corrodinggames/rts/game/RWGameEngine")
 object ComposePauseMixin {
     @ModifyReturnValue(method = "isGamePaused(Z)Z", require = 1)
     fun pauseBehindCompose(result: Boolean, checkingNetwork: Boolean): Boolean {
-        if (!GameUiPauseState.blocked) return result
+        if (result || (!GameUiPauseState.blocked && UI.briefing == null && !navigatorPausesGameplay())) return result
         val game = appKoin.get<Game>()
-        return result || (!game.state.multiplayer && game.state.state != State.Menu)
+        return !game.state.multiplayer && game.state.state != State.Menu
     }
 }

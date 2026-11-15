@@ -573,11 +573,6 @@ class SettingsScreen(
                                         tag = "RWPP_CORE"
                                     ) {
                                         AeroSettingToggle(
-                                            label = readI18n("rwpp.settings.autoCheckUpdate"),
-                                            defaultValue = settings.autoCheckUpdate,
-                                            onCheckedChange = { settings.autoCheckUpdate = it }
-                                        )
-                                        AeroSettingToggle(
                                             label = readI18n("rwpp.settings.showWelcomeMessage"),
                                             defaultValue = settings.showWelcomeMessage ?: false,
                                             onCheckedChange = { settings.showWelcomeMessage = it }

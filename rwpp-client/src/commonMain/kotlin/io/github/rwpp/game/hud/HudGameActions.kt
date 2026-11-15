@@ -19,6 +19,7 @@ import com.corrodinggames.rts.gameFramework.gui.InterfaceEngine
 import io.github.rwpp.api.coroutines.GameScope
 import io.github.rwpp.game.nativeaccess.NativeCommandsAccess
 import io.github.rwpp.game.sandbox.sandboxNativeEditorActionsAllowed
+import io.github.rwpp.ui.CommandHover
 import kotlinx.coroutines.launch
 
 /** Use the native command queue so HUD actions retain multiplayer ordering and permission checks. */
@@ -130,6 +131,7 @@ internal fun executeHudAction(action: SpecialAction, units: List<Unit>, remove: 
                     false
                 ui.activeSpecialAction = action
                 if (route == HudActionRoute.PlaceBuilding) {
+                    CommandHover.clear()
                     ui.placementTapTimer = 0f
                     ui.lastPlacementTapX = -99f
                     ui.lastPlacementTapY = -99f

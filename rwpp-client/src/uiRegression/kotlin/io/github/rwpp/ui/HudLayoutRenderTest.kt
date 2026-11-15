@@ -14,6 +14,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.input.pointer.PointerButton
+import androidx.compose.ui.input.pointer.PointerButtons
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.layout.boundsInRoot
@@ -120,7 +121,8 @@ class HudLayoutRenderTest : DesktopComposeGraphicsTest() {
                 scene.sendPointerEvent(
                     PointerEventType.Move,
                     mousePosition,
-                    type = PointerType.Mouse
+                    type = PointerType.Mouse,
+                    buttons = PointerButtons(isPrimaryPressed = true)
                 ).anyChangeConsumed
             )
             assertTrue(

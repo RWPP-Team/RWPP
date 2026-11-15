@@ -12,6 +12,7 @@ import io.github.rwpp.api.config.ServerConfig
 import io.github.rwpp.api.config.ServerType
 import io.github.rwpp.api.net.Net
 import io.github.rwpp.config.MultiplayerPreferences
+import io.github.rwpp.net.RcnRoomList
 import io.github.rwpp.net.RTSBoxDownloadWeeklyProtocol
 import io.github.rwpp.net.RTSBoxProtocol
 import io.github.rwpp.net.bbsProtocols
@@ -33,6 +34,10 @@ class NetProductInitialization(
         serverConfigs.removeAll(::isLegacyQRoomList)
         if (serverConfigs.none { it.name == OFFICIAL_ROOM_LIST_NAME }) {
             serverConfigs.add(officialRoomList)
+        }
+        net.roomListProvider[RcnRoomList.PROVIDER] = { RcnRoomList.fetch(net.client) }
+        if (serverConfigs.none(RcnRoomList::matches)) {
+            serverConfigs.add(RcnRoomList.config())
         }
     }
 

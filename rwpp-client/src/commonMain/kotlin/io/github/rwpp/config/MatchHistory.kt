@@ -93,17 +93,19 @@ data class MatchHistory(
         durationMillis: Long,
         finishedAtMillis: Long,
         playerStats: List<MatchPlayerStats> = emptyList(),
+        deletedEntry: MatchHistoryEntry? = null,
     ) {
         val index = matches.indexOfFirst { it.id == id }
-        if (index < 0) return
-        val entry = matches[index]
+        val entry = matches.getOrNull(index) ?: deletedEntry?.takeIf { it.id == id } ?: return
         if (entry.outcome != MatchOutcome.IN_PROGRESS) return
-        matches[index] = entry.copy(
-            outcome = outcome,
-            durationMillis = durationMillis.coerceAtLeast(0),
-            finishedAtMillis = finishedAtMillis,
-            playerStats = playerStats.ifEmpty { entry.playerStats },
-        )
+        if (index >= 0) {
+            matches[index] = entry.copy(
+                outcome = outcome,
+                durationMillis = durationMillis.coerceAtLeast(0),
+                finishedAtMillis = finishedAtMillis,
+                playerStats = playerStats.ifEmpty { entry.playerStats },
+            )
+        }
 
         (if (entry.matchType == MatchType.CAMPAIGN) campaignMissionKey(entry.mapPath) else null)?.let { key ->
             val current = campaignMissions.firstOrNull { normalizeHistoryMapPath(it.mapPath) == key } ?: return@let

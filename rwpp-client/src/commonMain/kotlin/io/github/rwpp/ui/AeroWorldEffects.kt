@@ -63,7 +63,8 @@ internal fun GameScreen.AeroWorldEffects() {
             accent = accent,
             productionPausedLabel = productionPausedLabel,
             productionWaitingLabel = productionWaitingLabel,
-            hoverAllowed = !CommandPointer.inPanel && !GameUiPauseState.blocked && !isShowSendMessageDialog,
+            hoverAllowed = !CommandPointer.inPanel && !CommandHover.overTooltip &&
+                    !GameUiPauseState.blocked && !isShowSendMessageDialog,
             showAllReplayOrders = AeroReplayControlsState.showAllUnitOrders
         )
     }

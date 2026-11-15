@@ -11,11 +11,14 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -57,6 +60,7 @@ class MatchHistoryScreen : Screen {
         val configIO = koinInject<ConfigIO>()
         val settings = koinInject<Settings>()
         val maintenance = koinInject<MatchHistoryMaintenance>()
+        val scope = rememberCoroutineScope()
         val revision by maintenance.revisions.collectAsState()
         var retentionDays by remember { mutableIntStateOf(settings.matchHistoryRetentionDays) }
         var retentionError by remember { mutableStateOf<String?>(null) }
@@ -214,6 +218,12 @@ class MatchHistoryScreen : Screen {
                                             replayCatalogReady &&
                                             entry.replayFileName != null && replayFileName == null,
                                     replayError = entry.id in unavailableReplayMatchIds,
+                                    onDelete = {
+                                        scope.launch {
+                                            withContext(GameMainDispatcher) { maintenance.deleteMatch(entry.id) }
+                                                .onFailure { UI.showWarning(readI18n("rwpp.matchHistory.deleteFailed")) }
+                                        }
+                                    },
                                     onWatchReplay = replayFileName?.let { name ->
                                         {
                                             val expected = replayCandidatesByName[name]
@@ -298,6 +308,7 @@ private fun MatchHistoryCard(
     replayUnavailable: Boolean,
     replayError: Boolean,
     onWatchReplay: (() -> Unit)?,
+    onDelete: () -> Unit,
 ) {
     AeroPanel(Modifier.fillMaxWidth()) {
         var performanceDisclosure by remember(entry.id) {
@@ -332,6 +343,15 @@ private fun MatchHistoryCard(
                         MatchOutcome.IN_PROGRESS -> MaterialTheme.colorScheme.primary
                         else -> MaterialTheme.colorScheme.outline
                     },
+                )
+                Spacer(Modifier.width(8.dp))
+                AeroIconButton(
+                    painter = rememberVectorPainter(Icons.Default.Delete),
+                    onClick = onDelete,
+                    contentDescription = readI18n("rwpp.common.delete"),
+                    isDanger = true,
+                    size = 32.dp,
+                    iconSize = 16.dp,
                 )
             }
             AeroDivider()

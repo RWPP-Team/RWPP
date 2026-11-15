@@ -93,7 +93,6 @@ internal object NativeGameHotkeys {
     fun update(settings: Settings, blocked: Boolean) {
         val engine = GameEngine.getInstance() ?: return
         synchronized(engine.gameUpdateLock) {
-            io.github.rwpp.game.hud.OverflowProductionQueue.update(engine, blocked)
             if (io.github.rwpp.graphics.nativeWorldFrame(engine) == null) {
                 BuildingPlanningController.onGameUpdate(true)
                 return

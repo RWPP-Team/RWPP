@@ -19,6 +19,7 @@ import com.corrodinggames.rts.game.units.buildings.FactoryInterface
 import com.corrodinggames.rts.gameFramework.CommandControllerCommand
 import com.corrodinggames.rts.gameFramework.GameEngine
 import com.corrodinggames.rts.gameFramework.gui.InterfaceEngine
+import io.github.rwpp.api.coroutines.GameMainDispatcher
 import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.api.logging.logger
 import io.github.rwpp.logic.GameVisualSettings
@@ -32,7 +33,11 @@ internal object OverflowProductionQueue {
     private var map: NativeMap? = null
     private var team: Team? = null
     private var inFlight: CommandControllerCommand? = null
-    private var issuedTick = -1
+    private var updating = false
+    private val updateTask = Runnable {
+        val engine = GameEngine.getInstance() ?: return@Runnable
+        synchronized(engine.gameUpdateLock) { update(engine) }
+    }
 
     private val enabled get() = GameVisualSettings.get()?.overflowProductionQueue == true
 
@@ -54,6 +59,10 @@ internal object OverflowProductionQueue {
         val request = Request(action.storedActionId, owners, action.isUnitSpecificAction)
         val accepted = minOf(batch, LIMIT - pending.size)
         repeat(accepted) { pending.addLast(request) }
+        if (!updating && pending.isNotEmpty()) {
+            updating = true
+            GameMainDispatcher.addUpdateTask(updateTask)
+        }
         if (accepted < batch) ui.showImportantScreenMessage(readI18n("rwpp.production.pendingFull"))
         ui.activeSpecialAction = null
         return true
@@ -68,60 +77,71 @@ internal object OverflowProductionQueue {
         return true
     }
 
-    fun update(engine: GameEngine, blocked: Boolean) {
-        if (pending.isEmpty() && inFlight == null) return
-        if (!syncSession(engine) || blocked) return
+    private fun update(engine: GameEngine) {
+        if (!syncSession(engine)) return
         val controller = engine.commandController
         val previous = inFlight
         if (previous != null) {
-            if (issuedTick == engine.simulationTick || previous in controller.localPendingCommands ||
+            if (previous in controller.localPendingCommands ||
                 previous in controller.networkPendingCommands || previous in controller.issuedCommands
             ) return
             inFlight = null
         }
-        val request = pending.firstOrNull() ?: return
-        val candidates = request.owners.mapNotNull { owner ->
-            if (!canControl(engine, owner)) return@mapNotNull null
-            resolveQueueAction(owner, request.action)?.let { owner to it }
-        }
-        if (candidates.isEmpty()) {
-            pending.removeFirst()
-            return
-        }
+        val requests = pending.listIterator(pending.size)
+        while (requests.hasPrevious()) {
+            val request = requests.previous()
+            val candidates = request.owners.mapNotNull { owner ->
+                if (!canControl(engine, owner)) return@mapNotNull null
+                resolveQueueAction(owner, request.action)?.let { owner to it }
+            }
+            if (candidates.isEmpty()) {
+                requests.remove()
+                continue
+            }
 
-        val affordable = candidates.filter { (owner, action) ->
-            runCatching {
-                hudActionUnlocked(action, owner) && action.canAffordForUnit(owner, true) &&
-                        (!action.canQueueMultiple() || owner.team.unitCapCount < owner.team.unitsMax)
-            }.getOrDefault(false)
-        }
-        val (owner, action) = affordable.minByOrNull { (unit, owned) ->
-            runCatching { owned.getCountForUnit(unit, true) }.getOrDefault(Int.MAX_VALUE)
-        } ?: return
-        try {
-            val ui = engine.interfaceEngine
-            val command = ui.playerCommandQueued
-            command.addUnit(owner)
-            command.setActionId(action.actionId)
-            ui.queueExtraActionOrder(action, null, null, command)
-            issuedTick = engine.simulationTick
-            inFlight = command
-        } catch (failure: Exception) {
-            pending.removeFirst()
-            logger().warn("Could not submit a deferred production order", failure)
+            // Start at the newest order. Suspended orders keep their position and are skipped.
+            // An active order waiting for resources retains priority over older orders.
+            val ready = candidates.filter { (owner, action) ->
+                owner.isBuiltAndNotTransported && owner.nanoFactorySpeed > 0f &&
+                        hudActionUnlocked(action, owner)
+            }
+            if (ready.isEmpty()) continue
+            val (owner, action) = ready.filter { (unit, owned) ->
+                runCatching {
+                    owned.canAffordForUnit(unit, true) &&
+                            (!owned.canQueueMultiple() || unit.team.unitCapCount < unit.team.unitsMax)
+                }.getOrDefault(false)
+            }.minByOrNull { (unit, owned) ->
+                runCatching { owned.getCountForUnit(unit, true) }.getOrDefault(Int.MAX_VALUE)
+            } ?: return
+
+            try {
+                val ui = engine.interfaceEngine
+                val command = ui.playerCommandQueued
+                command.addUnit(owner)
+                command.setActionId(action.actionId)
+                ui.queueExtraActionOrder(action, null, null, command)
+                inFlight = command
+            } catch (failure: Exception) {
+                requests.remove()
+                logger().warn("Could not submit a deferred production order", failure)
+                return
+            }
+            if (request.singleOwner || candidates.size == 1) requests.remove()
+            else requests.set(request.copy(owners = candidates.map { it.first }.filter { it !== owner }))
+            InterfaceEngine.markUiDirty()
             return
         }
-        pending.removeFirst()
-        if (!request.singleOwner && candidates.size > 1) {
-            pending.addFirst(request.copy(owners = candidates.map { it.first }.filter { it !== owner }))
-        }
-        InterfaceEngine.markUiDirty()
+        if (pending.isEmpty()) clear()
     }
 
-    fun clear() {
+    private fun clear() {
+        if (updating) {
+            GameMainDispatcher.removeUpdateTask(updateTask)
+            updating = false
+        }
         pending.clear()
         inFlight = null
-        issuedTick = -1
         map = null
         team = null
     }

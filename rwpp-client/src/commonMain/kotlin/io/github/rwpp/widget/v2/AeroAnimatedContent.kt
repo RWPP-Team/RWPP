@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.window.*
+import io.github.rwpp.ui.LocalPanelAlphaOverride
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -228,15 +229,20 @@ fun AnimatedTransitionDialog(
         },
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Box(
-            contentAlignment = contentAlignment,
-            modifier = Modifier.fillMaxSize().padding(12.dp)
-        ) {
-            SciFiContentContainer(
-                visible = animateTrigger.value,
-                isDanger = isDanger
+        // Dialogs are read against their own panel, not the battlefield: force an opaque fill so
+        // neither the HUD slider nor the designed 85/95% gradient lets terrain or native text show
+        // through alert copy.
+        CompositionLocalProvider(LocalPanelAlphaOverride provides 1f) {
+            Box(
+                contentAlignment = contentAlignment,
+                modifier = Modifier.fillMaxSize().padding(12.dp)
             ) {
-                content(AnimatedTransitionDialogHelper(coroutineScope, onDismissSharedFlow, onDismissStarted))
+                SciFiContentContainer(
+                    visible = animateTrigger.value,
+                    isDanger = isDanger
+                ) {
+                    content(AnimatedTransitionDialogHelper(coroutineScope, onDismissSharedFlow, onDismissStarted))
+                }
             }
         }
     }

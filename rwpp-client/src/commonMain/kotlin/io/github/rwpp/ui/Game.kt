@@ -26,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -35,6 +36,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.corrodinggames.rts.game.units.actions.ActionType
+import com.corrodinggames.rts.game.units.actions.SpecialAction
 import com.corrodinggames.rts.gameFramework.GameEngine
 import io.github.rwpp.AppContext
 import io.github.rwpp.api.coroutines.GameMainDispatcher
@@ -42,7 +45,6 @@ import io.github.rwpp.api.coroutines.GameScope
 import io.github.rwpp.api.event.GlobalEventChannel
 import io.github.rwpp.api.game.Game
 import io.github.rwpp.api.i18n.readI18n
-import io.github.rwpp.api.logging.logger
 import io.github.rwpp.appKoin
 import io.github.rwpp.config.HudComponentData
 import io.github.rwpp.config.HudComponentDataList
@@ -52,21 +54,27 @@ import io.github.rwpp.event.events.KeyboardEvent
 import io.github.rwpp.game.hotkeys.NativeGameHotkeys
 import io.github.rwpp.game.hotkeys.SelectionCameraFollowController
 import io.github.rwpp.game.hud.AeroDamageSignals
+import io.github.rwpp.game.hud.SurvivalWaveHud
+import io.github.rwpp.game.hud.SurvivalWavePresentation
+import io.github.rwpp.game.hud.SurvivalWaveSampler
 import io.github.rwpp.game.hud.normalizeHudComponents
 import io.github.rwpp.game.room.nativePauseMenuOptions
 import io.github.rwpp.hud.*
 import io.github.rwpp.logic.hud.GameUiPauseState
+import io.github.rwpp.logic.GameVisualSettings
 import io.github.rwpp.logic.hud.NativeHudVisibility
 import io.github.rwpp.screen.LocalScreenNavigator
 import io.github.rwpp.screen.Screen
 import io.github.rwpp.sound.Sounds
 import io.github.rwpp.widget.v2.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.koin.compose.koinInject
 import org.koin.core.annotation.Single
 import com.corrodinggames.rts.game.units.Unit as GameUnit
 
 private const val SANDBOX_HUD_ID = "sandbox_editor"
+private const val SURVIVAL_HUD_ID = "survival_wave"
 
 @Single
 class GameScreen : Screen {
@@ -97,6 +105,7 @@ class GameScreen : Screen {
     var selectedUnits by mutableStateOf<List<GameUnit>>(emptyList())
     var isEditMode by mutableStateOf(false)
     var showPauseMenu by mutableStateOf(false)
+    private var survivalWave by mutableStateOf<SurvivalWaveHud?>(null)
     private var saveDialog by mutableStateOf<Boolean?>(null)
     private var hudSettingsRevision by mutableIntStateOf(0)
     private val hideOriginalHud: Boolean
@@ -153,7 +162,11 @@ class GameScreen : Screen {
             120f,
             compactHeight = true,
             mode = HudComponentMode.SANDBOX,
-        ) { SandboxEditorHud() }
+        ) { SandboxEditorHud() },
+        SURVIVAL_HUD_ID to HudComponentTemplate(
+            readI18n("rwpp.survival.hud"), 290f, 180f,
+            compactHeight = true, mode = HudComponentMode.SURVIVAL,
+        ) { AeroSurvivalHud(survivalWave, isEditMode) },
     ).apply {
         if (appKoin.get<AppContext>().isAndroid()) {
             put(
@@ -217,7 +230,8 @@ class GameScreen : Screen {
         var blueprintLibraryOpen by remember { mutableStateOf(false) }
         val hotkeysBlocked =
             rememberUpdatedState(
-                showPauseMenu || isEditMode || saveDialog != null || UI.showPlayerList || blueprintLibraryOpen
+                showPauseMenu || isEditMode || saveDialog != null || UI.showPlayerList || blueprintLibraryOpen ||
+                        UI.briefing != null
             )
         // A destroyed gameplay screen must not leave the engine paused; the flag also decides
         // whether the native mouse may be released while a Compose screen owns the window.
@@ -236,22 +250,62 @@ class GameScreen : Screen {
                 GameMainDispatcher.removeUpdateTask(updateHotkeys)
                 GameScope.launch {
                     io.github.rwpp.game.hotkeys.NativeTacticalActions.reset()
-                    io.github.rwpp.game.hud.OverflowProductionQueue.clear()
                 }
             }
         }
         var hudMode by remember { mutableStateOf(HudComponentMode.ALWAYS) }
         var sandboxHudSeeded by remember { mutableStateOf(false) }
+        val survivalSampler = remember { SurvivalWaveSampler() }
+        var spawnMarkers by remember { mutableStateOf(emptyList<SurvivalScreenMarker>()) }
+        var waveAtSpawn by remember { mutableStateOf(false) }
+        var spawnTextScale by remember { mutableFloatStateOf(1f) }
+        val android = appKoin.get<AppContext>().isAndroid()
+        var placementAction by remember { mutableStateOf<SpecialAction?>(null, referentialEqualityPolicy()) }
+        var placementSource by remember { mutableStateOf<GameUnit?>(null, referentialEqualityPolicy()) }
+        var placementTooltip by remember { mutableStateOf<CommandTooltip?>(null) }
         OnGameUpdate {
             showPerformance = hotkeySettings.showPerformanceUsage
             val engine = GameEngine.getInstance()
             interfaceHidden = engine.cameraScrollActive
             NativeHudVisibility.update()
+            survivalWave = survivalSampler.sample(engine)
+            if (survivalWave != null && !dataListInstance.survivalHudInitialized) {
+                if (dataList.none { it.id == SURVIVAL_HUD_ID }) {
+                    dataList.add(HudComponentData(SURVIVAL_HUD_ID, 0f, 0f, relativeX = 0.46f, relativeY = 0.02f))
+                }
+                dataListInstance.survivalHudInitialized = true
+            }
+            waveAtSpawn = hotkeySettings.showSurvivalWaveAtSpawn
+            spawnMarkers = if (hotkeySettings.showSurvivalSpawnPoints && survivalWave?.units?.isNotEmpty() == true) {
+                spawnTextScale = GameVisualSettings.mapTextScale(engine.zoomScale)
+                val width = engine.screenWidth
+                val height = engine.screenHeight
+                survivalSampler.spawnMarkers(engine).mapNotNull { marker ->
+                    val x = (marker.position.x - engine.cameraRenderX) * engine.zoomScale / width
+                    val y = (marker.position.y - engine.cameraRenderY) * engine.zoomScale / height
+                    if (x in 0f..1f && y in 0f..1f) SurvivalScreenMarker(Offset(x, y), marker.status) else null
+                }
+            } else emptyList()
             @Suppress("UNCHECKED_CAST")
             val engineUnits = engine.interfaceEngine.selectedUnits as List<GameUnit>
             if (!isSelectionUnchanged(selectedUnits, engineUnits)) {
                 selectedUnits = engineUnits.toList()
-                CommandHover.current.value = null
+                CommandHover.clear()
+            }
+            if (android) {
+                val ui = engine.interfaceEngine
+                val action = ui.activeSpecialAction?.takeIf {
+                    hideOriginalHud && it.actionType == ActionType.placeBuilding
+                }
+                val source = action?.let { ui.specialActionSourceUnit ?: selectedUnits.firstOrNull() }
+                if (action !== placementAction || source !== placementSource) {
+                    placementTooltip = action?.let {
+                        val (title, details) = hudActionInfo(it, source)
+                        CommandTooltip(Rect.Zero, title, details)
+                    }
+                    placementAction = action
+                    placementSource = source
+                }
             }
             // Only the components that belong to the running session are offered in the editor,
             // so the list cannot mix observer, sandbox and ordinary battle modules.
@@ -274,17 +328,25 @@ class GameScreen : Screen {
                 }
             }
         }
-        val activeTemplates = remember(hudMode) {
+        val inSurvival = survivalWave != null
+        val activeTemplates = remember(hudMode, inSurvival) {
             availableTemplates.filterValues {
-                it.mode == HudComponentMode.ALWAYS || it.mode == hudMode
+                it.mode == HudComponentMode.ALWAYS || it.mode == hudMode ||
+                        (inSurvival && it.mode == HudComponentMode.SURVIVAL)
             }
+        }
+        val replaceNativeWaveText = inSurvival && dataList.any { it.id == SURVIVAL_HUD_ID }
+        DisposableEffect(replaceNativeWaveText) {
+            SurvivalWavePresentation.replacesNativeText = replaceNativeWaveText
+            onDispose { SurvivalWavePresentation.replacesNativeText = false }
         }
 
         DisposableEffect(Unit) {
             onDispose {
                 SelectionCameraFollowController.stop()
+                survivalWave = null
                 isEditMode = false
-                showPauseMenu = false
+                if (this@GameScreen !in navigator.backStack) showPauseMenu = false
                 NativeHudVisibility.hidden = false
                 NativeHudVisibility.aeroSelection = false
                 NativeHudVisibility.aeroBars = false
@@ -298,17 +360,13 @@ class GameScreen : Screen {
 
         LaunchedEffect(showPauseMenu) {
             if (showPauseMenu) HudQueuePopupTouch.dismiss()
-            logger().info("showPauseMenu: $showPauseMenu multiplayer: ${game.state.multiplayer}")
-            if (!game.state.multiplayer) {
-                game.gameRoom.pauseOrResumeGame(showPauseMenu)
-            }
         }
 
         GlobalEventChannel.filter(KeyboardEvent::class).OnDispose {
             subscribeAlways { e ->
                 uiScope.launch {
                     if (e.keyEvent.key == Key.Escape && e.keyEvent.type == KeyEventType.KeyDown) {
-                        if (UI.showPlayerList) return@launch // The modal owns this Escape.
+                        if (UI.showPlayerList || UI.briefing != null) return@launch
                         if (interfaceHidden) {
                             GameScope.launch {
                                 GameEngine.getInstance().cameraScrollActive = false
@@ -328,6 +386,9 @@ class GameScreen : Screen {
         }
         if (!interfaceHidden) {
             AeroWorldEffects()
+            if (!showPauseMenu && !isEditMode) {
+                AeroSurvivalSpawns(spawnMarkers, survivalWave.takeIf { waveAtSpawn }, spawnTextScale)
+            }
             HudEditor(
                 components,
                 isEditMode,
@@ -344,7 +405,13 @@ class GameScreen : Screen {
                 layoutComponentIds = availableTemplates.keys,
             )
 
-            CommandTooltipLayer()
+            if (!showPauseMenu && !isEditMode && saveDialog == null) {
+                CommandTooltipLayer(
+                    closeLabel = readI18n("rwpp.common.close"),
+                    topCentered = android,
+                    placementTooltip = placementTooltip.takeIf { hideOriginalHud },
+                )
+            }
 
         }
 
@@ -432,6 +499,7 @@ class GameScreen : Screen {
         onExit: () -> Unit = {}
     ) {
         val config = koinInject<io.github.rwpp.api.config.ConfigIO>()
+        val uiScope = rememberCoroutineScope()
         var isMuteAudio by remember { mutableStateOf(!config.getGameConfig<Boolean>("enableSounds")) }
         var isShowFps by remember { mutableStateOf(config.getGameConfig<Boolean>("showFps")) }
         var masterVolume by remember { mutableFloatStateOf(config.getGameConfig("masterVolume")) }
@@ -630,9 +698,12 @@ class GameScreen : Screen {
                             onClick = { confirmation = "surrender" }, isDanger = true, clickSound = Sounds.openPopup
                         )
                         if (options.briefing) AeroButton(readI18n("menus.ingame.briefing"), onClick = {
-                            onResume()
-                            GameScope.launch {
-                                GameEngine.getInstance().triggerEngine?.briefingText?.let { UI.showWarning(it.resolve()) }
+                            uiScope.launch {
+                                val briefing = withContext(GameMainDispatcher) {
+                                    GameEngine.getInstance().triggerEngine?.briefingText?.resolve()
+                                }
+                                briefing?.let(UI::showBriefing)
+                                onResume()
                             }
                         }, clickSound = Sounds.openPopup)
                         if (options.hideInterface) AeroButton(readI18n("menus.ingame.hideInterface"), onClick = {

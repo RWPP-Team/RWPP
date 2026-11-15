@@ -32,6 +32,9 @@ class RwppUiFramework : UiFramework {
 
     @OptIn(androidx.compose.ui.InternalComposeUiApi::class)
     override fun start(host: UiHost) {
+        System.setProperty("skiko.renderApi", "OPENGL")
+        System.setProperty("skiko.vsync.enabled", "false")
+
         check(started.compareAndSet(false, true)) { "RWPP desktop UI has already been started" }
         // Custom CanvasLayersComposeScene hosts initialize the Skiko backend explicitly in 1.13.
         androidx.compose.ui.platform.registerSkikoComposeImplementation()

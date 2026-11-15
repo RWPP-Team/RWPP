@@ -34,14 +34,14 @@ class MatchHistoryTracker(
 ) : Initialization {
     private val lock = Any()
     private val matchStartGeneration = MatchStartGenerationGate()
-    private var activeMatchId: String? = null
+    private var activeEntry: MatchHistoryEntry? = null
     private var startingParticipantIds: Set<Int> = emptySet()
     private val productionCounter = MatchHistoryProductionCounter()
     private val nativeResultMonitor = Runnable { pollNativeResult() }
 
     /** Current tracked session, exposed for diagnostics and programmatic status checks. */
     val currentMatch: MatchHistoryEntry?
-        get() = synchronized(lock) { activeMatchId?.let(history::match) }
+        get() = synchronized(lock) { activeEntry?.let { history.match(it.id) ?: it } }
 
     override fun init() {
         if (MatchHistory.recoverInterrupted(history, System.currentTimeMillis())) saveHistory()
@@ -71,7 +71,7 @@ class MatchHistoryTracker(
             ?: engine.networkEngine.currentGameMapPath?.takeIf(String::isNotBlank) ?: return@synchronized
         val normalizedPath = normalizeHistoryMapPath(mapPath)
         if (!matchStartGeneration.claimStart()) return@synchronized
-        val active = activeMatchId?.let(history::match)
+        val active = activeEntry
         if (active != null) {
             // A distinct native load can restart the same map; finish the old entry before opening it.
             complete(active.id, MatchOutcome.ABANDONED, 0L, emptyList())
@@ -110,7 +110,7 @@ class MatchHistoryTracker(
             localIsObserver = localTeam?.isSpectator == true,
         )
         history.recordMatchStarted(entry)
-        activeMatchId = entry.id
+        activeEntry = entry
         productionCounter.begin(NativeUnit.unitList.filterIsInstance<NativeUnit>())
         associateActiveReplayFile(engine)
         saveHistory()
@@ -118,7 +118,7 @@ class MatchHistoryTracker(
 
     /** Records only the native writer's exact filename; no map/date guess is made for new rows. */
     private fun associateActiveReplayFile(engine: GameEngine) {
-        val entry = activeMatchId?.let(history::match) ?: return
+        val entry = activeEntry?.id?.let(history::match) ?: return
         if (entry.replayFileName != null || !engine.replayEngine.isRecordingReplay) return
         val name = (engine.replayEngine as? NativeReplayFileNameAccess)
             ?.rwppReplayFileName()
@@ -132,7 +132,7 @@ class MatchHistoryTracker(
         val unit = event.unit
         val team = unit.team
         if (!shouldCountMatchHistoryProductionEvent(
-                activeMatch = activeMatchId != null,
+                activeMatch = activeEntry != null,
                 replay = game.state.replay,
                 teamId = team?.teamId,
                 isObserver = team?.isSpectator == true,
@@ -148,7 +148,7 @@ class MatchHistoryTracker(
     }
 
     private fun finish(winTeam: Int?, gameTimeMillis: Long) = synchronized(lock) {
-        val entry = activeMatchId?.let(history::match) ?: return@synchronized
+        val entry = activeEntry ?: return@synchronized
         runCatching { GameEngine.getInstance() }.getOrNull()?.let(::associateActiveReplayFile)
         val outcome = matchOutcomeForGameOver(entry, winTeam) ?: return@synchronized
         complete(
@@ -160,7 +160,7 @@ class MatchHistoryTracker(
     }
 
     private fun finishFromNativeState() = synchronized(lock) {
-        val entry = activeMatchId?.let(history::match) ?: return@synchronized
+        val entry = activeEntry ?: return@synchronized
         val engine = runCatching { GameEngine.getInstance() }.getOrNull()
         engine?.let(::associateActiveReplayFile)
         val outcome = matchOutcomeFromNativeFlags(
@@ -173,7 +173,7 @@ class MatchHistoryTracker(
     }
 
     private fun pollNativeResult() = synchronized(lock) {
-        val entry = activeMatchId?.let(history::match) ?: return@synchronized
+        val entry = activeEntry ?: return@synchronized
         val engine = runCatching { GameEngine.getInstance() }.getOrNull() ?: return@synchronized
         associateActiveReplayFile(engine)
         if (game.state.replay) return@synchronized
@@ -198,9 +198,10 @@ class MatchHistoryTracker(
             durationMillis = gameTimeMillis,
             finishedAtMillis = System.currentTimeMillis(),
             playerStats = playerStats,
+            deletedEntry = activeEntry,
         )
-        if (activeMatchId == id) {
-            activeMatchId = null
+        if (activeEntry?.id == id) {
+            activeEntry = null
             productionCounter.reset()
         }
         saveHistory()
@@ -208,7 +209,7 @@ class MatchHistoryTracker(
 
     private fun capturePlayerStats(gameTimeMillis: Long): List<MatchPlayerStats> {
         val engine = runCatching { GameEngine.getInstance() }.getOrNull() ?: return emptyList()
-        val campaign = activeMatchId?.let(history::match)?.matchType == MatchType.CAMPAIGN
+        val campaign = activeEntry?.matchType == MatchType.CAMPAIGN
         val populatedTeamIds = nativePopulatedTeamIds()
         return runCatching {
             val remainingCounts = countMatchHistoryRemainingUnits(

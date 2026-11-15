@@ -68,19 +68,28 @@ class MatchHistoryMaintenance(
         }
     }
 
-    fun pruneExpired(nowMillis: Long = System.currentTimeMillis()): Result<Int> = runCatching {
-        val before = history.allMatches()
-        val removed = history.pruneMatches(nowMillis, settings.matchHistoryRetentionDays, tracker.currentMatch?.id)
-        if (removed > 0) {
-            try {
-                configIO.saveConfig(history)
-            } catch (failure: Exception) {
-                // Retain the in-memory history if its updated file could not be persisted.
-                synchronized(history) { history.matches = before.toMutableList() }
-                throw failure
+    fun deleteMatch(id: String): Result<Int> =
+        persistRemoval { if (history.matches.removeAll { it.id == id }) 1 else 0 }
+
+    fun pruneExpired(nowMillis: Long = System.currentTimeMillis()): Result<Int> {
+        val currentId = tracker.currentMatch?.id
+        return persistRemoval { history.pruneMatches(nowMillis, settings.matchHistoryRetentionDays, currentId) }
+    }
+
+    private inline fun persistRemoval(remove: () -> Int): Result<Int> = runCatching {
+        synchronized(history) {
+            val before = history.matches.toMutableList()
+            val removed = remove()
+            if (removed > 0) {
+                try {
+                    configIO.saveConfig(history)
+                } catch (failure: Exception) {
+                    history.matches = before
+                    throw failure
+                }
+                mutableRevisions.value++
             }
-            mutableRevisions.value++
+            removed
         }
-        removed
     }
 }

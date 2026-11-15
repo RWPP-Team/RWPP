@@ -7,9 +7,11 @@
 
 package io.github.rwpp.ui
 
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import io.github.rwpp.appKoin
 import io.github.rwpp.config.Settings
 
@@ -41,8 +43,22 @@ internal object HudOpacity {
 }
 
 /**
- * The setting shifts every HUD panel alpha by the same offset, so the designed look is the
- * default and the slider only makes panels more or less transparent around it.
+ * Absolute panel alpha override. `null` follows the HUD slider, as battlefield panels should;
+ * any value replaces the designed alpha outright. Modal dialogs publish `1f`: a translucent
+ * alert lets terrain and native briefing text show through its own message.
  */
+internal val LocalPanelAlphaOverride = staticCompositionLocalOf<Float?> { null }
+
+/** Slider offset from the designed look; callable from draw scopes, which cannot read locals. */
 internal fun hudPanelAlpha(designed: Float): Float =
     (designed + HudOpacity.value - DEFAULT_HUD_PANEL_OPACITY).coerceIn(0.05f, 1f)
+
+/**
+ * Same shift for composables, but a surrounding [LocalPanelAlphaOverride] wins. The setting exists
+ * for surfaces over terrain; a modal must stay readable whatever the slider says.
+ */
+@Composable
+internal fun scopedPanelAlpha(designed: Float): Float {
+    val override = LocalPanelAlphaOverride.current
+    return override?.coerceIn(0.05f, 1f) ?: hudPanelAlpha(designed)
+}
