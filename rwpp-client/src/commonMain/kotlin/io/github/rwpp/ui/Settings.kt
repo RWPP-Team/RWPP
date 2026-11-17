@@ -387,6 +387,12 @@ class SettingsScreen(
                                                 defaultValue = settings.showUnitTargetLine,
                                                 onCheckedChange = { settings.showUnitTargetLine = it }
                                             )
+                                            AeroSettingToggle(
+                                                label = readI18n("rwpp.settings.factoryEconomy"),
+                                                defaultValue = settings.showFactoryEconomy,
+                                                subLabel = readI18n("rwpp.settings.factoryEconomy.hint"),
+                                                onCheckedChange = { settings.showFactoryEconomy = it }
+                                            )
 
                                             val effectLimitValues = remember { listOf("Zero", "Keep", "Unlimited") }
                                             val effectLimitLabels = listOf(
