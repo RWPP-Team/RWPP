@@ -552,11 +552,22 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
         val blocked = menuOwnsInput()
         // A blocked screen keeps the key away from both the native listener and the
         // RWPP game hotkey bus; releases still reach the game to clear held keys.
-        if (!consumed && !blocked) KeyboardEvent(composeKeyEvent).broadcastIn()
+        // Escape is the exception for the pause menu and HUD edit mode: GameScreen closes them
+        // from this bus, so swallowing it left both overlays impossible to dismiss by keyboard.
+        if (!consumed && (!blocked || composeKey == Key.Escape && gameOverlayOwnsEscape())) {
+            KeyboardEvent(composeKeyEvent).broadcastIn()
+        }
         if (type == KeyEventType.KeyDown && (consumed || blocked || composeKey == Key.Escape)) {
             _input.consumeEvent()
         }
         needRender = true
+    }
+
+    /** Pause menu or HUD edit mode is open over gameplay, with no other screen or chat on top. */
+    private fun gameOverlayOwnsEscape(): Boolean {
+        if (io.github.rwpp.ui.gameInputBlockedByNavigator() || io.github.rwpp.ui.isShowSendMessageDialog) return false
+        val screen = io.github.rwpp.appKoin.get<io.github.rwpp.ui.GameScreen>()
+        return screen.showPauseMenu || screen.isEditMode
     }
 
     private fun menuOwnsInput(): Boolean =
