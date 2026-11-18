@@ -131,6 +131,8 @@ data class Settings(
     /** Share one range color and merged contour across all players on the same allied team. */
     var aeroRangeUseTeamColors: Boolean = true,
     var showExtraButton: Boolean = false,
+    /** Factory build buttons show the minimum per-minute economy needed to keep production running. */
+    var showFactoryEconomy: Boolean = true,
     /** @see unitAttackRangeTypes */
     var showAttackRangeUnit: String = "Never",
     /** Master switch for interface motion: buttons, lists, screen flashes and dialog panels. */

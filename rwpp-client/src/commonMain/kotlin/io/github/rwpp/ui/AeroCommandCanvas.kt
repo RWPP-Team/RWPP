@@ -93,6 +93,8 @@ internal data class CommandButton(
     val pendingProduction: Int = 0,
     val opensBuildingPlacement: Boolean = false,
     val opensTouchQueue: Boolean = false,
+    /** Minimum economy to keep every eligible factory producing this unit; null hides it. */
+    val economy: FactoryEconomy? = null,
 )
 
 internal enum class HudActionGlyph { WAYPOINT, RALLY, UPGRADE }
@@ -115,7 +117,8 @@ internal fun sameCommandVisuals(a: CommandFrame, b: CommandFrame): Boolean =
                 x.hotkey == y.hotkey && x.category == y.category && x.techLevel == y.techLevel &&
                 x.usable == y.usable && x.flash == y.flash && x.active == y.active &&
                 x.demoBlocked == y.demoBlocked && x.pendingProduction == y.pendingProduction &&
-                x.opensBuildingPlacement == y.opensBuildingPlacement && x.opensTouchQueue == y.opensTouchQueue
+                x.opensBuildingPlacement == y.opensBuildingPlacement && x.opensTouchQueue == y.opensTouchQueue &&
+                x.economy == y.economy
     }
 
 internal data class CommandTooltip(val anchor: Rect, val title: String, val text: String, val pointerY: Float? = null)
@@ -131,9 +134,14 @@ internal fun hudActionInfo(
     val showsPrice = command.actionCategory != SpecialActionCategory.infoOnlyStockpile
     val price = if (showsPrice) command.customPrice?.tooltipCostText() else null
     val streaming = if (showsPrice) command.secondaryPrice?.tooltipCostText() else null
+    val economy = if (
+        runCatching { io.github.rwpp.appKoin.get<io.github.rwpp.config.Settings>().showFactoryEconomy }
+            .getOrDefault(true)
+    ) FactoryEconomySampler().apply { beginFrame(source, System.nanoTime()) }.sample(action) else null
     return title to listOfNotNull(
         price?.let { readI18n("rwpp.hud.tooltip.cost", it) },
         streaming?.let { readI18n("rwpp.hud.tooltip.streamingCost", it) },
+        economy?.let { readI18n("rwpp.hud.tooltip.factoryEconomy", it.perMinute, it.factories) },
         BattleInterface.getSpecialActionQueueTimeText(action, false),
         command.getDisplayDescriptionForUnit(owner),
     ).filter(String::isNotBlank).joinToString("\n")
@@ -311,6 +319,7 @@ private class CommandButtonFrameBuilder {
     private val callbacks = ArrayList<HudActionCallbacks>()
     private val buttonScratch = ArrayList<CommandButton>()
     private var published: List<CommandButton> = emptyList()
+    private val economy = FactoryEconomySampler()
 
     fun build(
         engine: GameEngine,
@@ -327,6 +336,10 @@ private class CommandButtonFrameBuilder {
         val nowNanos = System.nanoTime()
         val hotkeys = commandHotkeys(engine, actions)
         activateCommandHotkeys(hotkeys, actions, selection)
+        val showEconomy = runCatching {
+            io.github.rwpp.appKoin.get<io.github.rwpp.config.Settings>().showFactoryEconomy
+        }.getOrDefault(true)
+        economy.beginFrame(if (showEconomy) primary else null, nowNanos)
         for (index in actions.indices) {
             val action = actions[index]
             var callbacksForAction = callbacks.getOrNull(index)
@@ -384,6 +397,7 @@ private class CommandButtonFrameBuilder {
             val active = engine.interfaceEngine.activeSpecialAction === action
             val demoBlocked = BattleInterface.isSpecialActionDemoBlocked(action)
             val techLevel = action.unitType?.techLevel ?: action.techLevel
+            val economyValue = economy.sample(action)
             val old = published.getOrNull(index)
             val hotkey = hotkeys.getOrNull(index)?.label ?: ""
             buttonScratch.add(
@@ -393,7 +407,7 @@ private class CommandButtonFrameBuilder {
                             old, label, action.buttonWidthScale, action.buttonColumnSpan, enabled, progress, queued,
                             image, showInfo, glyph, canAdd, clickSound, identity, dimmed, hotkey,
                             category, techLevel, usable, flash, active, demoBlocked, cooldown, pending,
-                            action.actionType == ActionType.placeBuilding, queuePanel,
+                            action.actionType == ActionType.placeBuilding, queuePanel, economyValue,
                         ),
                     )
                 ) old else CommandButton(
@@ -423,6 +437,7 @@ private class CommandButtonFrameBuilder {
                     pendingProduction = pending,
                     opensBuildingPlacement = action.actionType == ActionType.placeBuilding,
                     opensTouchQueue = queuePanel,
+                    economy = economyValue,
                 )
             )
         }
@@ -520,6 +535,7 @@ private fun sameCommandButtonVisuals(
     pendingProduction: Int,
     opensBuildingPlacement: Boolean,
     opensTouchQueue: Boolean,
+    economy: FactoryEconomy?,
 ): Boolean = button.label == label && button.heightScale == heightScale && button.columns == columns &&
         button.enabled == enabled && button.progress == progress && button.cooldown == cooldown && button.queued == queued && button.image === image &&
         button.showInfo == showInfo && button.glyph == glyph && button.canAdd == canAdd &&
@@ -527,7 +543,8 @@ private fun sameCommandButtonVisuals(
         button.hotkey == hotkey && button.category == category && button.techLevel == techLevel &&
         button.usable == usable && button.flash == flash && button.active == active &&
         button.demoBlocked == demoBlocked && button.pendingProduction == pendingProduction &&
-        button.opensBuildingPlacement == opensBuildingPlacement && button.opensTouchQueue == opensTouchQueue
+        button.opensBuildingPlacement == opensBuildingPlacement && button.opensTouchQueue == opensTouchQueue &&
+        button.economy == economy
 
 private data class CommandHotkey(
     val label: String,
@@ -1056,11 +1073,41 @@ internal fun CommandSurface(
                         }
                         if (activeFeedback) drawRect(colors.primary.copy(alpha = feedback), origin, extent)
                         actionBorder(origin, extent, button)
+                        var economyReserved = 0f
+                        button.economy?.let { economy ->
+                            // Same square-cut chip language as the queue badge: dark translucent
+                            // fill with the accent outline, so it reads on any unit sprite. It sits
+                            // in the bottom-right, clear of the cut corner and the progress strip.
+                            val layout = text.measure(
+                                AnnotatedString(
+                                    readI18n("rwpp.hud.factoryEconomy.badge", economy.perMinute, economy.factories)
+                                ),
+                                style = TextStyle(
+                                    color = colors.primary, fontSize = 10.sp,
+                                    shadow = Shadow(Color.Black.copy(alpha = 0.85f), Offset(1f, 1f), 2f)
+                                ),
+                                maxLines = 1
+                            )
+                            val padding = 3.dp.toPx()
+                            val chipWidth = layout.size.width + padding * 2
+                            val chipHeight = layout.size.height + 2.dp.toPx()
+                            val right = origin.x + extent.width - cut - 2.dp.toPx()
+                            val left = (right - chipWidth).coerceAtLeast(origin.x + 2.dp.toPx())
+                            val top = origin.y + extent.height - 4.dp.toPx() - chipHeight
+                            drawRect(Color.Black.copy(alpha = 0.55f), Offset(left, top), Size(right - left, chipHeight))
+                            drawRect(
+                                colors.primary.copy(alpha = 0.75f), Offset(left, top), Size(right - left, chipHeight),
+                                style = Stroke(1.dp.toPx())
+                            )
+                            drawText(layout, topLeft = Offset(left + padding, top + 1.dp.toPx()))
+                            economyReserved = origin.x + extent.width - left
+                        }
                         val captionHeight = minOf(30.dp.toPx(), extent.height - 4.dp.toPx())
                         label(
                             button.label,
                             origin + Offset(6.dp.toPx(), extent.height - captionHeight),
-                            extent.width - 12.dp.toPx(),
+                            // The caption shares the bottom edge with the economy chip.
+                            (extent.width - 12.dp.toPx() - economyReserved).coerceAtLeast(1f),
                             captionHeight,
                             color = actionCaptionColor(
                                 button,

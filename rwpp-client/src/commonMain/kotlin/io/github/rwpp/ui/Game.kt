@@ -346,12 +346,18 @@ class GameScreen : Screen {
                 SelectionCameraFollowController.stop()
                 survivalWave = null
                 isEditMode = false
-                if (this@GameScreen !in navigator.backStack) showPauseMenu = false
-                NativeHudVisibility.hidden = false
-                NativeHudVisibility.aeroSelection = false
-                NativeHudVisibility.aeroBars = false
-                NativeHudVisibility.aeroOrders = false
-                NativeHudVisibility.aeroRallyPoints = false
+                val leavingGame = this@GameScreen !in navigator.backStack
+                if (leavingGame) showPauseMenu = false
+                // Settings opened from the pause menu covers this screen while the match keeps
+                // rendering behind it. Only hand the HUD back to native when the match screen
+                // actually leaves; otherwise the native factory panel reappears under Settings.
+                if (leavingGame) {
+                    NativeHudVisibility.hidden = false
+                    NativeHudVisibility.aeroSelection = false
+                    NativeHudVisibility.aeroBars = false
+                    NativeHudVisibility.aeroOrders = false
+                    NativeHudVisibility.aeroRallyPoints = false
+                }
                 AeroDamageSignals.enabled = false
                 AeroDamageSignals.clear()
                 CommandPointer.inPanel = false
