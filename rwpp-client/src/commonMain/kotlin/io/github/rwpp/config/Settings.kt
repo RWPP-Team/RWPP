@@ -37,6 +37,7 @@ data class Settings(
     /** Opt in to native repair orders that add long-idle selected builders to group construction. */
     var builderQueueProtectionEnabled: Boolean = true,
     var aeroUnitGlowHighlight: Boolean = false,
+    var aeroDamageAnimation: Boolean = true,
     var aeroDamageNumbers: Boolean = false,
     var smoothGameTextures: Boolean = true,
     var removeDrawLimit: Boolean = false,

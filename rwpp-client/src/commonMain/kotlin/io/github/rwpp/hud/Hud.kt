@@ -271,6 +271,9 @@ private fun HudEditorSettingsDialog(
                                 HudSettingToggle("rwpp.hud.editor.settings.unitGlow", settings.aeroUnitGlowHighlight) {
                                     settings.aeroUnitGlowHighlight = it
                                 }
+                                HudSettingToggle("rwpp.hud.editor.settings.damageTrail", settings.aeroDamageAnimation) {
+                                    settings.aeroDamageAnimation = it
+                                }
                                 HudSettingToggle("rwpp.hud.editor.settings.damageNumbers", settings.aeroDamageNumbers) {
                                     settings.aeroDamageNumbers = it
                                 }

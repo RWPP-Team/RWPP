@@ -58,10 +58,10 @@ class AeroEffectsTest : DesktopComposeGraphicsTest() {
                     SelectedVisual(
                         Offset(60f, 260f),
                         20f,
-                        0.4f,
+                        0.5f,
                         0f,
                         androidx.compose.ui.graphics.Color.Cyan,
-                        selected = false
+                        selected = false, trail = 0.8f
                     ),
                     SelectedVisual(
                         Offset(90f, 300f), 18f, 1f, 0f, androidx.compose.ui.graphics.Color.Cyan,
@@ -105,11 +105,11 @@ class AeroEffectsTest : DesktopComposeGraphicsTest() {
             val first = render()
             assertTrue(first.any { it == 0xff8b929b.toInt() }, "Recharging energy uses a gray row")
             assertTrue(first.any { it == 0xffffcb74.toInt() }, "Usable secondary energy keeps its warm row")
-            assertFalse(first.any { it == 0xffffc66b.toInt() }, "Damaged units have no yellow health trail")
             state.value = state.value.copy(phase = 0.5f)
             val second = render()
             assertTrue(first.count { it ushr 24 > 0 } > 300)
-            assertTrue(first[284 * 640 + 45] ushr 24 > 0, "Unselected damaged units still receive Aero bars")
+            assertEquals(0xff00ffff.toInt(), first[284 * 640 + 45], "The main bar retains its color at half health")
+            assertEquals(0xffffc66b.toInt(), first[284 * 640 + 64], "The yellow trail follows the main bar")
             assertEquals(0, first[240 * 640 + 40], "Unselected units must not receive selected brackets")
             assertTrue(first[322 * 640 + 75] ushr 24 > 0, "Unselected construction progress stays visible")
             val shieldBlue = 0xff64ccff.toInt()

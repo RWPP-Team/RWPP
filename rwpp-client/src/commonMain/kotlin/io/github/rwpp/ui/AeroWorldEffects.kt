@@ -367,8 +367,15 @@ internal fun AeroWorldEffectSurface(
             if (unit.healthVisible) {
                 val fillHeight = if (unit.barMini) bounds.height else 3f * rowScale
                 drawRect(Color.Black.copy(alpha = 0.65f), origin, Size(w, bounds.height))
+                val filledWidth = w * unit.hp
+                if (unit.trail > unit.hp) {
+                    drawRect(
+                        Color(0xffffc66b), origin + Offset(filledWidth, 0f),
+                        Size(w * (unit.trail - unit.hp), fillHeight),
+                    )
+                }
                 val healthColor = if (unit.hp < 0.25f) Color(0xffff6565) else unit.color
-                drawRect(healthColor, origin, Size(w * unit.hp, fillHeight))
+                drawRect(healthColor, origin, Size(filledWidth, fillHeight))
                 barY += 5f * rowScale
             }
             if (unit.transportCapacity > 0) {

@@ -37,6 +37,9 @@ internal class AeroWorldEffectsSampler(
     private val presentation: AeroWorldPresentation,
 ) {
     private val footprintScratch = RectF()
+    private val trails = HashMap<Long, Float>()
+    private val liveTrailIds = HashSet<Long>()
+    private var lastTrailSampleAt = 0L
     private val productionSampler = AeroProductionSampler()
     private val refresh = WorldVisualRefreshSchedule()
     private val visibleUnits = ArrayList<GameUnit>()
@@ -51,6 +54,7 @@ internal class AeroWorldEffectsSampler(
     private var sampledGameTime = 0
 
     private fun resetWorldState() {
+        clearDamageTrails()
         productionSampler.clear()
         visibleUnits.clear()
         trackedVisuals.clear()
@@ -65,6 +69,12 @@ internal class AeroWorldEffectsSampler(
         sampledGameTime = 0
         AeroDamageSignals.clear()
         presentation.clear()
+    }
+
+    private fun clearDamageTrails() {
+        trails.clear()
+        liveTrailIds.clear()
+        lastTrailSampleAt = 0L
     }
 
     private fun selectedViewFor(units: List<Pair<GameUnit, SelectedVisual>>): List<SelectedVisual> {
@@ -149,6 +159,8 @@ internal class AeroWorldEffectsSampler(
         val replayOrdersEnabled =
             (engine.replayEngine.isPlayingReplay || isAeroLiveObserver(engine)) && showAllReplayOrders
         val aeroBars = settings.aeroSelection
+        val animateDamage = aeroBars && settings.aeroDamageAnimation
+        if (!animateDamage && lastTrailSampleAt != 0L) clearDamageTrails()
         if (!aeroBars && !settings.showCollisionBoxes && !settings.showUnitTargetLine && !settings.aeroHoverEffects && !settings.aeroUnitGlowHighlight &&
             !settings.aeroOrderEffects && !rangesEnabled && !settings.aeroDamageNumbers &&
             !settings.aeroRallyPointEffects && !settings.advancedRallyPoints && !settings.aeroProductionLabels && !replayOrdersEnabled
@@ -170,8 +182,15 @@ internal class AeroWorldEffectsSampler(
         val ui = engine.interfaceEngine
         val selectedUnitCount = ui.getSelectedUnitCount()
         val now = System.nanoTime()
+        val startingTrail = animateDamage && lastTrailSampleAt == 0L
+        val trailElapsed = if (animateDamage && !startingTrail) (now - lastTrailSampleAt) / 1_000_000_000f else 0f
+        if (animateDamage) lastTrailSampleAt = now
+        fun sampleTrail(unit: GameUnit, hp: Float): Float {
+            if (!animateDamage) return hp
+            return damageTrail(trails[unit.id] ?: hp, hp, trailElapsed).also { trails[unit.id] = it }
+        }
         val selectionChanged = sampledSelection !== selectedUnits
-        if (!refresh.due(now, force = selectionChanged)) {
+        if (!refresh.due(now, force = selectionChanged || startingTrail)) {
             // Follow native unit positions each display frame; do not rescan the world or
             // resample range eligibility/radii just to advance the passive overlay animation.
             val animatedTracking = animatedVisuals.update(trackedVisuals) { entry ->
@@ -181,6 +200,7 @@ internal class AeroWorldEffectsSampler(
                     return@update null
                 }
                 val hp = unitHealthRatio(unit.hp, unit.maxHp)
+                val trail = sampleTrail(unit, hp)
                 val center = Offset(unit.x, unit.y - unit.height)
                 val shield = unitHealthRatio(unit.shield, unit.maxShield)
                 val secondary = if (aeroBars) aeroNonShieldSecondary(unit) else -1f
@@ -191,7 +211,7 @@ internal class AeroWorldEffectsSampler(
                 val (transportUsed, transportCapacity) = transportSlots(
                     unit, aeroBars && visual.transportCapacity > 0
                 )
-                val next = if (visual.center == center && visual.hp == hp &&
+                val next = if (visual.center == center && visual.hp == hp && visual.trail == trail &&
                     visual.shield == shield && visual.selected == selected && visual.barRadius == radius &&
                     visual.barScaledDown == scaledDown && visual.transportUsed == transportUsed &&
                     visual.transportCapacity == transportCapacity && visual.secondary == secondary &&
@@ -200,7 +220,7 @@ internal class AeroWorldEffectsSampler(
                     lastAnimatedByUnit[unit] ?: (unit to visual)
                 } else {
                     unit to visual.copy(
-                        center = center, hp = hp, shield = shield,
+                        center = center, hp = hp, trail = trail, shield = shield,
                         selected = selected, barRadius = radius, barScaledDown = scaledDown,
                         transportUsed = transportUsed, transportCapacity = transportCapacity,
                         secondary = secondary, secondaryRecharging = recharging
@@ -265,6 +285,7 @@ internal class AeroWorldEffectsSampler(
         val replay = engine.replayEngine.isPlayingReplay
         val replaying = replay || observing
         val showAllOrders = replaying && showAllReplayOrders
+        liveTrailIds.clear()
         allVisible.forEach { unit ->
             val inView = unit.x + unit.radius >= engine.cameraRenderX && unit.y + unit.radius >= engine.cameraRenderY &&
                     unit.x - unit.radius <= engine.cameraRenderX + engine.screenWidth / engine.zoomScale &&
@@ -285,6 +306,11 @@ internal class AeroWorldEffectsSampler(
                 }
             }
             val hp = unitHealthRatio(unit.hp, unit.maxHp)
+            val trail = if (animateDamage && inView) {
+                // A healthy unselected unit may get a visible bar only after taking damage.
+                liveTrailIds.add(unit.id)
+                sampleTrail(unit, hp)
+            } else hp
             val construction = unit.constructionProgress
             val secondary = if (inView && aeroBars) aeroNonShieldSecondary(unit) else -1f
             val isHovered = unit === hovered
@@ -330,6 +356,7 @@ internal class AeroWorldEffectsSampler(
                     barMini = unit.getAttachmentSlot()?.showMiniHp == true,
                     transportUsed = transportUsed,
                     transportCapacity = transportCapacity,
+                    trail = trail,
                 )
                 trackedVisuals += unit to visual
             }
@@ -494,6 +521,7 @@ internal class AeroWorldEffectsSampler(
             }
         }
 
+        if (animateDamage) trails.keys.retainAll(liveTrailIds)
         productionSampler.endFrame()
         val immutableTracking = trackedVisuals.toList()
         animatedVisuals.publishStable(immutableTracking)

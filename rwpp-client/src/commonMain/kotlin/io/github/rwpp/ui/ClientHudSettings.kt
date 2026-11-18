@@ -82,6 +82,10 @@ internal fun ClientHudSettings(settings: Settings) {
                 settings.aeroSelection
             ) { settings.aeroSelection = it }
             AeroSettingToggle(
+                readI18n("rwpp.hud.editor.settings.damageTrail"),
+                settings.aeroDamageAnimation
+            ) { settings.aeroDamageAnimation = it }
+            AeroSettingToggle(
                 readI18n("rwpp.hud.editor.settings.damageNumbers"),
                 settings.aeroDamageNumbers
             ) { settings.aeroDamageNumbers = it }
