@@ -14,7 +14,7 @@ import kim.der.asm.api.annotation.At
 import kim.der.asm.api.annotation.InjectionPoint
 import kim.der.asm.api.annotation.Redirect
 
-/** Only suppresses the lingering death emitters; unrelated smoke and explosions stay native. */
+/** Keep the native emitter's object ID and lifetime, even when its particles are hidden. */
 @AsmMixin("com/corrodinggames/rts/game/units/OrderableUnit")
 object DeathSmokeMixin {
     @Redirect(
@@ -23,8 +23,8 @@ object DeathSmokeMixin {
             target = "com/corrodinggames/rts/gameFramework/effects/EffectEmitter.createSmokeEmitter(FF)Lcom/corrodinggames/rts/gameFramework/effects/EffectEmitter;"
         ), require = 1
     )
-    fun smoke(x: Float, y: Float): EffectEmitter? =
-        if (GameVisualSettings.get()?.suppressDeathSmoke == true) null else EffectEmitter.createSmokeEmitter(x, y)
+    fun smoke(x: Float, y: Float): EffectEmitter =
+        applyVisualSetting(EffectEmitter.createSmokeEmitter(x, y))
 
     @Redirect(
         method = "spawnDeathEffects(Lcom/corrodinggames/rts/game/units/UnitSize;Z)V", at = At(
@@ -32,6 +32,10 @@ object DeathSmokeMixin {
             target = "com/corrodinggames/rts/gameFramework/effects/EffectEmitter.createFireEmitter(FF)Lcom/corrodinggames/rts/gameFramework/effects/EffectEmitter;"
         ), require = 1
     )
-    fun fire(x: Float, y: Float): EffectEmitter? =
-        if (GameVisualSettings.get()?.suppressDeathSmoke == true) null else EffectEmitter.createFireEmitter(x, y)
+    fun fire(x: Float, y: Float): EffectEmitter =
+        applyVisualSetting(EffectEmitter.createFireEmitter(x, y))
+
+    private fun applyVisualSetting(emitter: EffectEmitter): EffectEmitter = emitter.apply {
+        if (GameVisualSettings.get()?.suppressDeathSmoke == true) emitting = false
+    }
 }

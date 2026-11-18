@@ -33,7 +33,7 @@ RWPP 是 Rusted Warfare 的客户端与无界面服务端。两者都以 [RWML](
 
 ## 安装
 
-先安装 [RWML](https://github.com/RWPP-Team/RWML/releases/latest)，再从 [RWPP 2.0.0 发布页](https://github.com/RWPP-Team/RWPP/releases/tag/v2.0.0)
+先安装 [RWML 1.0.3 或更新版本](https://github.com/RWPP-Team/RWML/releases/latest)，再从 [RWPP 2.0.1 发布页](https://github.com/RWPP-Team/RWPP/releases/tag/v2.0.1)
 下载桌面或 Android 扩展整合包，在 RWML 启动器中导入。整合包包含 `io.github.rwpp.api` 与 `io.github.rwpp`，两个 JAR 也可以分别导入。
 
 两个扩展必须来自同一个发行版本。客户端声明对 API 的依赖，并独立注册自己的界面框架。
@@ -47,9 +47,11 @@ TCP。控制台命令与启动选项见 [rwpp-server/README.md](rwpp-server/READ
 
 ## 扩展开发
 
-扩展依赖 `rwml-core` 与映射后的游戏库。需要共用游戏服务时，从 Maven Central 引入
-`io.github.rwpp-team:rwpp-api:2.0.0`。三个库均由宿主在运行时提供，扩展只需声明编译期依赖。
+扩展依赖同一 RWML 版本的 `rwml-core` 与 `game-lib`。需要共用游戏服务时，从 Maven Central 引入
+`io.github.rwpp-team:rwpp-api:2.0.1`。三个库均由宿主在运行时提供，扩展只需声明编译期依赖。
 [rwpp-api/README.md](rwpp-api/README.md) 说明事件通道、命令注册与配置服务。
+
+桌面开发构建可启用 [ComposeScopeTree 探针](https://rwpp-team.top/extension/compose-scope-tree/)，用已发布的 0.1.1 编译器插件和运行库检查并编辑已挂载的 Compose 作用域。
 
 ## 致谢
 

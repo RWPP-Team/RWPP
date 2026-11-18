@@ -53,6 +53,7 @@ import io.github.rwpp.event.OnDispose
 import io.github.rwpp.event.events.KeyboardEvent
 import io.github.rwpp.game.hotkeys.NativeGameHotkeys
 import io.github.rwpp.game.hotkeys.SelectionCameraFollowController
+import io.github.rwpp.game.hud.AdvancedRally
 import io.github.rwpp.game.hud.AeroDamageSignals
 import io.github.rwpp.game.hud.SurvivalWaveHud
 import io.github.rwpp.game.hud.SurvivalWavePresentation
@@ -105,6 +106,7 @@ class GameScreen : Screen {
     var selectedUnits by mutableStateOf<List<GameUnit>>(emptyList())
     var isEditMode by mutableStateOf(false)
     var showPauseMenu by mutableStateOf(false)
+    internal var sandboxEditorDialogOpen by mutableStateOf(false)
     private var survivalWave by mutableStateOf<SurvivalWaveHud?>(null)
     private var saveDialog by mutableStateOf<Boolean?>(null)
     private var hudSettingsRevision by mutableIntStateOf(0)
@@ -231,12 +233,13 @@ class GameScreen : Screen {
         val hotkeysBlocked =
             rememberUpdatedState(
                 showPauseMenu || isEditMode || saveDialog != null || UI.showPlayerList || blueprintLibraryOpen ||
-                        UI.briefing != null
+                        UI.briefing != null || sandboxEditorDialogOpen
             )
         // A destroyed gameplay screen must not leave the engine paused; the flag also decides
         // whether the native mouse may be released while a Compose screen owns the window.
-        DisposableEffect(showPauseMenu, isEditMode, saveDialog, blueprintLibraryOpen) {
-            GameUiPauseState.blocked = showPauseMenu || isEditMode || saveDialog != null || blueprintLibraryOpen
+        DisposableEffect(showPauseMenu, isEditMode, saveDialog, blueprintLibraryOpen, sandboxEditorDialogOpen) {
+            GameUiPauseState.blocked = showPauseMenu || isEditMode || saveDialog != null ||
+                    blueprintLibraryOpen || sandboxEditorDialogOpen
             onDispose { GameUiPauseState.blocked = false }
         }
         DisposableEffect(hotkeySettings) {
@@ -266,6 +269,7 @@ class GameScreen : Screen {
         OnGameUpdate {
             showPerformance = hotkeySettings.showPerformanceUsage
             val engine = GameEngine.getInstance()
+            AdvancedRally.refresh(engine)
             interfaceHidden = engine.cameraScrollActive
             NativeHudVisibility.update()
             survivalWave = survivalSampler.sample(engine)
@@ -372,7 +376,14 @@ class GameScreen : Screen {
             subscribeAlways { e ->
                 uiScope.launch {
                     if (e.keyEvent.key == Key.Escape && e.keyEvent.type == KeyEventType.KeyDown) {
-                        if (UI.showPlayerList || UI.briefing != null) return@launch
+                        if (UI.showPlayerList || UI.briefing != null || sandboxEditorDialogOpen) return@launch
+                        val rallyEditor = AdvancedRally.draft?.editor
+                        if (rallyEditor != null && !showPauseMenu && !isEditMode && !interfaceHidden) {
+                            GameScope.launch {
+                                GameEngine.getInstance()?.let { AdvancedRally.edit(it, rallyEditor, AdvancedRally.Edit.CANCEL) }
+                            }
+                            return@launch
+                        }
                         if (interfaceHidden) {
                             GameScope.launch {
                                 GameEngine.getInstance().cameraScrollActive = false
@@ -413,7 +424,6 @@ class GameScreen : Screen {
 
             if (!showPauseMenu && !isEditMode && saveDialog == null) {
                 CommandTooltipLayer(
-                    closeLabel = readI18n("rwpp.common.close"),
                     topCentered = android,
                     placementTooltip = placementTooltip.takeIf { hideOriginalHud },
                 )
@@ -438,6 +448,7 @@ class GameScreen : Screen {
 
         DeveloperPerformanceOverlay(showPerformance && !showPauseMenu && !interfaceHidden)
         BuildingPlanningFrame(visible = !showPauseMenu && !isEditMode && !interfaceHidden)
+        if (!showPauseMenu && !isEditMode && !interfaceHidden && !isShowSendMessageDialog) AdvancedRallyControls()
         BlueprintPlacementToolbar(
             visible = !showPauseMenu && !isEditMode && !interfaceHidden,
             libraryOpen = blueprintLibraryOpen,

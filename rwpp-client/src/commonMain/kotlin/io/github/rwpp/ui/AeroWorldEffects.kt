@@ -63,7 +63,7 @@ internal fun GameScreen.AeroWorldEffects() {
             accent = accent,
             productionPausedLabel = productionPausedLabel,
             productionWaitingLabel = productionWaitingLabel,
-            hoverAllowed = !CommandPointer.inPanel && !CommandHover.overTooltip &&
+            hoverAllowed = !CommandPointer.inPanel &&
                     !GameUiPauseState.blocked && !isShowSendMessageDialog,
             showAllReplayOrders = AeroReplayControlsState.showAllUnitOrders
         )
@@ -367,13 +367,7 @@ internal fun AeroWorldEffectSurface(
             if (unit.healthVisible) {
                 val fillHeight = if (unit.barMini) bounds.height else 3f * rowScale
                 drawRect(Color.Black.copy(alpha = 0.65f), origin, Size(w, bounds.height))
-                drawRect(Color(0xffffc66b), origin, Size(w * unit.trail, fillHeight))
-                val healthColor = when {
-                    unit.improvedHealthStyle && unit.hp < 0.30f -> Color(0xffff6565)
-                    unit.improvedHealthStyle && unit.hp < 0.60f -> Color(0xffed9121)
-                    unit.hp < 0.25f -> Color(0xffff6565)
-                    else -> unit.color
-                }
+                val healthColor = if (unit.hp < 0.25f) Color(0xffff6565) else unit.color
                 drawRect(healthColor, origin, Size(w * unit.hp, fillHeight))
                 barY += 5f * rowScale
             }

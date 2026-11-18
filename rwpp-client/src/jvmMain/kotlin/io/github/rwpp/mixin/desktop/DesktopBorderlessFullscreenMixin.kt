@@ -10,25 +10,70 @@ package io.github.rwpp.mixin.desktop
 import com.corrodinggames.rts.gameFramework.GameEngine
 import kim.der.asm.api.annotation.AsmInject
 import kim.der.asm.api.annotation.AsmMixin
+import kim.der.asm.api.annotation.At
 import kim.der.asm.api.annotation.CallbackInfo
 import kim.der.asm.api.annotation.InjectionPoint
+import kim.der.asm.api.annotation.ModifyArg
+import kim.der.asm.api.annotation.Operation
+import kim.der.asm.api.annotation.WrapOperation
+import org.lwjgl.opengl.Display
+import org.newdawn.slick.AppGameContainer
+import java.util.concurrent.atomic.AtomicBoolean
 
-/**
- * SlickMainGame.applyResolution selects LWJGL exclusive fullscreen when only
- * slick2dFullScreen is set. Exclusive mode surrenders the foreground as soon as
- * the AWT input-method window takes focus. Forcing the borderless branch keeps
- * the game on an undecorated window, the display model v1.6.2 used, so the
- * always-on-top input dialog can stay above it. The hook runs before the first
- * setDisplayMode call, so no runtime display switch or GL rebuild is needed.
- */
+private val fullscreenRequestedAtLaunch = AtomicBoolean()
+
+/** The launcher creates the Slick display before the engine loads its window preferences. */
+@AsmMixin("com/corrodinggames/rts/java/MainLauncher")
+object DesktopFullscreenLaunchMixin {
+    @ModifyArg(
+        method = "parseArguments([Ljava/lang/String;)V",
+        index = 3,
+        at = At(
+            value = InjectionPoint.INVOKE,
+            target = "com.corrodinggames.rts.java.SlickGameContainer.<init>(Lorg/newdawn/slick/Game;IIZ)V",
+        ),
+        require = 2,
+    )
+    fun deferFullscreenUntilResolution(fullscreen: Boolean): Boolean {
+        fullscreenRequestedAtLaunch.set(fullscreen)
+        return false
+    }
+}
+
+/** Use Slick's native borderless branch so the AWT input window can take focus. */
 @AsmMixin("com/corrodinggames/rts/java/SlickMainGame")
 object DesktopBorderlessFullscreenMixin {
+    private val wasUndecorated = ThreadLocal.withInitial { false }
+
     @AsmInject(method = "applyResolution()V", target = InjectionPoint.HEAD, require = 1)
     fun useBorderlessFullscreen(callback: CallbackInfo, self: Any) {
+        wasUndecorated.set(java.lang.Boolean.getBoolean("org.lwjgl.opengl.Window.undecorated"))
         val settings = runCatching { GameEngine.getInstance()?.settings }.getOrNull() ?: return
-        // applyResolution treats borderless as fullscreen (`if (borderless) fullscreen = true`),
-        // so a stale true value keeps the game fullscreen after the immersive toggle is cleared.
-        // The extension owns this field because the Compose settings screen is the only writer.
-        settings.slick2dBorderless = settings.slick2dFullScreen
+        val requestedAtLaunch = fullscreenRequestedAtLaunch.getAndSet(false)
+        // Older preferences can select either flag. The desktop toggle writes both together.
+        val fullscreen = requestedAtLaunch || settings.slick2dFullScreen || settings.slick2dBorderless
+        settings.slick2dFullScreen = fullscreen
+        settings.slick2dBorderless = fullscreen
+    }
+
+    @WrapOperation(
+        method = "applyResolution()V",
+        ordinal = 0,
+        at = At(
+            value = InjectionPoint.INVOKE,
+            target = "com.corrodinggames.rts.java.SlickGameContainer.setDisplayMode(IIZ)V",
+        ),
+        require = 1,
+    )
+    fun applyBorderlessWindow(
+        container: AppGameContainer, width: Int, height: Int, fullscreen: Boolean, original: Operation<Unit>,
+    ) {
+        // Slick skips equal-size windowed modes. LWJGL applies decoration when it creates the window.
+        if (!wasUndecorated.get() && Display.isCreated() && !container.isFullscreen &&
+            container.width == width && container.height == height
+        ) {
+            Display.setDisplayMode(Display.getDisplayMode())
+        }
+        original.call(container, width, height, fullscreen)
     }
 }

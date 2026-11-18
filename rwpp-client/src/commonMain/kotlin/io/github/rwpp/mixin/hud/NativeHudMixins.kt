@@ -8,10 +8,12 @@
 package io.github.rwpp.mixin.hud
 
 import android.graphics.Paint
+import com.corrodinggames.rts.game.units.OrderableUnit
 import com.corrodinggames.rts.gameFramework.GameEngine
 import com.corrodinggames.rts.gameFramework.gui.PromptResult
 import com.corrodinggames.rts.gameFramework.render.BitmapOrTexture
 import com.corrodinggames.rts.gameFramework.render.GraphicsEngine
+import io.github.rwpp.game.hud.AdvancedRally
 import io.github.rwpp.game.minimap.AeroMinimapSignals
 import io.github.rwpp.graphics.AERO_DRAG_SELECTION_STROKE_WIDTH
 import io.github.rwpp.graphics.AeroPlacementPromptPainter
@@ -25,16 +27,16 @@ import kim.der.asm.api.annotation.*
 @AsmMixin("com/corrodinggames/rts/game/units/buildings/Factory")
 object AeroFactoryRallyMixin {
     @AsmInject(method = "drawRallyPointLine()V", target = InjectionPoint.HEAD, cancellable = true, require = 1)
-    fun rally(callback: CallbackInfo) {
-        if (NativeHudVisibility.aeroRallyPoints) callback.cancel()
+    fun rally(callback: CallbackInfo, target: Any) {
+        if (NativeHudVisibility.aeroRallyPoints || AdvancedRally.displayedRoute(target as OrderableUnit) != null) callback.cancel()
     }
 }
 
 @AsmMixin("com/corrodinggames/rts/game/units/custom/CustomUnit")
 object AeroCustomRallyMixin {
     @AsmInject(method = "drawRallyPointLine()V", target = InjectionPoint.HEAD, cancellable = true, require = 1)
-    fun rally(callback: CallbackInfo) {
-        if (NativeHudVisibility.aeroRallyPoints) callback.cancel()
+    fun rally(callback: CallbackInfo, target: Any) {
+        if (NativeHudVisibility.aeroRallyPoints || AdvancedRally.displayedRoute(target as OrderableUnit) != null) callback.cancel()
     }
 }
 

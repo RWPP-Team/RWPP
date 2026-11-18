@@ -31,7 +31,4 @@ object NativeEngineLifecycleMixin {
     fun syncNativeMenuState(target: Any, activity: Any?, gameView: Any?, resumeWithMenu: Boolean) =
         NativeEngineLifecycleCallbacks.syncNativeMenuState(target, activity, gameView, resumeWithMenu)
 
-    @AsmInject(method = "updateFrameInternal(FI)V", target = InjectionPoint.TAIL, require = 1)
-    fun acknowledgeLoadedClient(target: Any, deltaTime: Float, deltaMillis: Int) =
-        NativeEngineLifecycleCallbacks.acknowledgeClientReady(target)
 }

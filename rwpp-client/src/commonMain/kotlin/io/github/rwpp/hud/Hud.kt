@@ -17,7 +17,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +39,8 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -270,9 +271,6 @@ private fun HudEditorSettingsDialog(
                                 HudSettingToggle("rwpp.hud.editor.settings.unitGlow", settings.aeroUnitGlowHighlight) {
                                     settings.aeroUnitGlowHighlight = it
                                 }
-                                HudSettingToggle("rwpp.hud.editor.settings.damageTrail", settings.aeroDamageAnimation) {
-                                    settings.aeroDamageAnimation = it
-                                }
                                 HudSettingToggle("rwpp.hud.editor.settings.damageNumbers", settings.aeroDamageNumbers) {
                                     settings.aeroDamageNumbers = it
                                 }
@@ -382,6 +380,18 @@ private fun HudEditorSettingsDialog(
                         }
 
                         HudSettingsScope.STATUS_READOUT -> {
+                            AeroSettingGroup("CREDITS") {
+                                var creditsScale by remember(settings) {
+                                    mutableFloatStateOf(settings.hudCreditsScale.coerceIn(0.75f, 2f))
+                                }
+                                AeroSettingSlider(
+                                    label = readI18n("rwpp.hud.editor.settings.creditsScale"),
+                                    value = creditsScale,
+                                    onValueChange = { creditsScale = it; settings.hudCreditsScale = it },
+                                    valueRange = 0.75f..2f,
+                                    valueFormat = { "${(it * 100).roundToInt()}%" },
+                                )
+                            }
                             AeroSettingGroup(
                                 title = "RESOURCE ROWS",
                                 tag = "Mod resources",
@@ -1024,12 +1034,19 @@ private fun HudComponentWrapper(
                     },
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    Icons.Default.Edit,
-                    contentDescription = readI18n("rwpp.hud.editor.resize"),
-                    modifier = Modifier.size(14.dp),
-                    tint = Color.Black
-                )
+                val resizeLabel = readI18n("rwpp.hud.editor.resize")
+                Canvas(Modifier.size(14.dp).semantics { contentDescription = resizeLabel }) {
+                    val inset = 2.dp.toPx()
+                    val stroke = 1.5.dp.toPx()
+                    val top = Offset(inset, inset)
+                    val bottom = Offset(size.width - inset, size.height - inset)
+                    val arm = size.width * 0.34f
+                    drawLine(Color.Black, top, bottom, stroke)
+                    drawLine(Color.Black, top, top + Offset(arm, 0f), stroke)
+                    drawLine(Color.Black, top, top + Offset(0f, arm), stroke)
+                    drawLine(Color.Black, bottom, bottom - Offset(arm, 0f), stroke)
+                    drawLine(Color.Black, bottom, bottom - Offset(0f, arm), stroke)
+                }
             }
         }
     }

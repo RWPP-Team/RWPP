@@ -15,6 +15,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.corrodinggames.rts.gameFramework.GameEngine
@@ -26,7 +31,7 @@ import io.github.rwpp.widget.v2.*
 import kotlinx.coroutines.Dispatchers
 
 @Composable
-internal fun SandboxUnitEditorControls(snapshot: SandboxUnitDataSnapshot) {
+internal fun SandboxUnitEditorControls(snapshot: SandboxUnitDataSnapshot, onModalOpen: (Boolean) -> Unit) {
     var showUnitData by remember(snapshot.selectionIds) { mutableStateOf(false) }
     var explicitSampleVersion by remember(snapshot.selectionIds) { mutableIntStateOf(0) }
     var displayedSnapshot by remember(snapshot.selectionIds) { mutableStateOf(snapshot) }
@@ -38,6 +43,11 @@ internal fun SandboxUnitEditorControls(snapshot: SandboxUnitDataSnapshot) {
     val owners = displayedSnapshot.teams
     val ownerIndex = displayedSnapshot.ownerId?.let { id -> owners.indexOfFirst { it.id == id } } ?: -1
     var showAttachments by remember(selectionIds) { mutableStateOf(false) }
+    val modalOpen = showUnitData || showAttachments
+    DisposableEffect(modalOpen) {
+        onModalOpen(modalOpen)
+        onDispose { if (modalOpen) onModalOpen(false) }
+    }
     var attachmentOptions by remember(selectionIds) { mutableStateOf<SandboxAttachmentOptionsSnapshot?>(null) }
     val refreshAttachmentOptions = {
         val hostIds = displayedSnapshot.attachmentHostIds
@@ -166,49 +176,60 @@ private fun SandboxUnitDataDialog(
     AnimatedAlertDialog(visible = visible, onDismissRequest = onDismiss) { dismiss ->
         AeroPanel(Modifier.fillMaxWidth(0.96f).heightIn(max = 600.dp).padding(6.dp)) {
             Column(
-                Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(12.dp),
+                Modifier.fillMaxWidth().padding(12.dp).onPreviewKeyEvent { event ->
+                    if (event.key != Key.Escape) false
+                    else {
+                        if (event.type == KeyEventType.KeyDown) dismiss()
+                        true
+                    }
+                },
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 AeroHeader("UNIT DATA", tag = "SANDBOX")
-                if (targets.size > 1) AeroDropdownMenu(
-                    label = readI18n("rwpp.sandbox.editor.target"),
-                    items = targets.map { target ->
-                        val label = readI18n(target.labelKey)
-                        target.labelUnitId?.let { id ->
-                            val name = target.labelUnitName
-                            if (name == null) "$label #$id" else "$label $name #$id"
-                        } ?: "$label (${target.unitIds.size})"
-                    },
-                    selectedIndex = targetIndex.coerceIn(0, targets.lastIndex),
-                    onItemSelected = { targetIndex = it; onRefresh() },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                valueFields.forEachIndexed { index, field ->
-                    AeroTextField(
-                        value = values[index],
-                        onValueChange = { raw ->
-                            if (sandboxNumericInputAllowed(raw)) values[index] = raw
+                Column(
+                    Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (targets.size > 1) AeroDropdownMenu(
+                        label = readI18n("rwpp.sandbox.editor.target"),
+                        items = targets.map { target ->
+                            val label = readI18n(target.labelKey)
+                            target.labelUnitId?.let { id ->
+                                val name = target.labelUnitName
+                                if (name == null) "$label #$id" else "$label $name #$id"
+                            } ?: "$label (${target.unitIds.size})"
                         },
-                        placeholder = readI18n(field.labelKey),
+                        selectedIndex = targetIndex.coerceIn(0, targets.lastIndex),
+                        onItemSelected = { targetIndex = it; onRefresh() },
                         modifier = Modifier.fillMaxWidth(),
-                        // Keep the text keyboard available for signs and scientific notation on Android.
-                        typeInNumberOnly = false,
                     )
-                }
-                if (resourceFields.isNotEmpty()) {
-                    AeroHeader(readI18n("rwpp.sandbox.editor.customResources"), tag = "MOD")
-                    resourceFields.forEachIndexed { index, field ->
+                    valueFields.forEachIndexed { index, field ->
                         AeroTextField(
-                            value = resourceValues[index],
+                            value = values[index],
                             onValueChange = { raw ->
-                                if (sandboxNumericInputAllowed(raw)) resourceValues[index] = raw
+                                if (sandboxNumericInputAllowed(raw)) values[index] = raw
                             },
-                            placeholder = field.label,
+                            placeholder = readI18n(field.labelKey),
                             modifier = Modifier.fillMaxWidth(),
-                            // Native resource values may be negative; a text keyboard keeps '-' available
-                            // on Android while this editor still accepts only numeric characters.
+                            // Keep the text keyboard available for signs and scientific notation on Android.
                             typeInNumberOnly = false,
                         )
+                    }
+                    if (resourceFields.isNotEmpty()) {
+                        AeroHeader(readI18n("rwpp.sandbox.editor.customResources"), tag = "MOD")
+                        resourceFields.forEachIndexed { index, field ->
+                            AeroTextField(
+                                value = resourceValues[index],
+                                onValueChange = { raw ->
+                                    if (sandboxNumericInputAllowed(raw)) resourceValues[index] = raw
+                                },
+                                placeholder = field.label,
+                                modifier = Modifier.fillMaxWidth(),
+                                // Native resource values may be negative; a text keyboard keeps '-' available
+                                // on Android while this editor still accepts only numeric characters.
+                                typeInNumberOnly = false,
+                            )
+                        }
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {

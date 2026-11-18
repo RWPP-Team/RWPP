@@ -51,28 +51,27 @@ class AeroEffectsTest : DesktopComposeGraphicsTest() {
             WorldVisuals(
                 selected = listOf(
                     SelectedVisual(
-                        Offset(420f, 80f), 18f, 1f, 1f, 0f, androidx.compose.ui.graphics.Color.Cyan,
+                        Offset(420f, 80f), 18f, 1f, 0f, androidx.compose.ui.graphics.Color.Cyan,
                         selected = false, healthVisible = false, secondary = 0.5f, secondaryRecharging = true
                     ),
-                    SelectedVisual(Offset(110f, 100f), 22f, 0.35f, 0.8f, 0.5f, androidx.compose.ui.graphics.Color.Cyan),
+                    SelectedVisual(Offset(110f, 100f), 22f, 0.35f, 0.5f, androidx.compose.ui.graphics.Color.Cyan),
                     SelectedVisual(
                         Offset(60f, 260f),
                         20f,
                         0.4f,
-                        0.8f,
                         0f,
                         androidx.compose.ui.graphics.Color.Cyan,
                         selected = false
                     ),
                     SelectedVisual(
-                        Offset(90f, 300f), 18f, 1f, 1f, 0f, androidx.compose.ui.graphics.Color.Cyan,
+                        Offset(90f, 300f), 18f, 1f, 0f, androidx.compose.ui.graphics.Color.Cyan,
                         selected = false, healthVisible = false, construction = 0.4f, secondary = 0.6f
                     ),
                     SelectedVisual(
-                        Offset(600f, 60f), 18f, 1f, 1f, 0.5f, androidx.compose.ui.graphics.Color.Cyan,
+                        Offset(600f, 60f), 18f, 1f, 0.5f, androidx.compose.ui.graphics.Color.Cyan,
                         selected = false, healthVisible = false
                     ),
-                    SelectedVisual(Offset(540f, 60f), 18f, 1f, 1f, 0.5f, androidx.compose.ui.graphics.Color.Cyan)
+                    SelectedVisual(Offset(540f, 60f), 18f, 1f, 0.5f, androidx.compose.ui.graphics.Color.Cyan)
                 ),
                 orders = listOf(
                     AeroOrder(Offset(140f, 140f), Offset(520f, 270f), true, 12),
@@ -106,6 +105,7 @@ class AeroEffectsTest : DesktopComposeGraphicsTest() {
             val first = render()
             assertTrue(first.any { it == 0xff8b929b.toInt() }, "Recharging energy uses a gray row")
             assertTrue(first.any { it == 0xffffcb74.toInt() }, "Usable secondary energy keeps its warm row")
+            assertFalse(first.any { it == 0xffffc66b.toInt() }, "Damaged units have no yellow health trail")
             state.value = state.value.copy(phase = 0.5f)
             val second = render()
             assertTrue(first.count { it ushr 24 > 0 } > 300)
@@ -189,7 +189,7 @@ class AeroEffectsTest : DesktopComposeGraphicsTest() {
         assertTrue(old.smoothGameTextures)
         assertFalse(old.enhancedWorldRendering)
         old.hudAnimations = false; old.hudChatShowTeam = true; old.hudChatShowTimestamp = true
-        old.aeroSelection = true; old.aeroDamageAnimation = false
+        old.aeroSelection = true
         old.aeroOrderEffects = true; old.aeroGroupOrders = false
         old.aeroDamageNumbers = true; old.smoothGameTextures = false; old.enhancedWorldRendering = true
         old.aeroEnemyRangesOnly = true; old.aeroRallyPointEffects = true
@@ -234,16 +234,6 @@ class AeroEffectsTest : DesktopComposeGraphicsTest() {
         assertEquals(Offset(10f, 5f), grouped.first().from)
         assertEquals(2, grouped.first().count)
         assertEquals(commands, aeroOrderGroups(commands, false))
-    }
-
-    @Test
-    fun damageTrailDecaysWithoutFallingBelowHealthAndHealingSnapsUpward() {
-        val hit = damageTrail(1f, 0.4f, 0.016f)
-        assertTrue(hit in 0.9f..1f)
-        var trail = hit
-        repeat(100) { trail = damageTrail(trail, 0.4f, 0.016f) }
-        assertEquals(0.4f, trail)
-        assertEquals(1f, damageTrail(trail, 1f, 0.016f))
     }
 
     @Test

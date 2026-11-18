@@ -9,35 +9,23 @@ package io.github.rwpp.ui
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.rememberVectorPainter
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.PointerEventType
-import androidx.compose.ui.input.pointer.PointerType
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
-import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.findRootCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.rwpp.logic.GameVisualSettings
-import io.github.rwpp.widget.v2.AeroIconButton
 import io.github.rwpp.widget.v2.AeroPanel
 
 internal fun commandTooltipScale(): Float =
@@ -45,7 +33,6 @@ internal fun commandTooltipScale(): Float =
 
 @Composable
 internal fun CommandTooltipLayer(
-    closeLabel: String,
     topCentered: Boolean = false,
     placementTooltip: CommandTooltip? = null,
 ) {
@@ -66,7 +53,6 @@ internal fun CommandTooltipLayer(
     val tooltip = placement ?: hover ?: retainedPlacement?.takeIf { placementAlpha > 0f } ?: return
     val isPlacement = placement != null || hover == null
     var coordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
-    val panelCoordinates = remember { arrayOfNulls<LayoutCoordinates>(1) }
     val density = LocalDensity.current
     BoxWithConstraints(Modifier.fillMaxSize().onGloballyPositioned { coordinates = it }) {
         val edge = 8.dp
@@ -82,7 +68,7 @@ internal fun CommandTooltipLayer(
         val leftRoom = leftEdge - edge
         val rightRoom = maxWidth - edge - right
         val sideRoom = maxOf(leftRoom, rightRoom)
-        val hasAnchor = !topCentered && tooltip.anchor != androidx.compose.ui.geometry.Rect.Zero
+        val hasAnchor = !topCentered && tooltip.anchor != Rect.Zero
         val fitsBeside = hasAnchor && sideRoom >= minOf(120.dp, 160.dp * scale)
         val widthLimit = if (fitsBeside) sideRoom else maxWidth - edge * 2
         val width = (310.dp * scale).coerceAtMost(widthLimit.coerceAtLeast(1.dp))
@@ -109,27 +95,6 @@ internal fun CommandTooltipLayer(
             useBelow -> below
             else -> above - cardHeight
         }.coerceIn(edge, (maxHeight - cardHeight - edge).coerceAtLeast(edge))
-        val panelInput = Modifier.pointerInput(Unit) {
-            awaitPointerEventScope {
-                while (true) {
-                    val event = awaitPointerEvent(PointerEventPass.Final)
-                    when (event.type) {
-                        PointerEventType.Enter -> {
-                            if (event.changes.any { it.type == PointerType.Mouse }) CommandHover.overTooltip = true
-                        }
-                        PointerEventType.Exit -> {
-                            if (event.changes.any { it.type == PointerType.Mouse }) {
-                                val point = event.changes.first().position
-                                val panel = panelCoordinates[0]?.takeIf { it.isAttached }
-                                CommandHover.leaveTooltip(panel?.localToRoot(point))
-                            }
-                        }
-                        PointerEventType.Press, PointerEventType.Release, PointerEventType.Scroll ->
-                            event.changes.forEach { it.consume() }
-                    }
-                }
-            }
-        }
         val placementMotion = if (isPlacement) Modifier.graphicsLayer {
             alpha = placementAlpha
             translationY = (1f - placementAlpha) * -8.dp.toPx()
@@ -137,41 +102,20 @@ internal fun CommandTooltipLayer(
         AeroPanel(
             Modifier.absoluteOffset(x, y).width(width).heightIn(max = height)
                 .then(placementMotion)
-                .onSizeChanged { cardHeight = with(density) { it.height.toDp() } }
-                .onGloballyPositioned {
-                    panelCoordinates[0] = it
-                    if (!isPlacement) CommandHover.tooltipBounds = it.boundsInRoot()
-                }
-                .then(if (!isPlacement || placement != null) panelInput else Modifier),
+                .onSizeChanged { cardHeight = with(density) { it.height.toDp() } },
         ) {
-            key(tooltip.title) {
-                val scroll = rememberScrollState()
-                val accent = MaterialTheme.colorScheme.primary
-                Column(
-                    Modifier.fillMaxWidth().verticalScroll(scroll).padding(12.dp * scale),
-                    verticalArrangement = Arrangement.spacedBy(6.dp * scale),
-                ) {
-                    Text(
-                        tooltip.title, Modifier.padding(end = if (isPlacement) 0.dp else 24.dp * scale),
-                        color = accent, fontSize = (13f * scale).sp,
-                    )
-                    if (tooltip.text.isNotBlank()) Text(tooltip.text, fontSize = (11f * scale).sp)
-                }
-                Canvas(Modifier.matchParentSize().padding(vertical = 6.dp)) {
-                    if (scroll.maxValue > 0 && scroll.maxValue != Int.MAX_VALUE) {
-                        val thumb = (size.height * size.height / (size.height + scroll.maxValue)).coerceIn(0f, size.height)
-                        val top = (size.height - thumb) * scroll.value / scroll.maxValue
-                        val barWidth = 3.dp.toPx()
-                        drawRect(accent.copy(alpha = 0.65f), Offset(size.width - barWidth, top), Size(barWidth, thumb))
-                    }
+            Column(
+                Modifier.fillMaxWidth().padding(12.dp * scale),
+                verticalArrangement = Arrangement.spacedBy(6.dp * scale),
+            ) {
+                Text(
+                    tooltip.title, color = MaterialTheme.colorScheme.primary, fontSize = (13f * scale).sp,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (tooltip.text.isNotBlank()) {
+                    Text(tooltip.text, fontSize = (11f * scale).sp, overflow = TextOverflow.Ellipsis)
                 }
             }
-            if (!isPlacement) AeroIconButton(
-                rememberVectorPainter(Icons.Default.Close), CommandHover::clear,
-                modifier = Modifier.align(Alignment.TopEnd).padding(4.dp * scale),
-                contentDescription = closeLabel,
-                size = 24.dp * scale, iconSize = 14.dp * scale, animated = false,
-            )
         }
     }
 }

@@ -575,6 +575,7 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
                 io.github.rwpp.appKoin.get<io.github.rwpp.api.game.Game>().state.state == io.github.rwpp.api.State.Menu ||
                 io.github.rwpp.appKoin.get<io.github.rwpp.ui.GameScreen>().showPauseMenu ||
                 io.github.rwpp.appKoin.get<io.github.rwpp.ui.GameScreen>().isEditMode ||
+                io.github.rwpp.appKoin.get<io.github.rwpp.ui.GameScreen>().sandboxEditorDialogOpen ||
                 io.github.rwpp.ui.isShowSendMessageDialog
 
     @OptIn(InternalComposeUiApi::class)

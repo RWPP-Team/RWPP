@@ -36,10 +36,6 @@ internal fun ClientHudSettings(settings: Settings) {
                 readI18n("rwpp.hud.editor.settings.animations"),
                 settings.hudAnimations
             ) { settings.hudAnimations = it }
-            AeroSettingToggle(
-                readI18n("rwpp.settings.improvedHealthBar"),
-                settings.improvedHealthBar
-            ) { settings.improvedHealthBar = it }
             var mapTextScale by remember(settings) { mutableFloatStateOf(settings.mapTextScale.coerceIn(0.5f, 2f)) }
             AeroSettingSlider(
                 label = readI18n("rwpp.settings.mapTextScale"),
@@ -85,10 +81,6 @@ internal fun ClientHudSettings(settings: Settings) {
                 readI18n("rwpp.hud.editor.settings.selection"),
                 settings.aeroSelection
             ) { settings.aeroSelection = it }
-            AeroSettingToggle(
-                readI18n("rwpp.hud.editor.settings.damageTrail"),
-                settings.aeroDamageAnimation
-            ) { settings.aeroDamageAnimation = it }
             AeroSettingToggle(
                 readI18n("rwpp.hud.editor.settings.damageNumbers"),
                 settings.aeroDamageNumbers
@@ -178,6 +170,9 @@ internal fun ClientHudSettings(settings: Settings) {
             ) { settings.minimapUsePlayerColors = it }
         }
         AeroSettingGroup("CONTROLS") {
+            AeroSettingToggle(readI18n("rwpp.settings.holdFire"), settings.holdFireEnabled) {
+                settings.holdFireEnabled = it
+            }
             AeroSettingToggle(
                 readI18n("rwpp.hud.editor.settings.attackActions"),
                 settings.showExtraButton

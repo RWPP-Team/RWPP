@@ -37,7 +37,6 @@ internal class AeroWorldEffectsSampler(
     private val presentation: AeroWorldPresentation,
 ) {
     private val footprintScratch = RectF()
-    private val trails = HashMap<Int, Float>()
     private val productionSampler = AeroProductionSampler()
     private val refresh = WorldVisualRefreshSchedule()
     private val visibleUnits = ArrayList<GameUnit>()
@@ -46,15 +45,12 @@ internal class AeroWorldEffectsSampler(
     private val lastAnimatedByUnit = java.util.IdentityHashMap<GameUnit, Pair<GameUnit, SelectedVisual>>()
     private var selectedViewSource: List<Pair<GameUnit, SelectedVisual>>? = null
     private var selectedViewValue: List<SelectedVisual>? = null
-    private val liveTrailIds = HashSet<Int>()
     private val trackedRanges = AeroRangeTracker<GameUnit>()
     private var sampledSelection: List<GameUnit> = emptyList()
-    private var lastTime = 0L
     private var sampledWorld: NativeWorldFrame? = null
     private var sampledGameTime = 0
 
     private fun resetWorldState() {
-        trails.clear()
         productionSampler.clear()
         visibleUnits.clear()
         trackedVisuals.clear()
@@ -62,11 +58,9 @@ internal class AeroWorldEffectsSampler(
         lastAnimatedByUnit.clear()
         selectedViewSource = null
         selectedViewValue = null
-        liveTrailIds.clear()
         trackedRanges.clear()
         sampledSelection = emptyList()
         refresh.reset()
-        lastTime = 0L
         sampledWorld = null
         sampledGameTime = 0
         AeroDamageSignals.clear()
@@ -154,32 +148,28 @@ internal class AeroWorldEffectsSampler(
             explicitRanges || settings.showBuildingAttackRange || settings.showAttackRangeUnit != "Never"
         val replayOrdersEnabled =
             (engine.replayEngine.isPlayingReplay || isAeroLiveObserver(engine)) && showAllReplayOrders
-        val aeroBars = settings.aeroSelection || settings.improvedHealthBar
+        val aeroBars = settings.aeroSelection
         if (!aeroBars && !settings.showCollisionBoxes && !settings.showUnitTargetLine && !settings.aeroHoverEffects && !settings.aeroUnitGlowHighlight &&
             !settings.aeroOrderEffects && !rangesEnabled && !settings.aeroDamageNumbers &&
-            !settings.aeroRallyPointEffects && !settings.aeroProductionLabels && !replayOrdersEnabled
+            !settings.aeroRallyPointEffects && !settings.advancedRallyPoints && !settings.aeroProductionLabels && !replayOrdersEnabled
         ) {
             val emptySnapshot = if (currentSnapshot.selected.isNotEmpty() || currentSnapshot.orders.isNotEmpty() ||
                 currentSnapshot.ranges.isNotEmpty() || currentSnapshot.damageNumbers.isNotEmpty() ||
                 currentSnapshot.production.isNotEmpty() || currentSnapshot.collisionBounds.isNotEmpty() ||
                 currentSnapshot.targetLines.isNotEmpty()
             ) WorldVisuals() else currentSnapshot
-            trails.clear()
             trackedVisuals.clear()
             trackedRanges.clear()
             animatedVisuals.publishStable(emptyList())
             lastAnimatedByUnit.clear()
             selectedViewFor(emptyList())
             presentation.clear()
-            lastTime = 0L
             return emptySnapshot
         }
 
         val ui = engine.interfaceEngine
         val selectedUnitCount = ui.getSelectedUnitCount()
         val now = System.nanoTime()
-        val dt = if (lastTime == 0L) 0f else (now - lastTime) / 1_000_000_000f
-        lastTime = now
         val selectionChanged = sampledSelection !== selectedUnits
         if (!refresh.due(now, force = selectionChanged)) {
             // Follow native unit positions each display frame; do not rescan the world or
@@ -191,9 +181,6 @@ internal class AeroWorldEffectsSampler(
                     return@update null
                 }
                 val hp = unitHealthRatio(unit.hp, unit.maxHp)
-                val identity = System.identityHashCode(unit)
-                val trail = if (settings.aeroDamageAnimation) damageTrail(trails[identity] ?: hp, hp, dt) else hp
-                trails[identity] = trail
                 val center = Offset(unit.x, unit.y - unit.height)
                 val shield = unitHealthRatio(unit.shield, unit.maxShield)
                 val secondary = if (aeroBars) aeroNonShieldSecondary(unit) else -1f
@@ -204,7 +191,7 @@ internal class AeroWorldEffectsSampler(
                 val (transportUsed, transportCapacity) = transportSlots(
                     unit, aeroBars && visual.transportCapacity > 0
                 )
-                val next = if (visual.center == center && visual.hp == hp && visual.trail == trail &&
+                val next = if (visual.center == center && visual.hp == hp &&
                     visual.shield == shield && visual.selected == selected && visual.barRadius == radius &&
                     visual.barScaledDown == scaledDown && visual.transportUsed == transportUsed &&
                     visual.transportCapacity == transportCapacity && visual.secondary == secondary &&
@@ -213,7 +200,7 @@ internal class AeroWorldEffectsSampler(
                     lastAnimatedByUnit[unit] ?: (unit to visual)
                 } else {
                     unit to visual.copy(
-                        center = center, hp = hp, trail = trail, shield = shield,
+                        center = center, hp = hp, shield = shield,
                         selected = selected, barRadius = radius, barScaledDown = scaledDown,
                         transportUsed = transportUsed, transportCapacity = transportCapacity,
                         secondary = secondary, secondaryRecharging = recharging
@@ -269,8 +256,6 @@ internal class AeroWorldEffectsSampler(
                 }
             }
         }
-        val live = liveTrailIds
-        live.clear()
         val orders = ArrayList<AeroOrder>()
         val circles = ArrayList<AeroRangeCircle>()
         val production = ArrayList<AeroProductionVisual>()
@@ -325,15 +310,10 @@ internal class AeroWorldEffectsSampler(
                         (unit.selected || health || shieldVisible || construction >= 0f || secondary >= 0f ||
                                 transportCapacity > 0) || isHovered || glowHighlight)
             ) {
-                val identity = System.identityHashCode(unit)
-                live += identity
-                val trail = if (settings.aeroDamageAnimation) damageTrail(trails[identity] ?: hp, hp, dt) else hp
-                trails[identity] = trail
                 val visual = SelectedVisual(
                     Offset(unit.x, unit.y - unit.height),
                     unit.selectionRadius.coerceAtLeast(8f),
                     hp,
-                    trail,
                     unitHealthRatio(unit.shield, unit.maxShield),
                     if (enemy) AeroEnemyHighlight else accent,
                     selected = settings.aeroSelection && unit.selected,
@@ -350,7 +330,6 @@ internal class AeroWorldEffectsSampler(
                     barMini = unit.getAttachmentSlot()?.showMiniHp == true,
                     transportUsed = transportUsed,
                     transportCapacity = transportCapacity,
-                    improvedHealthStyle = settings.improvedHealthBar,
                 )
                 trackedVisuals += unit to visual
             }
@@ -386,7 +365,7 @@ internal class AeroWorldEffectsSampler(
                         }
                     }
                 }
-                if (settings.aeroOrderEffects || settings.aeroRallyPointEffects && unit.selected || showAllOrders) {
+                if (settings.aeroOrderEffects || (settings.aeroRallyPointEffects || settings.advancedRallyPoints) && unit.selected || showAllOrders) {
                     val sameReplayTeam = unit.team === viewer
                     val sharedReplayControl =
                         unit.team != null && viewer != null && unit.team.canControlTeam(
@@ -396,7 +375,14 @@ internal class AeroWorldEffectsSampler(
                         replaying, showAllOrders, sameReplayTeam,
                         sharedReplayControl, ui.canPlayerControlUnit(unit)
                     )
-                    if (((settings.aeroRallyPointEffects && unit.selected) || showAllOrders) && mayShowOrders) {
+                    val route = if (mayShowOrders && settings.advancedRallyPoints) AdvancedRally.displayedRoute(unit) else null
+                    if (route != null) {
+                        var from = Offset(unit.x, unit.y)
+                        for ((index, point) in route.withIndex()) {
+                            orders += AeroOrder(from, point, false, kind = AeroOrderKind.RALLY, step = index, team = unit.team.teamId)
+                            from = point
+                        }
+                    } else if (((settings.aeroRallyPointEffects && unit.selected) || showAllOrders) && mayShowOrders) {
                         NativeFactoryOverlays.rallyPoint(unit)?.let { point ->
                             val needsFogGate = showAllOrders && !sameReplayTeam && !sharedReplayControl
                             val map = engine.map
@@ -508,7 +494,6 @@ internal class AeroWorldEffectsSampler(
             }
         }
 
-        trails.keys.retainAll(live)
         productionSampler.endFrame()
         val immutableTracking = trackedVisuals.toList()
         animatedVisuals.publishStable(immutableTracking)

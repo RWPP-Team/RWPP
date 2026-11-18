@@ -123,7 +123,11 @@ internal fun executeHudAction(action: SpecialAction, units: List<Unit>, remove: 
                 }
             }
 
-            HudActionRoute.PerformDirectAction -> action.performDirectAction(primary)
+            HudActionRoute.PerformDirectAction -> {
+                if (action === HoldFireAction) {
+                    if (!remove) HoldFireAction.toggle(engine, targets)
+                } else action.performDirectAction(primary)
+            }
             HudActionRoute.ActivateAction, HudActionRoute.PlaceBuilding -> {
                 ui.specialActionSourceUnit = if (route == HudActionRoute.PlaceBuilding) primary else null
                 if (action.actionType == ActionType.patrol) ui.patrolWaypointCount = 0

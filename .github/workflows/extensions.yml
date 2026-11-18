@@ -17,13 +17,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
-      - name: Check out RWML and its pinned game mappings
-        uses: actions/checkout@v4
-        with:
-          repository: RWPP-Team/RWML
-          ref: ${{ vars.RWML_BUILD_REF || 'master' }}
-          submodules: recursive
-          path: .ci/rwml
       - uses: actions/setup-java@v4
         with:
           distribution: jetbrains
@@ -44,23 +37,9 @@ jobs:
           # the latest stable platform and overrides the compile level below.
           sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Prepare RWML core and mapped game library
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ ! -f .ci/rwml/core/src/main/java/io/github/rwml/api/ClassFilePatch.java ]] ||
-             ! grep -q 'aiUpdatePaused' .ci/rwml/work/mappings/com/corrodinggames/rts/game/ai/AI.mapping; then
-            echo '::error::RWML or its Anvil mappings are older than the RWPP API. Push the matching RWML and Anvil commits and set RWML_BUILD_REF if needed.'
-            exit 1
-          fi
-          chmod +x gradlew .ci/rwml/gradlew
-          rwml_version=$(sed -n 's/^rwml-core = "\([^"]*\)".*/\1/p' gradle/libs.versions.toml)
-          test -n "$rwml_version"
-          .ci/rwml/gradlew -p .ci/rwml :core:publishToMavenLocal publishGameLibForIde -Pversion="$rwml_version"
       - name: Build and verify JVM and Android packs
         run: >-
           ./gradlew
-          -PrwmlLocalRepo="$GITHUB_WORKSPACE/.ci/rwml/build/local-maven"
           -PandroidCompileSdk=36
           verifyJvmExtensionPack verifyAndroidExtensionPack
       - name: Collect packs and individual extension archives

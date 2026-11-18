@@ -10,22 +10,21 @@ package io.github.rwpp.api.game.impl
 /**
  * Ensures the native client-ready packet is sent after the newly loaded game can run.
  *
- * The host keeps a client in "Still waiting on" until packet 112 reports `gameLoopActive`, so a
- * single early packet is not enough. Nothing about the host is observable here, therefore the ack
- * repeats a bounded number of times instead of giving up after three failed attempts.
+ * A completed local send does not prove that the host counted packet 112. Allow bounded
+ * retries until the host advances the match, including when the native path sent ready first.
  */
-internal class NetworkClientReadyAck {
+internal class NetworkClientReadyAck(private val nanoTime: () -> Long = System::nanoTime) {
     private var pending = false
     private var mapLoadCompleted = false
-    private var cooldownFrames = 0
     private var sendsRemaining = 0
+    private var nextSendAt: Long? = null
 
     @Synchronized
     fun begin(isNetworkedClient: Boolean) {
         pending = isNetworkedClient
         mapLoadCompleted = false
-        cooldownFrames = 0
-        sendsRemaining = MAX_SENDS
+        sendsRemaining = if (isNetworkedClient) MAX_SENDS else 0
+        nextSendAt = null
     }
 
     @Synchronized
@@ -37,58 +36,45 @@ internal class NetworkClientReadyAck {
     fun clear() {
         pending = false
         mapLoadCompleted = false
-        cooldownFrames = 0
         sendsRemaining = 0
+        nextSendAt = null
     }
 
     @Synchronized
     fun isPending(): Boolean = pending
 
     @Synchronized
-    fun beginAttemptIfReady(
-        isNetworkedClient: Boolean,
-        gameStarted: Boolean,
-        engineMapLoaded: Boolean,
-        gameLoopActive: Boolean,
-    ): Boolean {
-        if (!pending || !isNetworkedClient || !gameStarted || !mapLoadCompleted || !engineMapLoaded ||
-            !gameLoopActive
-        ) return false
-        if (sendsRemaining <= 0) {
-            pending = false
-            mapLoadCompleted = false
-            return false
-        }
-        if (cooldownFrames > 0) {
-            cooldownFrames--
-            return false
-        }
+    fun canCheckReady(): Boolean = mapLoadCompleted && sendsRemaining > 0
+
+    @Synchronized
+    fun beginAttempt(): Boolean {
+        if (!canCheckReady()) return false
+        val now = nanoTime()
+        if (nextSendAt?.let { now - it < 0 } == true) return false
+        nextSendAt = now + RETRY_FAILED_SEND_NANOS
         return true
     }
 
     @Synchronized
-    fun markSent() {
+    fun onReadyStateSent(gameLoopActive: Boolean): Boolean {
+        if (!canCheckReady() || !gameLoopActive) return false
         sendsRemaining--
-        if (sendsRemaining <= 0) {
-            pending = false
-            mapLoadCompleted = false
-            cooldownFrames = 0
-        } else {
-            cooldownFrames = CONFIRM_RESEND_FRAMES
-        }
+        nextSendAt = nanoTime() + RETRY_READY_NANOS
+        val wasPending = pending
+        pending = false
+        return wasPending
     }
 
-    /** Returns whether a later frame may retry the native send. */
     @Synchronized
-    fun markAttemptFailed(): Boolean {
-        if (pending) cooldownFrames = RETRY_COOLDOWN_FRAMES
-        return pending
+    fun stopRetriesAfterServerStep(): Boolean {
+        if (pending) return false
+        clear()
+        return true
     }
 
     private companion object {
-        /** Packet 112 is reliable, but a resend covers a session race on the host side. */
         const val MAX_SENDS = 3
-        const val RETRY_COOLDOWN_FRAMES = 30
-        const val CONFIRM_RESEND_FRAMES = 90
+        const val RETRY_READY_NANOS = 1_500_000_000L
+        const val RETRY_FAILED_SEND_NANOS = 500_000_000L
     }
 }

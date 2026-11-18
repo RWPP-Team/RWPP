@@ -108,7 +108,7 @@ class RenderThreadRegressionTest : DesktopComposeGraphicsTest() {
                                 BasicText("Unit $unit")
                             }
                         }
-                        CommandTooltipLayer("Close")
+                        CommandTooltipLayer()
                     }
                 }
             }

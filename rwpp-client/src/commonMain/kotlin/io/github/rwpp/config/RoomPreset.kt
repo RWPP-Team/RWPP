@@ -31,6 +31,7 @@ data class RoomPreset(
     val players: List<RoomPresetPlayer> = emptyList(),
     val recyclingDisabled: Boolean = false,
     val recyclingDisabledUnits: List<String> = emptyList(),
+    val holdFireDisabled: Boolean = false,
 )
 
 @Serializable

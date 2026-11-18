@@ -34,8 +34,8 @@ browsers. The headless server uses the same game API.
 
 ## Installation
 
-Install [RWML](https://github.com/RWPP-Team/RWML/releases/latest) first. Download the Desktop or Android extension pack
-from the [RWPP 2.0.0 release](https://github.com/RWPP-Team/RWPP/releases/tag/v2.0.0) and import it in the RWML launcher.
+Install [RWML 1.0.3 or later](https://github.com/RWPP-Team/RWML/releases/latest) first. Download the Desktop or Android extension pack
+from the [RWPP 2.0.1 release](https://github.com/RWPP-Team/RWPP/releases/tag/v2.0.1) and import it in the RWML launcher.
 The pack installs `io.github.rwpp.api` and `io.github.rwpp`. You can also import the two JAR files separately.
 
 Both extensions must come from the same release. The client declares a dependency on the API and registers its own
@@ -51,10 +51,12 @@ receives no reply. Console commands and startup options are listed in [rwpp-serv
 
 ## Extensions
 
-An extension depends on `rwml-core` and the mapped game library. Extensions that need shared game services also depend
-on `io.github.rwpp-team:rwpp-api:2.0.0` from Maven Central. The host provides these libraries at runtime, so all three are compile-only
+An extension depends on `rwml-core` and `game-lib` at the same RWML version. Extensions that need shared game services also depend
+on `io.github.rwpp-team:rwpp-api:2.0.1` from Maven Central. The host provides these libraries at runtime, so all three are compile-only
 dependencies. [rwpp-api/README.md](rwpp-api/README.md) describes the event channel, the command registry and the
 configuration services.
+
+The optional desktop [ComposeScopeTree probe](https://rwpp-team.top/extension/compose-scope-tree/) uses the published 0.1.1 compiler plugin and runtime to inspect and edit mounted Compose scopes in a development build.
 
 ## Credits
 

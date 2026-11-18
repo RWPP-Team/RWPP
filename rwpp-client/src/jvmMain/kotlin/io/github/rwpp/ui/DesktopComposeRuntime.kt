@@ -87,7 +87,13 @@ internal object DesktopComposeRuntime {
                         created._input = container.input
                         created.updateBounds(container.width, container.height)
                         isLoading = false
-                        created.setContent { MainComposeContent() }
+                        DesktopScopeTreeMetrics.mount {
+                            created.setContent {
+                                DesktopScopeTreeMetrics.Content {
+                                    DesktopScopeTreeProbe { MainComposeContent() }
+                                }
+                            }
+                        }
                         created
                     } catch (error: Throwable) {
                         runCatching { created.close() }
@@ -124,7 +130,7 @@ internal object DesktopComposeRuntime {
             framePacer.request()
         }
         if (framePacer.shouldRender(System.nanoTime(), settings.hudRefreshRate)) {
-            bridge.call { scene.render() }
+            bridge.call { DesktopScopeTreeMetrics.render(scene) }
         }
         com.corrodinggames.rts.gameFramework.GameEngine.getInstance()?.let { DesktopWorldCanvases.draw(it) }
         // This method only composites an existing GL texture. Keep it on Slick's

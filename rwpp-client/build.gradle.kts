@@ -19,6 +19,15 @@ plugins {
     `maven-publish`
 }
 
+val scopeTreeVersion = providers.gradleProperty("scopeTreeVersion").orNull
+val scopeTreeCompiler = scopeTreeVersion?.let { version ->
+    configurations.create("scopeTreeCompiler") {
+        isCanBeResolved = true
+        isCanBeConsumed = false
+        isTransitive = false
+    }.also { dependencies.add(it.name, "io.github.rwpp-team:compose-scope-tree-compiler-plugin:$version") }
+}
+
 // Export metadata deliberately; ordinary builds consume the checked-in platform snapshots.
 if (providers.gradleProperty("generateAboutLibraries").orNull == "true") {
     pluginManager.apply("com.mikepenz.aboutlibraries.plugin")
@@ -50,6 +59,17 @@ kotlin {
     androidTarget()
     jvm {
         val mainCompilation = compilations.getByName("main")
+        if (scopeTreeCompiler != null) {
+            mainCompilation.compileTaskProvider.configure {
+                inputs.files(scopeTreeCompiler)
+                compilerOptions.freeCompilerArgs.add(
+                    "-Xcompiler-plugin-order=dev.composescopetree.compiler>androidx.compose.compiler.plugins.kotlin"
+                )
+                compilerOptions.freeCompilerArgs.add(
+                    providers.provider { "-Xplugin=${scopeTreeCompiler.singleFile.absolutePath}" }
+                )
+            }
+        }
         val uiRegression = compilations.create("uiRegression") {
             associateWith(mainCompilation)
             defaultSourceSet.kotlin.srcDir("src/uiRegression/kotlin")
@@ -121,7 +141,11 @@ kotlin {
             implementation(libs.coil.gif)
         }
 
+        jvmMain {
+            kotlin.srcDir(if (scopeTreeVersion != null) "src/scopeTreeProbe/kotlin" else "src/withoutScopeTreeProbe/kotlin")
+        }
         jvmMain.dependencies {
+            scopeTreeVersion?.let { implementation("io.github.rwpp-team:compose-scope-tree-compose-ui:$it") }
             compileOnly(files("$rootDir/lib/slick.jar", "$rootDir/lib/lwjgl.jar"))
             api(libs.compose.desktop.common)
             // Compile against Android signatures without shadowing the JDK with the bundled
@@ -208,7 +232,8 @@ val generateClientNetworkDescriptor = tasks.register("generateClientNetworkDescr
                 id=io.github.rwpp.client.network
                 name=RWPP Client Network
                 version=${project.version}
-                apiVersion=1.0.2
+                apiVersion=1.0.3
+                minRwmlVersion=1.0.3
                 javaVersion=17
                 mainClass=io.github.rwpp.client.net.ClientNetworkExtension
                 dependsOn=io.github.rwpp.api

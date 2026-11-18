@@ -35,7 +35,7 @@ internal object NativeHudVisibility {
         val settings = appKoin.get<Settings>()
         hidden = settings.hideOriginalHud
         aeroSelection = settings.aeroSelection
-        aeroBars = settings.aeroSelection || settings.improvedHealthBar
+        aeroBars = settings.aeroSelection
         aeroOrders = settings.aeroOrderEffects
         aeroRallyPoints = settings.aeroRallyPointEffects
     }

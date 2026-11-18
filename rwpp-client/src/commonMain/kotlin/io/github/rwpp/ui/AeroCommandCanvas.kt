@@ -48,6 +48,8 @@ import com.corrodinggames.rts.game.units.actions.ActionType
 import com.corrodinggames.rts.game.units.actions.IndirectedAction
 import com.corrodinggames.rts.game.units.actions.SpecialAction
 import com.corrodinggames.rts.game.units.actions.SpecialActionCategory
+import com.corrodinggames.rts.game.units.actions.UnitInfoBox
+import com.corrodinggames.rts.game.units.actions.UnitTypeInfo
 import com.corrodinggames.rts.game.units.custom.price.CustomPrice
 import com.corrodinggames.rts.game.units.custom.resources.CustomResource
 import com.corrodinggames.rts.game.units.custom.resources.StoredResource
@@ -58,6 +60,7 @@ import io.github.rwml.api.Platform
 import io.github.rwml.api.Rwml
 import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.game.hud.*
+import io.github.rwpp.game.hotkeys.NativeGameHotkeys
 import io.github.rwpp.game.sandbox.sandboxNativeEditorActionsAllowed
 import io.github.rwpp.game.sandbox.sandboxUnitDataUiAllowed
 import io.github.rwpp.generated.Res
@@ -130,7 +133,16 @@ internal fun hudActionInfo(
     val wrapped = action as? IndirectedAction
     val command = wrapped?.wrappedAction ?: action
     val owner = wrapped?.targetUnit ?: source
-    val title = command.getTooltipTitle(owner).orEmpty()
+    if (command is UnitInfoBox && command.showTeamInfo) {
+        val details = owner?.team?.let { team ->
+            val engine = GameEngine.getInstance()
+            if (engine?.playerTeam == null) team.name.orEmpty()
+            else engine.interfaceEngine.battleInterface.getTeamInfoText(team).trimEnd()
+        }.orEmpty()
+        return readI18n("rwpp.hud.tooltip.unitOwner") to details
+    }
+    val title = if (command === HoldFireAction) readI18n("rwpp.hud.holdFire.enable")
+    else command.getTooltipTitle(owner).orEmpty()
     val showsPrice = command.actionCategory != SpecialActionCategory.infoOnlyStockpile
     val price = if (showsPrice) command.customPrice?.tooltipCostText() else null
     val streaming = if (showsPrice) command.secondaryPrice?.tooltipCostText() else null
@@ -143,6 +155,7 @@ internal fun hudActionInfo(
         streaming?.let { readI18n("rwpp.hud.tooltip.streamingCost", it) },
         economy?.let { readI18n("rwpp.hud.tooltip.factoryEconomy", it.perMinute, it.factories) },
         BattleInterface.getSpecialActionQueueTimeText(action, false),
+        owner?.takeIf { command is UnitTypeInfo }?.let { BattleInterface.getUnitInfoStatsText(it, false, true, false) },
         command.getDisplayDescriptionForUnit(owner),
     ).filter(String::isNotBlank).joinToString("\n")
 }
@@ -167,22 +180,9 @@ internal object CommandPointer {
 
 internal object CommandHover {
     val current = mutableStateOf<CommandTooltip?>(null)
-    var overTooltip by mutableStateOf(false)
-    @Volatile var tooltipBounds: Rect? = null
-
-    fun leaveConsole(point: Offset?) {
-        if (point == null || tooltipBounds?.contains(point) != true) clear()
-    }
-
-    fun leaveTooltip(point: Offset?) {
-        overTooltip = false
-        if (point == null || current.value?.anchor?.contains(point) != true) clear()
-    }
 
     fun clear() {
         current.value = null
-        overTooltip = false
-        tooltipBounds = null
     }
 }
 
@@ -367,7 +367,9 @@ private class CommandButtonFrameBuilder {
                 if (unit is OrderableUnit) queued += hudActionCountForUnit(action, unit, true)
             }
             val pending = OverflowProductionQueue.pendingCount(action, selection)
-            val nativeLabel = actionCallbacks.label(queued, action.priceValue, nowNanos)
+            val holdFire = if (action === HoldFireAction) HoldFireAction.state(engine, selection) else null
+            val nativeLabel = if (action === HoldFireAction) HoldFireAction.buttonLabel(holdFire)
+            else actionCallbacks.label(queued, action.priceValue, nowNanos)
             val label = if (pending == 0) nativeLabel else "$nativeLabel · +$pending"
             val glyph = actionCallbacks.glyph
             val image = if (primary != null && glyph == null && identity in visibleIds) {
@@ -384,7 +386,8 @@ private class CommandButtonFrameBuilder {
             val nativeProgress = hudActionProgressForSelection(action, selection)
             val progress = nativeProgress.coerceIn(0f, 1f)
             val cooldown = hudActionCooldownForSelection(action, nativeProgress)
-            val showInfo = action.actionType != ActionType.infoOnly
+            val showInfo = action.actionType != ActionType.infoOnly ||
+                    !touch && (action is UnitTypeInfo || action is UnitInfoBox)
             val clickSound = if (queuePanel) null else io.github.rwpp.sound.Sounds.select
             val dimmed = !available || action.isDimmedInActionBar
             // renderActionBar paints the surface from isSpecialActionUsableBySelection and only the
@@ -394,7 +397,7 @@ private class CommandButtonFrameBuilder {
             val flash = runCatching { engine.interfaceEngine.isSpecialActionUsable(action) }
                 .getOrDefault(false)
             val category = action.actionCategory
-            val active = engine.interfaceEngine.activeSpecialAction === action
+            val active = holdFire == HoldFireState.ON || engine.interfaceEngine.activeSpecialAction === action
             val demoBlocked = BattleInterface.isSpecialActionDemoBlocked(action)
             val techLevel = action.unitType?.techLevel ?: action.techLevel
             val economyValue = economy.sample(action)
@@ -457,7 +460,12 @@ private class CommandButtonFrameBuilder {
         productionSelection: HudProductionSelection,
     ): HudActionCallbacks {
         val identity = "${System.identityHashCode(primary)}:${action.actionIdString}"
-        val info = { hudActionInfo(action, primary) }
+        val source = when (action) {
+            is UnitTypeInfo -> selection.firstOrNull { it.unitTypeInterface === action.unitType }
+            is UnitInfoBox -> selection.firstOrNull { it is OrderableUnit } ?: primary
+            else -> primary
+        }
+        val info = { hudActionInfo(action, source) }
         val activate: (Boolean) -> Unit = { remove ->
             val engine = GameEngine.getInstance()
             val unlocked = hudActionUnlockedForSelection(action, selection)
@@ -574,14 +582,17 @@ private fun commandHotkeys(engine: GameEngine, actions: List<SpecialAction>): Li
         val allActions = ArrayList(actions)
         battle.resetActionButtonSlots()
         actions.mapIndexed { index, action ->
-            val button = runCatching {
+            val button = if (action === HoldFireAction) NativeGameHotkeys.holdFireBinding(input)
+            else runCatching {
                 battle.getHotkeyForSpecialAction(action, index, allActions)
             }.getOrNull()
             CommandHotkey(
-                label = button?.getBindingLabel().orEmpty(),
+                label = button?.getBindingLabel()
+                    ?.takeUnless { it.substringAfterLast('+').equals("UNKNOWN", ignoreCase = true) }
+                    .orEmpty(),
                 button = button,
                 slot = button?.let { resolved -> slots.indexOfFirst { it === resolved } } ?: -1,
-                nativeHandled = button?.let { resolved -> nativeHandled.any { it === resolved } } ?: false,
+                nativeHandled = action === HoldFireAction || nativeHandled.any { it === button },
             )
         }
     } catch (_: Throwable) {
@@ -680,11 +691,11 @@ internal fun CommandSurface(
         hoverState.target = -2
     }
 
-    fun leaveHoverInfo(point: Offset) {
+    fun leaveHoverInfo() {
         invalidateHoverInfo()
         hoverState.point = null
         hoverState.mouse = false
-        CommandHover.leaveConsole(consoleCoordinates[0]?.takeIf { it.isAttached }?.localToRoot(point))
+        CommandHover.clear()
     }
 
     // A selection change replaces the frame while the pointer rests on the panel.
@@ -884,7 +895,7 @@ internal fun CommandSurface(
 
                         PointerEventType.Exit -> {
                             hoveredIndex = -1; CommandPointer.inPanel = false
-                            if (change.type == PointerType.Mouse) leaveHoverInfo(point)
+                            if (change.type == PointerType.Mouse) leaveHoverInfo()
                         }
                     }
                 }

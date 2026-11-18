@@ -151,9 +151,6 @@ internal fun aeroAttackRangeAllowed(
 ): Boolean = range >= AERO_MIN_ATTACK_RANGE &&
         aeroAttackRangeVisible(movement, building, mode, buildings, forced)
 
-internal fun damageTrail(previous: Float, current: Float, elapsed: Float): Float =
-    max(current, previous - elapsed.coerceIn(0f, 0.1f) * 0.65f)
-
 /** Expensive unit queries run at 30 Hz while camera projection still follows every display frame. */
 internal class WorldVisualRefreshSchedule {
     private var sampledAt = Long.MIN_VALUE
@@ -188,7 +185,7 @@ internal fun clipAeroSegment(from: Offset, to: Offset, bounds: Rect): Pair<Offse
 
 internal data class SelectedVisual(
     val center: Offset, val radius: Float, val hp: Float,
-    val trail: Float, val shield: Float, val color: Color, val entrance: Float = 0f,
+    val shield: Float, val color: Color, val entrance: Float = 0f,
     val selected: Boolean = true, val hovered: Boolean = false, val healthVisible: Boolean = true,
     val construction: Float = -1f, val secondary: Float = -1f, val shieldVisible: Boolean = shield > 0f,
     val glowHighlight: Boolean = false,
@@ -197,7 +194,6 @@ internal data class SelectedVisual(
     val barRadius: Float = radius, val barScaledDown: Boolean = false, val barMini: Boolean = false,
     val transportUsed: Int = -1, val transportCapacity: Int = -1,
     val secondaryRecharging: Boolean = false,
-    val improvedHealthStyle: Boolean = false,
 )
 
 internal data class WorldVisuals(

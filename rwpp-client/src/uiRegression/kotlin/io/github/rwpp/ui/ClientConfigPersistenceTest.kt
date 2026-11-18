@@ -39,11 +39,14 @@ class ClientConfigPersistenceTest {
                 assertEquals(7, configs.size, "Every client configuration must be bound as Config")
                 assertTrue(configs.any { it is MatchHistory }, "Match history must be persisted with client configs")
                 first.koin.get<Settings>().apply {
-                    improvedHealthBar = true; enhancedWorldRendering = true; aeroRangeUseTeamColors = false
+                    enhancedWorldRendering = true; aeroRangeUseTeamColors = false
                     hideOriginalHud = false; showExtraButton = true; hudRefreshRate = 45
                 }
                 first.koin.get<HudComponentDataList>().defaultsInitialized = true
                 configs.forEach(writer::saveConfig)
+                val settingsFile = directory.resolve("${Settings::class.qualifiedName}.toml")
+                val saved = Files.readString(settingsFile)
+                Files.writeString(settingsFile, "improvedHealthBar = true\naeroDamageAnimation = true\n$saved")
             } finally {
                 first.close()
             }
@@ -56,7 +59,7 @@ class ClientConfigPersistenceTest {
                 }
                 reader.readAllConfig()
                 assertSame(target, fresh.koin.get<Settings>())
-                assertTrue(target.improvedHealthBar); assertTrue(target.enhancedWorldRendering)
+                assertTrue(target.enhancedWorldRendering)
                 assertFalse(target.hideOriginalHud); assertTrue(target.showExtraButton)
                 assertFalse(target.aeroRangeUseTeamColors)
                 assertEquals(45, target.hudRefreshRate)

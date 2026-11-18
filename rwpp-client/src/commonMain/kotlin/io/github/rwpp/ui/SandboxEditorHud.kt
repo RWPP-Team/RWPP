@@ -27,7 +27,7 @@ internal fun GameScreen.SandboxEditorHud() {
         val next = source.update(GameEngine.getInstance(), selectedUnits)
         if (next !== snapshot) snapshot = next
     }
-    snapshot?.let { SandboxUnitEditorControls(it) }
+    snapshot?.let { SandboxUnitEditorControls(it) { open -> sandboxEditorDialogOpen = open } }
 }
 
 /**

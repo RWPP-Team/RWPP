@@ -31,8 +31,6 @@ import io.github.rwpp.api.game.Game
 import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.api.net.Net
 import io.github.rwpp.generated.*
-import io.github.rwpp.screen.Combinable
-import io.github.rwpp.screen.Combine
 import io.github.rwpp.screen.LocalScreenNavigator
 import io.github.rwpp.screen.Screen
 import io.github.rwpp.widget.WindowManager
@@ -227,7 +225,7 @@ class MainMenuScreen : Screen {
             ) {
                 AeroHeader(title = "COMBAT OPERATIONS", tag = "Primary sector")
                 AeroDivider()
-                Combine { OperationButtons() }
+                OperationButtons()
             }
         }
     }
@@ -245,17 +243,17 @@ class MainMenuScreen : Screen {
                     color = MaterialTheme.colorScheme.secondary
                 )
                 AeroDivider()
-                Combine { ExtensionButtons() }
+                ExtensionButtons()
             }
         }
     }
 
-    @Combinable
     @Composable
     fun OperationButtons() {
         val navigator = LocalScreenNavigator.current
         AeroMenuButton(
             title = readI18n("rwpp.menu.mission"),
+            modifier = Modifier,
             subTitle = "Single player campaign".uppercase(),
             iconPainter = painterResource(Res.drawable.destruction_30),
             onClick = { navigator.push<MissionScreen>() }
@@ -291,7 +289,6 @@ class MainMenuScreen : Screen {
         )
     }
 
-    @Combinable
     @Composable
     fun ExtensionButtons() {
         val navigator = LocalScreenNavigator.current

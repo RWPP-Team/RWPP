@@ -937,7 +937,7 @@ internal object BuildingPlanningController {
             }
 
             BuildingPlanningMode.RECLAIM_AREA -> {
-                val result = issueReclaim(engine, builders, rect)
+                val result = issueReclaim(engine, rect)
                 lastActionCount = result.issued
                 statusKey = when {
                     result.queueLimited -> "rwpp.planning.reclaimLimit"
@@ -1289,13 +1289,11 @@ internal object BuildingPlanningController {
 
     private fun issueReclaim(
         engine: GameEngine,
-        builders: List<OrderableUnit>,
         rect: BuildingPlanningScreenRect,
     ): ReclaimResult {
         if (!canIssueNativeCommands(engine)) return ReclaimResult(0, false)
         val access = engine.interfaceEngine as? NativeInterfaceAccess ?: return ReclaimResult(0, false)
-        val viewport = planningViewport(engine)
-        val actions = builders.filter { planningRectContains(viewport, it) }.associateWith { builder ->
+        val actions = screenPlanningUnits(engine).filter(engine.interfaceEngine::canPlayerControlUnit).associateWith { builder ->
             reclaimActions(builder).filter { io.github.rwpp.game.hud.hudActionUnlocked(it, builder) }
         }.filterValues { it.isNotEmpty() }
         val targets = nativeUnitSnapshot().asSequence()
@@ -1320,16 +1318,41 @@ internal object BuildingPlanningController {
         var issued = 0
         var queueLimited = false
         val reserved = mutableMapOf<Long, Int>()
+        val assignments = mutableMapOf<GameUnit, MutableList<OrderableUnit>>()
+        fun hasSpace(builder: OrderableUnit) = builder.waypointCount + reserved.getOrDefault(builder.id, 0) < MAX_PLANNING_TARGETS
+        fun assign(target: GameUnit, builder: OrderableUnit) {
+            assignments.getOrPut(target) { mutableListOf() }.add(builder)
+            reserved[builder.id] = reserved.getOrDefault(builder.id, 0) + 1
+        }
         for ((target, capable) in targets) {
             val builder = capable.asSequence()
-                .filter { it.waypointCount + reserved.getOrDefault(it.id, 0) < MAX_PLANNING_TARGETS }
-                .minWithOrNull(planningWorkerPriority(reserved, target.x, target.y))
+                .filter(::hasSpace)
+                .minWithOrNull(compareBy<OrderableUnit> { it.id in reserved }
+                    .then(planningWorkerPriority(reserved, target.x, target.y)))
             if (builder == null) {
                 queueLimited = true
                 continue
             }
+            assign(target, builder)
+        }
+        // Fill remaining workers even when there are fewer targets than workers.
+        val availableTargets = mutableMapOf<OrderableUnit, MutableList<GameUnit>>()
+        for ((target, capable) in targets) {
+            for (builder in capable) {
+                if (builder.id !in reserved) availableTargets.getOrPut(builder) { mutableListOf() }.add(target)
+            }
+        }
+        for ((builder, eligible) in availableTargets) {
+            if (!hasSpace(builder)) {
+                queueLimited = true
+                continue
+            }
+            val nearest = eligible.minBy { distanceSquared(builder.x, builder.y, it.x, it.y) }
+            assign(nearest, builder)
+        }
+        for ((target, workers) in assignments) {
             val command = runCatching { access.rwppCreatePlanningCommand() }.getOrNull() ?: continue
-            val configured = configurePlanningCommand(command, listOf(builder)) && runCatching {
+            val configured = configurePlanningCommand(command, workers) && runCatching {
                 command.setReclaimWaypoint(target)
                 command.queueOrder = true
             }.isSuccess
@@ -1338,7 +1361,6 @@ internal object BuildingPlanningController {
                 engine.commandController.networkPendingCommands.remove(command)
                 continue
             }
-            reserved[builder.id] = reserved.getOrDefault(builder.id, 0) + 1
             issued++
         }
         return ReclaimResult(issued, queueLimited)

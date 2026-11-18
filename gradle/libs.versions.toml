@@ -38,8 +38,7 @@ korlibs-audio = "6.1.0"
 vorbisspi = "1.0.3.3"
 slf4j = "2.0.20"
 okhttp = "5.5.0"
-rwml-core = "1.0.2"
-game-lib = "v3-1.15"
+rwml-core = "1.0.3"
 codeorigin = "0.2.1"
 lwjgl = "2.9.3"
 jline = "4.4.8"
@@ -100,7 +99,7 @@ lwjgl = { module = "org.lwjgl.lwjgl:lwjgl", version.ref = "lwjgl" }
 jline = { module = "org.jline:jline", version.ref = "jline" }
 rwml-core = { module = "io.github.rwpp-team:rwml-core", version.ref = "rwml-core" }
 rwml-desktop = { module = "io.github.rwpp-team:rwml-desktop", version.ref = "rwml-core" }
-game-lib = { module = "io.github.rwpp-team:game-lib", version.ref = "game-lib" }
+game-lib = { module = "io.github.rwpp-team:game-lib", version.ref = "rwml-core" }
 asm-framework = { module = "kim.der.relay-cn:ASM-Framework", version.ref = "asm-framework" }
 asm = { module = "org.ow2.asm:asm", version.ref = "asm" }
 asm-tree = { module = "org.ow2.asm:asm-tree", version.ref = "asm" }

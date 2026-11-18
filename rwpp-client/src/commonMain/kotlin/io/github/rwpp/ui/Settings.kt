@@ -354,6 +354,11 @@ class SettingsScreen(
                                             SettingsSwitchRW("showWarLogOnScreen")
                                             SettingsSwitchRW("smartSelection_v2", labelKey = "smartSelection")
                                             SettingsSwitchRW("quickRally")
+                                            AeroSettingToggle(
+                                                readI18n("rwpp.settings.advancedRallyPoints"),
+                                                settings.advancedRallyPoints,
+                                                onCheckedChange = { settings.advancedRallyPoints = it },
+                                            )
                                             SettingsSwitchRW("doubleClickToAttackMove")
                                             AeroSettingToggle(
                                                 readI18n("rwpp.settings.overflowProductionQueue"),

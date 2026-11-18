@@ -36,8 +36,23 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.*
 
 class CommandCanvasTest : DesktopComposeGraphicsTest() {
+    private class TooltipSemantics : PlatformContext by PlatformContext.Empty() {
+        private var owner: SemanticsOwner? = null
+        override val semanticsOwnerListener = object : PlatformContext.SemanticsOwnerListener {
+            override fun onSemanticsOwnerAppended(semanticsOwner: SemanticsOwner) { owner = semanticsOwner }
+            override fun onSemanticsOwnerRemoved(semanticsOwner: SemanticsOwner) { owner = null }
+            override fun onSemanticsChange(semanticsOwner: SemanticsOwner) = Unit
+            override fun onLayoutChange(semanticsOwner: SemanticsOwner, semanticsNodeId: Int) = Unit
+        }
+
+        fun nodes(node: SemanticsNode = assertNotNull(owner).unmergedRootSemanticsNode): Sequence<SemanticsNode> = sequence {
+            yield(node)
+            node.children.forEach { yieldAll(nodes(it)) }
+        }
+    }
+
     @Test
-    fun consoleTooltipStaysAcrossItsBoundaryAndClosesOnBuildClick() {
+    fun consoleTooltipClosesImmediatelyWhenThePointerLeavesOrStartsPlacement() {
         val dispatcher = RenderThreadDispatcher()
         val recomposer = FrameRecomposer(dispatcher)
         val scene = CanvasLayersComposeScene(recomposer, size = IntSize(640, 260))
@@ -65,7 +80,7 @@ class CommandCanvasTest : DesktopComposeGraphicsTest() {
                         frame, modifier = Modifier.align(Alignment.CenterEnd).width(120.dp).fillMaxHeight(),
                         placementActive = { placing },
                     )
-                    CommandTooltipLayer("Close")
+                    CommandTooltipLayer()
                 }
             }
             render()
@@ -74,10 +89,7 @@ class CommandCanvasTest : DesktopComposeGraphicsTest() {
             assertNotNull(CommandHover.current.value)
             render()
             scene.sendPointerEvent(PointerEventType.Move, Offset(505f, 27f))
-            assertTrue(CommandHover.overTooltip)
-            assertNotNull(CommandHover.current.value, "Crossing directly into the tooltip must preserve it")
-            scene.sendPointerEvent(PointerEventType.Move, Offset(20f, 200f))
-            assertNull(CommandHover.current.value, "Leaving the tooltip and console must dismiss immediately")
+            assertNull(CommandHover.current.value, "Moving from the console into the card must dismiss it immediately")
             render()
             scene.sendPointerEvent(PointerEventType.Move, button)
             assertNotNull(CommandHover.current.value)
@@ -96,7 +108,8 @@ class CommandCanvasTest : DesktopComposeGraphicsTest() {
     fun touchConsoleTooltipIsCenteredAtTheTop() {
         val dispatcher = RenderThreadDispatcher()
         val recomposer = FrameRecomposer(dispatcher)
-        val scene = CanvasLayersComposeScene(recomposer, size = IntSize(640, 260))
+        val semantics = TooltipSemantics()
+        val scene = CanvasLayersComposeScene(recomposer, size = IntSize(640, 260), platformContext = semantics)
         val surface = Surface.makeRasterN32Premul(640, 260)
         val frame = mutableStateOf(CommandFrame(buttons = listOf(CommandButton(
             label = "Unit", enabled = false, clickSound = null,
@@ -119,7 +132,7 @@ class CommandCanvasTest : DesktopComposeGraphicsTest() {
                     CommandSurface(
                         frame, modifier = Modifier.align(Alignment.BottomEnd).width(120.dp).fillMaxHeight(0.5f),
                     )
-                    CommandTooltipLayer("Close", topCentered = true)
+                    CommandTooltipLayer(topCentered = true)
                 }
             }
             render()
@@ -127,9 +140,12 @@ class CommandCanvasTest : DesktopComposeGraphicsTest() {
             scene.sendPointerEvent(PointerEventType.Press, button, type = PointerType.Touch)
             scene.sendPointerEvent(PointerEventType.Release, button, type = PointerType.Touch)
             render()
-            val bounds = assertNotNull(CommandHover.tooltipBounds)
-            assertEquals(8f, bounds.top, 1f)
-            assertEquals(320f, bounds.center.x, 1f)
+            assertNotNull(CommandHover.current.value)
+            val bounds = semantics.nodes().first { node ->
+                node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == "Unit" } == true
+            }.boundsInRoot
+            assertEquals(21f, bounds.top, 1f)
+            assertEquals(178f, bounds.left, 1f)
             assertTrue(bounds.bottom < 130f)
         } finally {
             scene.close()
@@ -140,49 +156,29 @@ class CommandCanvasTest : DesktopComposeGraphicsTest() {
     }
 
     @Test
-    fun longConsoleTooltipCanScrollToTheEnd() {
+    fun longConsoleTooltipHasNoScrollingOrCloseButton() {
         val dispatcher = RenderThreadDispatcher()
         val recomposer = FrameRecomposer(dispatcher)
-        var semantics: SemanticsOwner? = null
-        val platform = object : PlatformContext by PlatformContext.Empty() {
-            override val semanticsOwnerListener = object : PlatformContext.SemanticsOwnerListener {
-                override fun onSemanticsOwnerAppended(semanticsOwner: SemanticsOwner) { semantics = semanticsOwner }
-                override fun onSemanticsOwnerRemoved(semanticsOwner: SemanticsOwner) = Unit
-                override fun onSemanticsChange(semanticsOwner: SemanticsOwner) = Unit
-                override fun onLayoutChange(semanticsOwner: SemanticsOwner, semanticsNodeId: Int) = Unit
-            }
-        }
-        val scene = CanvasLayersComposeScene(recomposer, size = IntSize(640, 260), platformContext = platform)
+        val semantics = TooltipSemantics()
+        val scene = CanvasLayersComposeScene(recomposer, size = IntSize(640, 260), platformContext = semantics)
         val surface = Surface.makeRasterN32Premul(640, 260)
         var time = 0L
         fun render() {
             dispatcher.drain(); time += 16_666_667L; recomposer.performFrame(time)
             dispatcher.drain(); scene.measureAndLayout(); scene.draw(surface.canvas.asComposeCanvas())
         }
-        fun nodes(node: SemanticsNode): Sequence<SemanticsNode> = sequence {
-            yield(node)
-            node.children.forEach { yieldAll(nodes(it)) }
-        }
         try {
             val description = (1..60).joinToString("\n") { "Unit description line $it" }
             CommandHover.current.value = CommandTooltip(Rect(510f, 20f, 630f, 250f), "Unit", description, 30f)
-            scene.setContent { CommandTooltipLayer("Close") }
+            scene.setContent { CommandTooltipLayer() }
             repeat(16) { render() }
-            val allNodes = nodes(assertNotNull(semantics).unmergedRootSemanticsNode).toList()
-            assertTrue(allNodes.any { node ->
+            val allNodes = semantics.nodes().toList()
+            val text = allNodes.first { node ->
                 node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == description } == true
-            })
-            val range = allNodes.firstNotNullOf { it.config.getOrNull(SemanticsProperties.VerticalScrollAxisRange) }
-            assertTrue(range.maxValue() > 400f, "Expected content far beyond the ten-line limit")
-            scene.sendPointerEvent(PointerEventType.Move, Offset(390f, 130f))
-            assertTrue(CommandHover.overTooltip, "Pointer entering the tooltip keeps it open")
-            repeat(12) {
-                scene.sendPointerEvent(PointerEventType.Scroll, Offset(390f, 130f), scrollDelta = Offset(0f, 15f))
-                render()
             }
-            assertEquals(range.maxValue(), range.value(), 1f, "The final line must be reachable by scrolling")
-            scene.sendPointerEvent(PointerEventType.Move, Offset(25f, 250f))
-            assertNull(CommandHover.current.value, "Leaving both regions must clear the tooltip in the same event")
+            assertTrue(text.boundsInRoot.bottom < 260f)
+            assertTrue(allNodes.none { it.config.getOrNull(SemanticsProperties.VerticalScrollAxisRange) != null })
+            assertTrue(allNodes.none { it.config.getOrNull(SemanticsProperties.ContentDescription) != null })
         } finally {
             scene.close(); recomposer.close(); surface.close()
             CommandHover.clear()
@@ -383,7 +379,7 @@ class CommandCanvasTest : DesktopComposeGraphicsTest() {
                 DisposableEffect(Unit) { attached++; onDispose { detached++ } }
                 Box {
                     CommandSurface(model, modifier = Modifier.fillMaxSize().drawWithContent { draws++; drawContent() })
-                    CommandTooltipLayer("Close")
+                    CommandTooltipLayer()
                 }
             }
             repeat(180) { frame ->

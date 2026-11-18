@@ -8,8 +8,10 @@
 package io.github.rwpp.api.mixin.network
 
 import com.corrodinggames.rts.gameFramework.GameEngine
+import com.corrodinggames.rts.gameFramework.network.NetworkEngine
 import com.corrodinggames.rts.gameFramework.network.Packet
 import io.github.rwpp.api.event.hooks.NativeNetworkLifecycleCallbacks
+import io.github.rwpp.api.game.impl.NativeGameLifecycle
 import kim.der.asm.api.annotation.AsmInject
 import kim.der.asm.api.annotation.AsmMixin
 import kim.der.asm.api.annotation.CallbackInfo
@@ -101,15 +103,16 @@ object NativeNetworkLifecycleMixin {
     fun deferReadyStateDuringRegistration(sent: Boolean): Boolean =
         sent || GameEngine.getInstance().networkEngine.localTeam == null
 
+    @AsmInject(method = "sendClientReadyState()V", target = InjectionPoint.TAIL, require = 1)
+    fun observeClientReadyState(target: Any) =
+        NativeGameLifecycle.onClientReadyStateSent(target as NetworkEngine)
+
     /** Packet 120 arrives on the receive worker before the native map-load callback runs. */
     @kim.der.asm.api.annotation.ModifyReturnValue(method = "shouldGameBePaused()Z", require = 1)
     fun awaitClientMapLoad(result: Boolean): Boolean =
         result || NativeNetworkLifecycleCallbacks.isClientMapLoadPending()
 
-    /**
-     * Frame hooks on the game engine can be skipped while the native view reports no update.
-     * The network update always runs for a live client, so the ready ack is retried here too.
-     */
+    /** Check for a required post-load acknowledgement after the native branch has run. */
     @AsmInject(method = "update(F)V", target = InjectionPoint.TAIL, require = 1)
     fun acknowledgeClientReady(target: Any, delta: Float) =
         NativeNetworkLifecycleCallbacks.acknowledgeClientReady(target)

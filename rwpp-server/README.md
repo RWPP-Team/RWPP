@@ -33,7 +33,7 @@ Netty 仅由 server 引入，负责批量收发、背压及共享线程池；KCP
 
 ## 扩展
 
-扩展将 server 发行包 `lib/` 中的 `rwpp-server-2.0.0.jar` 作为编译期依赖，
+扩展将 server 发行包 `lib/` 中的 `rwpp-server-2.0.1.jar` 作为编译期依赖，
 描述符声明 `dependsOn=io.github.rwpp.api,io.github.rwpp.server`。
 普通扩展遵循 RWML 生命周期；实现 `ServerExtension` 可接管运行循环。
 

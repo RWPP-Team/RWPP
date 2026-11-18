@@ -145,10 +145,6 @@ internal object NativeNetworkLifecycleCallbacks {
 }
 
 internal object NativeEngineLifecycleCallbacks {
-    fun acknowledgeClientReady(target: Any) {
-        NativeGameLifecycle.acknowledgeClientReadyAfterMapLoad(target as GameEngine)
-    }
-
     private fun load(engine: GameEngine, loadAi: Boolean, keepTeams: Boolean, mapType: GameEngineMapType) =
         MapLoadContext(engine, engine.currentMapPath, mapType, loadAi, keepTeams)
 

@@ -13,6 +13,7 @@ import com.corrodinggames.rts.gameFramework.InputController
 import com.corrodinggames.rts.gameFramework.InputControllerButton
 import io.github.rwpp.config.Settings
 import io.github.rwpp.game.building.BuildingPlanningController
+import io.github.rwpp.game.hud.HoldFireAction
 import io.github.rwpp.logic.hotkeys.hotkeyBindingSlots
 import io.github.rwpp.logic.hotkeys.normalizedHotkeyBindings
 import io.github.rwpp.logic.hotkeys.validHotkeyBindings
@@ -28,6 +29,7 @@ internal object NativeGameHotkeys {
     private lateinit var autoLoadButton: InputControllerButton
     private lateinit var buildingPlanningButton: InputControllerButton
     private lateinit var reclaimSelectionButton: InputControllerButton
+    private lateinit var holdFireButton: InputControllerButton
     private var nativeChatDefaultTWasSuppressed = false
 
     private val nativeKeyNames by lazy {
@@ -56,16 +58,25 @@ internal object NativeGameHotkeys {
                 input.createConfigurableButton("RWPP Building Planning").apply { addKeyBinding("ALT+B") }
             reclaimSelectionButton =
                 input.createConfigurableButton("RWPP Reclaim Selection").apply { addKeyBinding("ALT+R") }
+            holdFireButton = input.createConfigurableButton("RWPP Hold Fire").apply { addKeyBinding("ALT+F") }
             placeBeforeControlGroupBlock(
                 input, listOf(
                     sameTypeButton, followSelectionButton,
-                    lowHealthButton, autoLoadButton, buildingPlanningButton, reclaimSelectionButton
+                    lowHealthButton, autoLoadButton, buildingPlanningButton, reclaimSelectionButton, holdFireButton
                 )
             )
             applied = null
             nativeChatDefaultTWasSuppressed = false
         }
-        return input.allButtons.filterIsInstance<InputControllerButton>().filter { it.configurable && !it.isHeader }
+        val listed = input.allButtons.filterIsInstance<InputControllerButton>().filter { it.configurable && !it.isHeader }
+        val unitShortcuts = input.unitActionButtons + input.createGroupButtons +
+                input.selectGroupButtons + input.addGroupToSelectionButtons
+        return (listed - unitShortcuts.toSet()) + unitShortcuts.filter { it in listed }
+    }
+
+    fun holdFireBinding(input: InputController): InputControllerButton {
+        if (owner !== input) buttons(input)
+        return holdFireButton
     }
 
     fun apply(settings: Settings) {
@@ -111,6 +122,9 @@ internal object NativeGameHotkeys {
             if (autoLoadButton.isPressed) NativeTacticalActions.autoLoad(engine)
             if (buildingPlanningButton.isPressed) BuildingPlanningController.toggleMode()
             if (reclaimSelectionButton.isPressed) BuildingPlanningController.beginReclaimSelection()
+            if (GameEngine.isDesktopVersion() && holdFireButton.isPressed) {
+                HoldFireAction.toggle(engine, engine.interfaceEngine.selectedUnits)
+            }
         }
     }
 

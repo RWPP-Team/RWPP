@@ -520,28 +520,32 @@ internal object NativeGameLifecycle {
 
     /** Send the native ready packet only once the map has loaded and the simulation loop is active. */
     fun acknowledgeClientReadyAfterMapLoad(engine: GameEngine) {
-        if (!clientStartReadyAck.isPending()) return
+        if (!clientStartReadyAck.canCheckReady()) return
         val network = engine.networkEngine
-        val isNetworkedClient = network.networked && !network.isServer
-        if (!clientStartReadyAck.beginAttemptIfReady(
-                isNetworkedClient = isNetworkedClient,
-                gameStarted = network.gameStarted,
-                engineMapLoaded = engine.map?.mapLoaded == true,
-                gameLoopActive = engine.gameLoopActive,
-            )
+        if (!network.networked || network.isServer || !network.gameStarted ||
+            engine.map?.mapLoaded != true || !engine.gameLoopActive
         ) return
 
+        // The native client resets this to zero each match. A server step or resync advances it.
+        if (network.nextBlockingFrame > 0 && clientStartReadyAck.stopRetriesAfterServerStep()) return
+        if (!hasReadyConnection(network) || !clientStartReadyAck.beginAttempt()) return
+
         val failure = runCatching { network.sendClientReadyState() }.exceptionOrNull()
-        if (failure == null) {
-            clientStartReadyAck.markSent()
-            // The loading overlay must clear on the first successful send; later resends only
-            // confirm the ready flag to the host.
-            NetworkGameLoadingState.finishMapLoad()
-        } else if (!clientStartReadyAck.markAttemptFailed()) {
+        if (failure != null) {
             logger().warn("Could not send the post-load client-ready packet", failure)
+        }
+    }
+
+    fun onClientReadyStateSent(network: NetworkEngine) {
+        if (network.networked && !network.isServer && network.gameStarted && hasReadyConnection(network) &&
+            clientStartReadyAck.onReadyStateSent(GameEngine.getInstance().gameLoopActive)
+        ) {
             NetworkGameLoadingState.finishMapLoad()
         }
     }
+
+    private fun hasReadyConnection(network: NetworkEngine): Boolean =
+        network.clientConnection?.let { it.connected && it.isOpen && !it.isRelay } == true
 
     fun onNativeNetworkStartFailed() {
         clientStartReadyAck.clear()

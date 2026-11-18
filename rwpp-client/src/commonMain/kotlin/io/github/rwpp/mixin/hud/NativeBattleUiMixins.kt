@@ -7,12 +7,15 @@
 
 package io.github.rwpp.mixin.hud
 
+import com.corrodinggames.rts.game.units.actions.AttackModeToggle
 import com.corrodinggames.rts.game.units.actions.CutSpecialAction
 import com.corrodinggames.rts.gameFramework.GameEngine
 import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.appKoin
 import io.github.rwpp.config.Settings
+import io.github.rwpp.game.hud.HoldFireAction
 import io.github.rwpp.game.hud.ShowSelectedUnitAttackRangeAction
+import io.github.rwpp.game.hud.isAeroLiveObserver
 import kim.der.asm.api.annotation.AsmMixin
 import kim.der.asm.api.annotation.ModifyReturnValue
 import kim.der.asm.api.annotation.Operation
@@ -45,6 +48,31 @@ object NativeAttackRangeActionsMixin {
 
     private fun ArrayList<Any>.addIfMissing(action: CutSpecialAction) {
         if (none { it is CutSpecialAction && it.actionIdString == action.actionIdString }) add(action)
+    }
+}
+
+@AsmMixin("com/corrodinggames/rts/gameFramework/gui/BattleInterface")
+object NativeHoldFireActionMixin {
+    @ModifyReturnValue(
+        method = "getSpecialActionsForSelection(Lcom/corrodinggames/rts/game/units/Unit;Ljava/util/ArrayList;)Ljava/util/ArrayList;",
+        require = 1,
+    )
+    fun restoreHoldFire(
+        result: ArrayList<*>?,
+        primary: GameUnit?,
+        selection: ArrayList<*>?,
+    ): ArrayList<*>? {
+        if (result == null || primary == null || selection == null) return result
+        val engine = GameEngine.getInstance()
+        if (engine.replayEngine.isPlayingReplay || isAeroLiveObserver(engine) ||
+            !HoldFireAction.isAvailable(engine, selection)
+        ) return result
+        @Suppress("UNCHECKED_CAST")
+        val actions = result as ArrayList<Any>
+        val existing = actions.indexOfFirst { it is AttackModeToggle }
+        if (existing >= 0) actions[existing] = HoldFireAction
+        else actions.add(0, HoldFireAction)
+        return actions
     }
 }
 

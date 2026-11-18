@@ -5,86 +5,82 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class NetworkClientReadyAckTest {
-    /** Drains the confirmation cooldown that separates two sends. */
-    private fun NetworkClientReadyAck.attemptAfterCooldown(): Boolean {
-        repeat(200) {
-            if (beginAttemptIfReady(true, true, true, true)) return true
-        }
-        return false
-    }
+    private var now = 0L
+    private val ack = NetworkClientReadyAck { now }
 
     @Test
-    fun waitsUntilLoadedClientCanRunThenSends() {
-        val ack = NetworkClientReadyAck()
+    fun mapLoadAndActiveLoopAreRequiredBeforeCountingNativeReady() {
         ack.begin(isNetworkedClient = true)
-
-        assertFalse(ack.beginAttemptIfReady(true, false, false, false))
-        assertFalse(ack.beginAttemptIfReady(true, true, false, false))
-        assertFalse(ack.beginAttemptIfReady(true, true, true, false))
+        assertFalse(ack.beginAttempt())
+        assertFalse(ack.onReadyStateSent(gameLoopActive = true))
 
         ack.markMapLoaded()
-        assertTrue(ack.beginAttemptIfReady(true, true, true, true))
-    }
-
-    @Test
-    fun eachNewNetworkStartGetsItsOwnAckAndFailedLoadsClearThePendingAck() {
-        val ack = NetworkClientReadyAck()
-        ack.begin(isNetworkedClient = true)
-        ack.markMapLoaded()
-        assertTrue(ack.beginAttemptIfReady(true, true, true, true))
-        ack.markSent()
-
-        // Returning to the room and receiving packet 120 for another match starts a fresh cycle.
-        ack.clear()
-        ack.begin(isNetworkedClient = true)
-        ack.markMapLoaded()
-        assertTrue(ack.beginAttemptIfReady(true, true, true, true))
-
-        ack.begin(isNetworkedClient = true)
-        ack.markMapLoaded()
-        ack.clear() // Native map-load failure or disconnect.
-        assertFalse(ack.beginAttemptIfReady(true, true, true, true))
-    }
-
-    @Test
-    fun hostSinglePlayerAndReplayNeverTakeAClientReadyAck() {
-        val ack = NetworkClientReadyAck()
-        ack.begin(isNetworkedClient = false)
-
-        assertFalse(ack.beginAttemptIfReady(false, true, true, true))
-        assertFalse(ack.beginAttemptIfReady(false, true, true, true))
-    }
-
-    @Test
-    fun failedNativeSendsKeepRetryingWhileTheClientIsLoading() {
-        val ack = NetworkClientReadyAck()
-        ack.begin(isNetworkedClient = true)
-        ack.markMapLoaded()
-
-        // A disconnected or still-attaching client must not exhaust the handshake; the host keeps
-        // waiting until packet 112 reports gameLoopActive.
-        repeat(12) {
-            assertTrue(ack.attemptAfterCooldown())
-            assertTrue(ack.markAttemptFailed())
-        }
-        assertTrue(ack.isPending())
-    }
-
-    @Test
-    fun confirmationResendsAreBoundedAndThenStop() {
-        val ack = NetworkClientReadyAck()
-        ack.begin(isNetworkedClient = true)
-        ack.markMapLoaded()
-
-        assertTrue(ack.beginAttemptIfReady(true, true, true, true))
-        ack.markSent()
-        assertTrue(ack.isPending())
-        assertTrue(ack.attemptAfterCooldown())
-        ack.markSent()
-        assertTrue(ack.attemptAfterCooldown())
-        ack.markSent()
-
+        assertFalse(ack.onReadyStateSent(gameLoopActive = false))
+        assertTrue(ack.beginAttempt())
+        assertTrue(ack.onReadyStateSent(gameLoopActive = true))
         assertFalse(ack.isPending())
-        assertFalse(ack.beginAttemptIfReady(true, true, true, true))
+    }
+
+    @Test
+    fun localSendWithoutServerProgressRetriesAtMostTwice() {
+        ack.begin(isNetworkedClient = true)
+        ack.markMapLoaded()
+        assertTrue(ack.onReadyStateSent(gameLoopActive = true))
+
+        repeat(2) {
+            now += 1_499_000_000
+            assertFalse(ack.beginAttempt())
+            now += 1_000_000
+            assertTrue(ack.beginAttempt())
+            assertFalse(ack.onReadyStateSent(gameLoopActive = true))
+        }
+        now += 1_500_000_000
+        assertFalse(ack.beginAttempt())
+    }
+
+    @Test
+    fun serverProgressStopsRetriesAfterTheFirstSend() {
+        ack.begin(isNetworkedClient = true)
+        ack.markMapLoaded()
+        assertFalse(ack.stopRetriesAfterServerStep())
+        assertTrue(ack.beginAttempt())
+        assertTrue(ack.onReadyStateSent(gameLoopActive = true))
+        assertTrue(ack.stopRetriesAfterServerStep())
+        now += 1_500_000_000
+        assertFalse(ack.beginAttempt())
+    }
+
+    @Test
+    fun eachMatchHasItsOwnReadyState() {
+        ack.begin(isNetworkedClient = true)
+        ack.markMapLoaded()
+        assertTrue(ack.onReadyStateSent(gameLoopActive = true))
+        ack.clear()
+        assertFalse(ack.canCheckReady())
+
+        ack.begin(isNetworkedClient = true)
+        ack.markMapLoaded()
+        assertTrue(ack.beginAttempt())
+        assertTrue(ack.onReadyStateSent(gameLoopActive = true))
+    }
+
+    @Test
+    fun nonClientSessionsNeverSendReady() {
+        ack.begin(isNetworkedClient = false)
+        ack.markMapLoaded()
+        assertFalse(ack.beginAttempt())
+    }
+
+    @Test
+    fun failedLocalAttemptsDoNotUseTheSuccessfulSendLimit() {
+        ack.begin(isNetworkedClient = true)
+        ack.markMapLoaded()
+        repeat(12) {
+            assertTrue(ack.beginAttempt())
+            assertFalse(ack.beginAttempt())
+            now += 500_000_000
+        }
+        assertTrue(ack.isPending())
+        assertTrue(ack.onReadyStateSent(gameLoopActive = true))
     }
 }

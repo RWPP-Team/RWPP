@@ -37,12 +37,15 @@ import org.koin.compose.koinInject
 internal fun GameScreen.AeroGameTelemetry() {
     val settings = koinInject<Settings>()
     var status by remember { mutableStateOf(AnnotatedString("")) }
+    var credits by remember { mutableStateOf(AnnotatedString("")) }
+    var creditsScale by remember { mutableFloatStateOf(1f) }
     var resources by remember { mutableStateOf(emptyList<AeroResourceHudLine>()) }
     var lastTelemetrySampleAt by remember { mutableLongStateOf(Long.MIN_VALUE) }
     val resourceSampler = remember { NativeAeroResourceHudSampler() }
     val accent = MaterialTheme.colorScheme.primary
     OnGameUpdate {
         val engine = GameEngine.getInstance()
+        creditsScale = settings.hudCreditsScale.coerceIn(0.75f, 2f)
         val now = System.currentTimeMillis()
         if (settings.hudCustomResources) {
             resourceSampler.sample(engine, now)?.let { resources = it }
@@ -52,6 +55,7 @@ internal fun GameScreen.AeroGameTelemetry() {
             val team = aeroPresentationTeam(engine)
             if (team == null) {
                 if (status.isNotEmpty()) status = AnnotatedString("")
+                if (credits.isNotEmpty()) credits = AnnotatedString("")
             } else {
                 val seconds = engine.gameTimeMillis / 1000
                 val resource = com.corrodinggames.rts.game.units.custom.resources.CustomResource.CREDITS
@@ -68,7 +72,7 @@ internal fun GameScreen.AeroGameTelemetry() {
                 // Native paints the controlled teammate's block with resourceTextPaintAlt.
                 val secondary = aeroSecondaryResourceTeam(engine, team, selectedControllable, controllable)
                 val primaryColor = if (aeroObservingTeam(engine)) AeroAllyText else accent
-                val nextStatus = buildAnnotatedString {
+                val nextCredits = buildAnnotatedString {
                     withStyle(SpanStyle(color = primaryColor)) {
                         append(
                             aeroCreditsText(
@@ -88,7 +92,8 @@ internal fun GameScreen.AeroGameTelemetry() {
                             )
                         }
                     }
-                    append('\n')
+                }
+                val nextStatus = buildAnnotatedString {
                     if (engine.settings.showFps) {
                         append("$fps FPS  ·  ")
                         withStyle(SpanStyle(color = pingColor(ping))) { append(if (ping >= 0) "$ping ms" else "— ms") }
@@ -97,7 +102,12 @@ internal fun GameScreen.AeroGameTelemetry() {
                     append(clock)
                     append("  ·  ")
                     append("$unitsCurrent/$unitsMax")
+                    HoldFireAction.state(engine, selectedUnits)?.statusKey?.let { key ->
+                        append('\n')
+                        append(readI18n(key))
+                    }
                 }
+                if (nextCredits != credits) credits = nextCredits
                 if (nextStatus != status) status = nextStatus
             }
         }
@@ -109,6 +119,18 @@ internal fun GameScreen.AeroGameTelemetry() {
         verticalArrangement = Arrangement.spacedBy(1.dp),
     ) {
         if (resourcesAbove) AeroCustomResourceHud(resources, horizontal)
+        if (credits.isNotEmpty()) {
+            Text(
+                credits,
+                Modifier.background(MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = hudPanelAlpha(0.18f)))
+                    .padding(horizontal = 6.dp, vertical = 3.dp),
+                textAlign = TextAlign.End,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontSize = 12.sp * creditsScale,
+                    shadow = androidx.compose.ui.graphics.Shadow(Color.Black, androidx.compose.ui.geometry.Offset(1f, 1f), 3f),
+                ),
+            )
+        }
         Text(
             status.takeIf { it.isNotEmpty() } ?: AnnotatedString(readI18n("rwpp.hud.telemetry.placeholder")),
             Modifier.background(MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = hudPanelAlpha(0.18f)))

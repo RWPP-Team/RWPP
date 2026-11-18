@@ -823,6 +823,9 @@ class BattleRoomScreen : Screen {
         val players = room.getPlayers()
 
         var noNukes by remember { mutableStateOf(room.noNukes) }
+        var disableHoldFire by remember(room) {
+            mutableStateOf(room.gameModes.activeModes.any { it.id == DisableHoldFireMode.ID })
+        }
         var sharedControl by remember { mutableStateOf(room.sharedControl) }
         var allowSpectators by remember { mutableStateOf(room.allowSpectators) }
         var teamLock by remember { mutableStateOf(room.teamLock) }
@@ -918,6 +921,7 @@ class BattleRoomScreen : Screen {
                                         },
                                         recyclingDisabled = disableRecycling,
                                         recyclingDisabledUnits = selectedRecyclingUnits.map { it.internalName },
+                                        holdFireDisabled = disableHoldFire,
                                     )
                                     val previous = clientSettings.roomPresets
                                     val next = previous.filterNot { it.name.equals(name, ignoreCase = true) } + preset
@@ -959,6 +963,7 @@ class BattleRoomScreen : Screen {
                                             teamLock = preset.teamLock
                                             gameSpeed = preset.gameSpeed
                                             disableRecycling = preset.recyclingDisabled
+                                            disableHoldFire = preset.holdFireDisabled
                                             onRecyclingUnitsChanged(
                                                 game.getAllUnitTypes().filter {
                                                     it.internalName in preset.recyclingDisabledUnits
@@ -1214,6 +1219,12 @@ class BattleRoomScreen : Screen {
                             item {
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     AeroToggleTile(
+                                        label = readI18n("rwpp.multiplayer.room.disableHoldFire"),
+                                        checked = disableHoldFire,
+                                        onCheckedChange = { disableHoldFire = it },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                    AeroToggleTile(
                                         label = readI18n("rwpp.multiplayer.room.disableRecycling"),
                                         checked = disableRecycling,
                                         onCheckedChange = { disableRecycling = it },
@@ -1267,6 +1278,8 @@ class BattleRoomScreen : Screen {
                                     )
                                     val selectedBase = baseGameMode
                                     if (room.isHost) {
+                                        if (disableHoldFire) room.gameModes.replace(DisableHoldFireMode)
+                                        else room.gameModes.deactivate(DisableHoldFireMode.ID)
                                         if (selectedBase == null) {
                                             room.gameModes.activeModes.filter { it.kind == GameModeKind.BASE }
                                                 .forEach { room.gameModes.deactivate(it.id) }

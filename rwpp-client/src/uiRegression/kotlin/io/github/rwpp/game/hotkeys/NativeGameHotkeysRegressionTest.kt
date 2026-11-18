@@ -63,6 +63,7 @@ class NativeGameHotkeysRegressionTest {
             "rwpp_auto_load" to "ALT+L",
             "rwpp_building_planning" to "ALT+B",
             "rwpp_reclaim_selection" to "ALT+R",
+            "rwpp_hold_fire" to "ALT+F",
         )
         tacticalDefaults.forEach { (key, binding) ->
             val button = buttons.single { it.settingsKey == key }
@@ -77,6 +78,20 @@ class NativeGameHotkeysRegressionTest {
         assertTrue(input.allButtons.indexOf(sameType) in 0 until headerIndex)
         assertTrue(input.allButtons.indexOf(follow) in 0 until headerIndex)
         assertTrue(headerIndex < firstControlGroupIndex, "new hotkeys sit above the native control-group block")
+
+        val extra = input.createConfigurableButton("Unrelated shortcut")
+        input.allButtons.remove(extra)
+        input.allButtons.add(firstControlGroupIndex + 1, extra)
+        val unitExtra = input.createConfigurableButton("Another unrelated shortcut")
+        input.allButtons.remove(unitExtra)
+        input.allButtons.add(input.allButtons.indexOf(input.unitActionButtons.first()) + 1, unitExtra)
+
+        val reordered = NativeGameHotkeys.buttons(input)
+        val unitShortcuts = input.unitActionButtons.toList() + input.createGroupButtons +
+                input.selectGroupButtons + input.addGroupToSelectionButtons
+        assertTrue(reordered.indexOf(extra) < reordered.indexOf(unitShortcuts.first()))
+        assertTrue(reordered.indexOf(unitExtra) < reordered.indexOf(unitShortcuts.first()))
+        assertEquals(unitShortcuts, reordered.takeLast(unitShortcuts.size))
     }
 
     @Test

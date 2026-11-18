@@ -48,6 +48,7 @@ private val hotkeyActionTranslationKeys = mapOf(
     "rwpp auto load" to "rwpp.tactical.autoLoad",
     "rwpp building planning" to "rwpp.planning.toggle",
     "rwpp reclaim selection" to "rwpp.planning.reclaim",
+    "rwpp hold fire" to "rwpp.hud.holdFire.enable",
 )
 
 /** Resolve engine action names through product-owned translations while keeping unknown actions intact. */

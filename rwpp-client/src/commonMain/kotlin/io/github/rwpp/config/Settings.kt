@@ -28,6 +28,7 @@ data class Settings(
     var aeroRangeEffects: Boolean = true,
     var aeroEnemyRangesOnly: Boolean = false,
     var aeroRallyPointEffects: Boolean = false,
+    @Volatile var advancedRallyPoints: Boolean = false,
     var aeroProductionLabels: Boolean = false,
     var aeroAlliedProductionLabels: Boolean = true,
     var aeroSelection: Boolean = false,
@@ -36,7 +37,6 @@ data class Settings(
     /** Opt in to native repair orders that add long-idle selected builders to group construction. */
     var builderQueueProtectionEnabled: Boolean = true,
     var aeroUnitGlowHighlight: Boolean = false,
-    var aeroDamageAnimation: Boolean = true,
     var aeroDamageNumbers: Boolean = false,
     var smoothGameTextures: Boolean = true,
     var removeDrawLimit: Boolean = false,
@@ -81,6 +81,7 @@ data class Settings(
     var aeroGroupOrders: Boolean = true,
     /** Mod-defined resources render inside the status readout; this hides the rows. */
     var hudCustomResources: Boolean = true,
+    var hudCreditsScale: Float = 1f,
     /** Mod resource rows relative to the credit readout: "above" or "below". */
     var hudCustomResourcesPosition: String = "below",
     /** Mod resource rows arrangement: "vertical" or "horizontal". */
@@ -133,6 +134,7 @@ data class Settings(
     var showExtraButton: Boolean = false,
     /** Factory build buttons show the minimum per-minute economy needed to keep production running. */
     var showFactoryEconomy: Boolean = true,
+    @Volatile var holdFireEnabled: Boolean = false,
     /** @see unitAttackRangeTypes */
     var showAttackRangeUnit: String = "Never",
     /** Master switch for interface motion: buttons, lists, screen flashes and dialog panels. */
@@ -141,7 +143,6 @@ data class Settings(
     var displayUnitGroupXOffset: Int = 0,
     var changeGameTheme: Boolean = false,
     var showUnitTargetLine: Boolean = false,
-    var improvedHealthBar: Boolean = false,
     var mouseMoveView: Boolean = false,
     var allowCameraOverscroll: Boolean = false,
     var cameraOverscrollPixels: Float = 160f,
