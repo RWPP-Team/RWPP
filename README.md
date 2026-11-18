@@ -35,7 +35,7 @@ browsers. The headless server uses the same game API.
 ## Installation
 
 Install [RWML 1.0.3 or later](https://github.com/RWPP-Team/RWML/releases/latest) first. Download the Desktop or Android extension pack
-from the [RWPP 2.0.1 release](https://github.com/RWPP-Team/RWPP/releases/tag/v2.0.1) and import it in the RWML launcher.
+from the [RWPP 2.0.1.1 release](https://github.com/RWPP-Team/RWPP/releases/tag/v2.0.1.1) and import it in the RWML launcher.
 The pack installs `io.github.rwpp.api` and `io.github.rwpp`. You can also import the two JAR files separately.
 
 Both extensions must come from the same release. The client declares a dependency on the API and registers its own

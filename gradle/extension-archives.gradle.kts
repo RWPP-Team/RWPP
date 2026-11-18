@@ -100,6 +100,11 @@ val verifyExtension: (File, Boolean) -> Unit = { archive, android ->
         check((zip.getEntry("io/github/rwpp/mixin/hud/NativeFpsHudMixin.class") != null) == !android) {
             "The native desktop FPS hook must only be shipped in the JVM client"
         }
+        for (hook in listOf("AndroidAeroSettingsMixin", "AndroidNativeFpsHudMixin")) {
+            check((zip.getEntry("io/github/rwpp/mixin/android/$hook.class") != null) == android) {
+                "$hook must only be shipped in the Android client"
+            }
+        }
     }
     ZipFile(archive).use { zip ->
         val descriptor = Properties().apply {

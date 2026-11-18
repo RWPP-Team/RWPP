@@ -151,7 +151,7 @@ class HudLayoutRenderTest : DesktopComposeGraphicsTest() {
         val scene = CanvasLayersComposeScene(recomposer, size = IntSize(1280, 720))
         val surface = Surface.makeRasterN32Premul(1920, 1080)
         val horizontal = HudComponentState(HudComponentData("horizontal", 0f, 0f, relativeX = 0f, relativeY = 1f))
-        val vertical = HudComponentState(HudComponentData("vertical", 0f, 0f, relativeX = 1f, relativeY = 0f))
+        val vertical = HudComponentState(HudComponentData("vertical", 0f, 0f, 1.5f, relativeX = 1f, relativeY = 0f))
         val corner = HudComponentState(HudComponentData("corner", 0f, 0f, relativeX = 1f, relativeY = 1f))
         val compact = HudComponentState(HudComponentData("compact", 0f, 0f, relativeX = 0f, relativeY = 0f))
         val bounds = mutableMapOf<String, Rect>()
@@ -209,9 +209,12 @@ class HudLayoutRenderTest : DesktopComposeGraphicsTest() {
                 val mini = bounds.getValue("corner")
                 assertEquals(size.width.toFloat(), bar.width, 1f, "Horizontal HUD fills $size")
                 assertEquals(size.height.toFloat(), side.height, 1f, "Vertical HUD fills $size")
+                val viewportScale = hudViewportScale(size.width.toFloat(), size.height.toFloat())
+                assertEquals(390f * viewportScale, side.width, 1f, "Scaled vertical HUD width at $size")
+                assertEquals(size.width.toFloat(), side.right, 1f, "Scaled vertical HUD stays right-aligned at $size")
                 assertEquals(size.width.toFloat(), mini.right, 1f, "Right anchor at $size")
                 assertEquals(size.height.toFloat(), mini.bottom, 1f, "Bottom anchor at $size")
-                assertEquals(200f * hudViewportScale(size.width.toFloat(), size.height.toFloat()), mini.width, 1f)
+                assertEquals(200f * viewportScale, mini.width, 1f)
             }
         } finally {
             scene.close(); recomposer.close(); surface.close()

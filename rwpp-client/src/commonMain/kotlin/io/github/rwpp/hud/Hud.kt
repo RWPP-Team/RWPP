@@ -64,9 +64,18 @@ class HudComponentState(
     private var viewportWidth = 0f
     private var viewportHeight = 0f
 
-    fun maximumScale(): Float = if (width > 0f && height > 0f && viewportWidth > 0f && viewportHeight > 0f) {
-        minOf(3f, viewportWidth / width, viewportHeight / height).coerceAtLeast(0.5f)
-    } else 3f
+    fun maximumScale(fillWidth: Boolean = false, fillHeight: Boolean = false): Float {
+        // A fill axis already compensates for scale by resizing the underlying content.
+        val widthLimit = if (!fillWidth && width > 0f && viewportWidth > 0f) viewportWidth / width else 3f
+        val heightLimit = if (!fillHeight && height > 0f && viewportHeight > 0f) viewportHeight / height else 3f
+        return minOf(3f, widthLimit, heightLimit).coerceAtLeast(0.5f)
+    }
+
+    fun resizeKeepingPosition(newScale: Float) {
+        scale = newScale
+        data.scale = newScale
+        updateViewport(viewportWidth, viewportHeight)
+    }
 
     fun updateViewport(width: Float, height: Float, legacyWidth: Float = width, legacyHeight: Float = height) {
         if (data.relativeX == null) data.relativeX = hudRelativePosition(data.xDp, legacyWidth, this.width * scale)
@@ -81,8 +90,10 @@ class HudComponentState(
         data.xDp = x
         data.yDp = y
         data.scale = scale
-        if (viewportWidth > 0f && viewportHeight > 0f) {
+        if (viewportWidth > width * scale) {
             data.relativeX = hudRelativePosition(x, viewportWidth, width * scale)
+        }
+        if (viewportHeight > height * scale) {
             data.relativeY = hudRelativePosition(y, viewportHeight, height * scale)
         }
     }
@@ -174,7 +185,8 @@ private fun HudSettingToggle(
 @Composable
 private fun HudEditorSettingsDialog(
     scope: HudSettingsScope,
-    component: HudComponentState?,
+    component: HudComponentState,
+    template: HudComponentTemplate,
     onDismiss: () -> Unit
 ) {
     val settings = koinInject<Settings>()
@@ -208,6 +220,16 @@ private fun HudEditorSettingsDialog(
                         title = "GENERAL",
                         tag = "General",
                     ) {
+                        val maxScale = component.maximumScale(template.fillWidth, template.fillHeight)
+                        if (maxScale > 0.5f) {
+                            AeroSettingSlider(
+                                label = readI18n("rwpp.hud.editor.componentScale"),
+                                value = component.scale.coerceIn(0.5f, maxScale),
+                                onValueChange = component::resizeKeepingPosition,
+                                valueRange = 0.5f..maxScale,
+                                valueFormat = { "${(it * 100).roundToInt()}%" },
+                            )
+                        }
                         HudSettingToggle("rwpp.hud.editor.settings.animations", settings.hudAnimations) {
                             settings.hudAnimations = it
                         }
@@ -431,21 +453,7 @@ private fun HudEditorSettingsDialog(
                             }
                         }
 
-                        HudSettingsScope.SURVIVAL -> if (component != null && component.maximumScale() > 0.5f) {
-                            val maxScale = component.maximumScale()
-                            AeroSettingSlider(
-                                label = readI18n("rwpp.survival.hudScale"),
-                                value = component.scale.coerceIn(0.5f, maxScale),
-                                onValueChange = {
-                                    component.scale = it
-                                    component.data.scale = it
-                                },
-                                valueRange = 0.5f..maxScale,
-                                valueFormat = { "${(it * 100).roundToInt()}%" },
-                            )
-                        }
-
-                        HudSettingsScope.COMPONENT -> Unit
+                        HudSettingsScope.SURVIVAL, HudSettingsScope.COMPONENT -> Unit
                     }
                 }
 
@@ -757,7 +765,8 @@ fun HudEditor(
             }
         }
         settingsComponent?.let { component ->
-            HudEditorSettingsDialog(hudSettingsScopeFor(component.data.id), component, onDismiss = {
+            val template = availableTemplates[component.data.id] ?: return@let
+            HudEditorSettingsDialog(hudSettingsScopeFor(component.data.id), component, template, onDismiss = {
                 settingsComponent = null
                 latestSaveConfig.value()
             })
@@ -1001,7 +1010,9 @@ private fun HudComponentWrapper(
                 )
             }
 
-            val resizeTargetX = state.x + scaledWidth - 12f
+            // A full-height console needs an inward-facing grip when anchored on the right.
+            val resizeFromLeft = template.fillHeight && (state.data.relativeX ?: 0f) > 0.5f
+            val resizeTargetX = if (resizeFromLeft) state.x - 12f else state.x + scaledWidth - 12f
             val resizeTargetY = state.y + scaledHeight - 12f
             val resizeClampedX = resizeTargetX.coerceIn(0f, (maxWidthDp - 24f).coerceAtLeast(0f))
             val resizeClampedY = resizeTargetY.coerceIn(0f, (maxHeightDp - 24f).coerceAtLeast(0f))
@@ -1016,22 +1027,24 @@ private fun HudComponentWrapper(
                     .clip(CircleShape)
                     .background(Color.White)
                     .border(2.dp, Color.Black, CircleShape)
-                    .pointerInput(state) {
+                    .pointerInput(state, resizeFromLeft, template.fillHeight, maxWidthDp, maxHeightDp) {
                         detectDragGestures(
-                            onDragEnd = { state.syncToData() },
-                            onDragCancel = { state.syncToData() }
+                            onDragEnd = { if (!template.fillHeight) state.syncToData() },
+                            onDragCancel = { if (!template.fillHeight) state.syncToData() }
                         ) { change, dragAmount ->
                             change.consume()
                             val dragDp = with(density) { dragAmount.x.toDp().value }
                             if (state.width > 0f) {
-                                val maxScaleX = if (maxWidthDp > state.x) (maxWidthDp - state.x) / state.width else 3.0f
-                                val maxScaleY =
-                                    if (maxHeightDp > state.y) (maxHeightDp - state.y) / state.height else 3.0f
-                                val maxScale = minOf(3.0f, maxScaleX, maxScaleY)
-
-                                val scaleDelta = dragDp / state.width
-                                val newScale = (state.scale + scaleDelta).coerceIn(0.5f, maxScale.coerceAtLeast(0.5f))
-                                state.scale = newScale
+                                val scaleDelta = (if (resizeFromLeft) -dragDp else dragDp) / state.width
+                                if (template.fillHeight) {
+                                    val maxScale = state.maximumScale(template.fillWidth, fillHeight = true)
+                                    state.resizeKeepingPosition((state.scale + scaleDelta).coerceIn(0.5f, maxScale))
+                                } else {
+                                    val maxScaleX = if (maxWidthDp > state.x) (maxWidthDp - state.x) / state.width else 3f
+                                    val maxScaleY = if (maxHeightDp > state.y) (maxHeightDp - state.y) / state.height else 3f
+                                    val maxScale = minOf(3f, maxScaleX, maxScaleY).coerceAtLeast(0.5f)
+                                    state.scale = (state.scale + scaleDelta).coerceIn(0.5f, maxScale)
+                                }
                             }
                         }
                     },
@@ -1041,13 +1054,14 @@ private fun HudComponentWrapper(
                 Canvas(Modifier.size(14.dp).semantics { contentDescription = resizeLabel }) {
                     val inset = 2.dp.toPx()
                     val stroke = 1.5.dp.toPx()
-                    val top = Offset(inset, inset)
-                    val bottom = Offset(size.width - inset, size.height - inset)
+                    val top = Offset(if (resizeFromLeft) size.width - inset else inset, inset)
+                    val bottom = Offset(size.width - top.x, size.height - inset)
                     val arm = size.width * 0.34f
+                    val horizontalArm = if (resizeFromLeft) -arm else arm
                     drawLine(Color.Black, top, bottom, stroke)
-                    drawLine(Color.Black, top, top + Offset(arm, 0f), stroke)
+                    drawLine(Color.Black, top, top + Offset(horizontalArm, 0f), stroke)
                     drawLine(Color.Black, top, top + Offset(0f, arm), stroke)
-                    drawLine(Color.Black, bottom, bottom - Offset(arm, 0f), stroke)
+                    drawLine(Color.Black, bottom, bottom - Offset(horizontalArm, 0f), stroke)
                     drawLine(Color.Black, bottom, bottom - Offset(0f, arm), stroke)
                 }
             }

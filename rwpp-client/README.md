@@ -13,7 +13,7 @@ API 与 client 是两个扩展，client 声明 `dependsOn=io.github.rwpp.api` �
 无 UI 扩展可复用 `networkRuntimeJar` 任务生成的轻量网络归档。
 
 ```kotlin
-implementation(files("libs/rwpp-client-2.0.1-network.jar"))
+implementation(files("libs/rwpp-client-2.0.1.1-network.jar"))
 ```
 
 扩展加载时安装 `TransportRuntime.installIfAbsent { JdkTransportBackend() }`。该归档不包含 Compose、音频或 Netty。

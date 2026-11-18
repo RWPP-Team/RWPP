@@ -497,48 +497,6 @@
       "funding": []
     },
     {
-      "uniqueId": "com.mikepenz:multiplatform-markdown-renderer",
-      "artifactVersion": "0.46.0",
-      "name": "Multiplatform Markdown Renderer",
-      "description": "Kotlin Multiplatform Markdown Renderer. (Android, Desktop, ...) powered by Compose Multiplatform",
-      "website": "https://github.com/mikepenz/multiplatform-markdown-renderer",
-      "developers": [
-        {
-          "name": "Mike Penz"
-        }
-      ],
-      "scm": {
-        "connection": "scm:git@github.com:mikepenz/multiplatform-markdown-renderer.git",
-        "developerConnection": "scm:git@github.com:mikepenz/multiplatform-markdown-renderer.git",
-        "url": "https://github.com/mikepenz/multiplatform-markdown-renderer"
-      },
-      "licenses": [
-        "Apache-2.0"
-      ],
-      "funding": []
-    },
-    {
-      "uniqueId": "com.mikepenz:multiplatform-markdown-renderer-m3",
-      "artifactVersion": "0.46.0",
-      "name": "Multiplatform Markdown Renderer - Material 3",
-      "description": "Kotlin Multiplatform Markdown Renderer. (Android, Desktop, ...) powered by Compose Multiplatform",
-      "website": "https://github.com/mikepenz/multiplatform-markdown-renderer",
-      "developers": [
-        {
-          "name": "Mike Penz"
-        }
-      ],
-      "scm": {
-        "connection": "scm:git@github.com:mikepenz/multiplatform-markdown-renderer.git",
-        "developerConnection": "scm:git@github.com:mikepenz/multiplatform-markdown-renderer.git",
-        "url": "https://github.com/mikepenz/multiplatform-markdown-renderer"
-      },
-      "licenses": [
-        "Apache-2.0"
-      ],
-      "funding": []
-    },
-    {
       "uniqueId": "com.squareup.okhttp3:okhttp",
       "artifactVersion": "5.5.0",
       "name": "okhttp",
@@ -1890,27 +1848,6 @@
         "connection": "scm:git:git://github.com/JetBrains/java-annotations.git",
         "developerConnection": "scm:git:ssh://github.com:JetBrains/java-annotations.git",
         "url": "https://github.com/JetBrains/java-annotations"
-      },
-      "licenses": [
-        "Apache-2.0"
-      ],
-      "funding": []
-    },
-    {
-      "uniqueId": "org.jetbrains:markdown",
-      "artifactVersion": "0.7.17",
-      "name": "markdown",
-      "description": "Markdown parser in Kotlin",
-      "website": "https://github.com/JetBrains/markdown",
-      "developers": [
-        {
-          "name": "Valentin Fondaratov",
-          "organisationUrl": "https://jetbrains.com"
-        }
-      ],
-      "scm": {
-        "connection": "scm:git:git://github.com/JetBrains/markdown.git",
-        "url": "https://github.com/JetBrains/markdown"
       },
       "licenses": [
         "Apache-2.0"

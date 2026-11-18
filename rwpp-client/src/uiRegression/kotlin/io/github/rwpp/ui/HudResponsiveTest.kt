@@ -91,6 +91,26 @@ class HudResponsiveTest {
     }
 
     @Test
+    fun fullHeightConsoleScalesPast100PercentAndKeepsItsRightAnchor() {
+        val data = HudComponentData("hud_console_vertical", 0f, 0f, relativeX = 1f, relativeY = 0f)
+        val state = HudComponentState(data).apply { width = 240f; height = 720f }
+        state.updateViewport(480f, 720f)
+        assertEquals(2f, state.maximumScale(fillHeight = true))
+
+        state.resizeKeepingPosition(2f)
+        state.height = 360f
+        state.syncToData()
+        assertEquals(1f, data.relativeX)
+
+        state.resizeKeepingPosition(1.5f)
+        state.height = 480f
+        state.updateViewport(480f, 720f)
+        assertEquals(120f, state.x)
+        assertEquals(0f, state.y)
+        assertEquals(1.5f, data.scale)
+    }
+
+    @Test
     fun runtimeConsoleMoveZoneStaysOutboardAndRemainsReachableAtLeftEdge() {
         val state = HudComponentState(
             HudComponentData("hud_console_vertical", 0f, 0f, relativeX = 1f, relativeY = 0f)

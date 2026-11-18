@@ -121,8 +121,6 @@ data class Settings(
     var matchHistoryRetentionDays: Int = 30,
     var showWelcomeMessage: Boolean? = null,
     var roomPresets: List<RoomPreset> = emptyList(),
-    var ignoreVersion: String? = null,
-    var autoCheckUpdate: Boolean = true,
     var enhancedReinforceTroops: Boolean = false,
     var backgroundImagePath: String? = null,
     var selectedTheme: String? = null,

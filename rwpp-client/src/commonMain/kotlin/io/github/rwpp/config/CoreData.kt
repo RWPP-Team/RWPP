@@ -17,7 +17,6 @@ import org.koin.core.annotation.Single
 data class CoreData(
     var debug: Boolean = false,
     var lastPlayTime: Long = 0,
-    var lastAutoCheckUpdateTime: Long = 0,
     var userId: Int = 0,
     var loginCookie: List<String> = emptyList(),
 ) : Config

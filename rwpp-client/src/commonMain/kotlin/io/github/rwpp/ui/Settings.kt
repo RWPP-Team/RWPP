@@ -197,6 +197,13 @@ class SettingsScreen(
                                             readI18n("rwpp.settings.enhancedWorldRendering"),
                                             settings.enhancedWorldRendering,
                                             onCheckedChange = { settings.enhancedWorldRendering = it })
+                                        if (appContext.isAndroid()) {
+                                            Text(
+                                                readI18n("rwpp.settings.experimentalOpenGlWarning"),
+                                                color = MaterialTheme.colorScheme.error,
+                                                style = MaterialTheme.typography.bodySmall,
+                                            )
+                                        }
                                         if (appContext.isDesktop()) {
                                             CommunityDlss5Settings(settings)
                                             AeroSettingGroup(

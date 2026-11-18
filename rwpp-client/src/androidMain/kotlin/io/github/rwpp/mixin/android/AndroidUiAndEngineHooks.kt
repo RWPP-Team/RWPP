@@ -7,12 +7,53 @@
 
 package io.github.rwpp.mixin.android
 
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import com.corrodinggames.rts.gameFramework.GameEngine
+import io.github.rwpp.logic.hud.NativeHudVisibility
+import io.github.rwpp.ui.GameScreen
+import io.github.rwpp.ui.SettingsScreen
 import io.github.rwpp.ui.UI
 import kim.der.asm.api.annotation.AsmInject
 import kim.der.asm.api.annotation.AsmMixin
+import kim.der.asm.api.annotation.At
 import kim.der.asm.api.annotation.CallbackInfo
 import kim.der.asm.api.annotation.InjectionPoint
+import kim.der.asm.api.annotation.ModifyExpressionValue
+
+/** Both the native HUD menu and the Android menu dispatch through this game entry point. */
+@AsmMixin("com/corrodinggames/rts/appFramework/GameActivity")
+object AndroidAeroSettingsMixin {
+    private const val SETTINGS_OPTION = 2
+    private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
+
+    @AsmInject(method = "selectMenuOption(I)V", target = InjectionPoint.HEAD, cancellable = true, require = 1)
+    fun openAeroSettings(callbackInfo: CallbackInfo, self: Any, option: Int) {
+        if (option != SETTINGS_OPTION) return
+        val navigator = UI.liveNavigator ?: return
+        val gameScreen = navigator.current as? GameScreen
+        if (gameScreen == null && navigator.backStack.none { it is GameScreen }) return
+
+        callbackInfo.cancel()
+        GameEngine.getInstance()?.interfaceEngine?.pauseMenuOpen = false
+        if (gameScreen != null) mainHandler.post {
+            if (UI.liveNavigator === navigator && navigator.current === gameScreen) {
+                navigator.push<SettingsScreen>("RWPP")
+            }
+        }
+    }
+}
+
+/** Suppress only the native top-left counter. The FPS setting still drives Aero telemetry. */
+@AsmMixin("com/corrodinggames/rts/game/RWGameEngine")
+object AndroidNativeFpsHudMixin {
+    @ModifyExpressionValue(
+        method = "drawAll(Lcom/corrodinggames/rts/gameFramework/render/CanvasLike;F)V",
+        at = At(InjectionPoint.FIELD, target = "showFps:Z"), require = 1,
+    )
+    fun worldFps(enabled: Boolean): Boolean = enabled && !NativeHudVisibility.hidden
+}
 
 /** Sends kick/mod warnings to the extension UI rather than leaving them in the game log only. */
 @AsmMixin("com/corrodinggames/rts/gameFramework/GameEngine")

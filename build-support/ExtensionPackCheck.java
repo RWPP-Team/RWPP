@@ -55,6 +55,7 @@ public final class ExtensionPackCheck {
         require(order.get(0).id().equals("io.github.rwpp.api"), "API must load first");
         require(order.get(1).id().equals("io.github.rwpp"), "Client must load after API");
         for (var descriptor : order) {
+            require(descriptor.version().equals(result.manifest().version()), "Pack and extension versions differ");
             require(descriptor.version().equals(result.manifest().pins().get(descriptor.id())), "Missing version pin");
             require(result.manifest().enabled().contains(descriptor.id()), "Extension not enabled by pack");
         }

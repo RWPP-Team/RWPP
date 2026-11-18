@@ -33,7 +33,7 @@ RWPP 是 Rusted Warfare 的客户端与无界面服务端。两者都以 [RWML](
 
 ## 安装
 
-先安装 [RWML 1.0.3 或更新版本](https://github.com/RWPP-Team/RWML/releases/latest)，再从 [RWPP 2.0.1 发布页](https://github.com/RWPP-Team/RWPP/releases/tag/v2.0.1)
+先安装 [RWML 1.0.3 或更新版本](https://github.com/RWPP-Team/RWML/releases/latest)，再从 [RWPP 2.0.1.1 发布页](https://github.com/RWPP-Team/RWPP/releases/tag/v2.0.1.1)
 下载桌面或 Android 扩展整合包，在 RWML 启动器中导入。整合包包含 `io.github.rwpp.api` 与 `io.github.rwpp`，两个 JAR 也可以分别导入。
 
 两个扩展必须来自同一个发行版本。客户端声明对 API 的依赖，并独立注册自己的界面框架。

@@ -116,8 +116,6 @@ kotlin {
             api(libs.coil.compose)
             api(libs.coil.network.okhttp)
             implementation(libs.minimal.json)
-            implementation(libs.markdown.renderer)
-            implementation(libs.markdown.renderer.m3)
             implementation(libs.reorderable)
         }
 
