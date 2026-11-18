@@ -230,8 +230,8 @@ internal fun HotkeyBindingField(
                     onCaptureChanged(state.isFocused)
                 }
             }
-            .focusable(interactionSource = interactionSource)
             .onPreviewKeyEvent(::capture)
+            .focusable(interactionSource = interactionSource)
             .pointerInput(Unit) { detectTapGestures { focusRequester.requestFocus() } }
             .padding(horizontal = 10.dp),
         contentAlignment = Alignment.CenterStart,

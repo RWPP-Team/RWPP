@@ -87,6 +87,14 @@ class GameHotkeysInputRegressionTest : DesktopComposeGraphicsTest() {
             assertEquals(listOf("CTRL+SHIFT+T"), savedBindings)
             assertFalse(capturing, "saving a shortcut must exit capture mode")
             assertFalse(focused, "saving a shortcut must clear TextField focus")
+
+            scene.sendPointerEvent(PointerEventType.Press, tap, button = PointerButton.Primary)
+            scene.sendPointerEvent(PointerEventType.Release, tap, button = PointerButton.Primary)
+            renderFrame()
+            assertTrue(capturing)
+            assertTrue(scene.sendKeyEvent(desktopComposeKeyEvent(Key.Tab, KeyEventType.KeyDown, '\t')))
+            assertEquals(listOf("CTRL+SHIFT+T", "TAB"), savedBindings)
+            assertFalse(capturing)
         } finally {
             scene.close()
             recomposer.close()

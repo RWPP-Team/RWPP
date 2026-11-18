@@ -17,11 +17,10 @@ class NativeGameHotkeysRegressionTest {
         val listed = NativeGameHotkeys.buttons(input)
         val actions = listOf(input.attackMoveButton, input.guardUnitButton, input.patrolButton, input.reclaimButton)
         actions.forEach { assertTrue(it in listed, "Native action ${it.displayName} must remain configurable") }
-        val settings = Settings(hotkeyBindings = actions.mapIndexed { index, button ->
-            button.settingsKey to "ALT+F${index + 1}"
-        }.toMap())
+        val keys = listOf("TAB", "SHIFT+TAB", "CTRL+TAB", "ALT+F4")
+        val settings = Settings(hotkeyBindings = actions.map { it.settingsKey }.zip(keys).toMap())
         NativeGameHotkeys.apply(input, settings)
-        actions.forEachIndexed { index, button -> assertBindings(button, input, "ALT+F${index + 1}") }
+        actions.zip(keys).forEach { (button, shortcut) -> assertBindings(button, input, shortcut) }
     }
 
     @Test

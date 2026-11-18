@@ -30,7 +30,9 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import io.github.rwpp.api.event.broadcastIn
 import io.github.rwpp.event.events.KeyboardEvent
+import io.github.rwpp.logic.hud.GameUiPauseState
 import io.github.rwpp.ui.RenderThreadDispatcher
+import io.github.rwpp.ui.UI
 import io.github.rwpp.ui.desktopComposeKeyEvent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -548,7 +550,11 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
 
         val composeKeyEvent = desktopComposeKeyEvent(composeKey, type, c, isCtrl, isAlt, isShift)
 
-        val consumed = scene.sendKeyEvent(composeKeyEvent)
+        // Compose treats Tab as focus traversal before Slick can feed it into game bindings.
+        val gameOwnsTab = composeKey == Key.Tab && !menuOwnsInput() && !imeDialog.inputMethodsEnabled &&
+                !GameUiPauseState.blocked && !UI.showPlayerList &&
+                UI.dialogContent == null && UI.briefing == null && UI.warning == null && UI.question == null
+        val consumed = !gameOwnsTab && scene.sendKeyEvent(composeKeyEvent)
         val blocked = menuOwnsInput()
         // A blocked screen keeps the key away from both the native listener and the
         // RWPP game hotkey bus; releases still reach the game to clear held keys.
