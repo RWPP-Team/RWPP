@@ -55,6 +55,7 @@ import io.github.rwpp.game.hotkeys.NativeGameHotkeys
 import io.github.rwpp.game.hotkeys.SelectionCameraFollowController
 import io.github.rwpp.game.hud.AdvancedRally
 import io.github.rwpp.game.hud.AeroDamageSignals
+import io.github.rwpp.game.hud.OverflowProductionQueue
 import io.github.rwpp.game.hud.SurvivalWaveHud
 import io.github.rwpp.game.hud.SurvivalWavePresentation
 import io.github.rwpp.game.hud.SurvivalWaveSampler
@@ -184,7 +185,7 @@ class GameScreen : Screen {
         }
     }
 
-    fun setOriginalHudHidden(hidden: Boolean) {
+    fun setOriginalHudHidden(hidden: Boolean, persist: Boolean = true) {
         appKoin.get<Settings>().hideOriginalHud = hidden
         hudSettingsRevision++
         NativeHudVisibility.update()
@@ -205,7 +206,7 @@ class GameScreen : Screen {
             add("events", 0.5f, 0.10f)
             add("observer_statistics", 0.70f, 0.16f)
         }
-        appKoin.get<io.github.rwpp.api.config.ConfigIO>().saveAllConfig()
+        if (persist) appKoin.get<io.github.rwpp.api.config.ConfigIO>().saveAllConfig()
     }
 
     private fun isSelectionUnchanged(current: List<GameUnit>, engineList: List<GameUnit>): Boolean {
@@ -389,8 +390,8 @@ class GameScreen : Screen {
                                 GameEngine.getInstance().cameraScrollActive = false
                             }
                         } else if (isEditMode) {
-                            isEditMode = false
-                            appKoin.get<io.github.rwpp.api.config.ConfigIO>().saveAllConfig()
+                            // The HUD editor owns its save/discard decision.
+                            return@launch
                         } else if (saveDialog != null) saveDialog = null
                         else showPauseMenu = !showPauseMenu
                     }
@@ -409,7 +410,7 @@ class GameScreen : Screen {
             HudEditor(
                 components,
                 isEditMode,
-                { isEditMode = it; if (!it) appKoin.get<io.github.rwpp.api.config.ConfigIO>().saveAllConfig() },
+                { isEditMode = it },
                 { dataList.add(it) },
                 { dataList.remove(it.data) },
                 activeTemplates,
@@ -417,7 +418,6 @@ class GameScreen : Screen {
                 onImportLayout = { imported ->
                     dataList.clear()
                     dataList.addAll(imported)
-                    appKoin.get<io.github.rwpp.api.config.ConfigIO>().saveAllConfig()
                 },
                 layoutComponentIds = availableTemplates.keys,
             )
@@ -442,7 +442,9 @@ class GameScreen : Screen {
 
         Box(Modifier.fillMaxSize()) {
             Box(Modifier.align(Alignment.TopStart).padding(start = 8.dp, top = 52.dp)) {
-                AeroReplayControls(visible = !showPauseMenu && !isEditMode && !interfaceHidden)
+                val topHudVisible = !showPauseMenu && !isEditMode && !interfaceHidden
+                AeroReplayControls(visible = topHudVisible)
+                if (topHudVisible) WaitingProductionStatus()
             }
         }
 
@@ -487,6 +489,43 @@ class GameScreen : Screen {
                 saveDialog = null
                 showPauseMenu = false
             })
+        }
+    }
+
+    @Composable
+    private fun WaitingProductionStatus() {
+        val selection = selectedUnits
+        var orders by remember(selection) { mutableStateOf<Map<String, Int>>(emptyMap()) }
+        OnGameUpdate {
+            val engine = GameEngine.getInstance()
+            orders = if (engine == null || engine.replayEngine.isPlayingReplay) emptyMap()
+            else OverflowProductionQueue.selectedWaitingOrders(engine, selection)
+        }
+        if (orders.isEmpty()) return
+
+        val colors = MaterialTheme.colorScheme
+        Column(
+            modifier = Modifier
+                .widthIn(max = 224.dp)
+                .background(colors.surfaceContainerHigh.copy(alpha = 0.82f), RoundedCornerShape(4.dp))
+                .padding(horizontal = 8.dp, vertical = 5.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = readI18n("rwpp.production.pendingCount", orders.values.sum()),
+                color = colors.onSurface,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Column(Modifier.heightIn(max = 136.dp).verticalScroll(rememberScrollState())) {
+                for ((name, count) in orders) {
+                    Text(
+                        text = "$name ×$count",
+                        color = colors.onSurface,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+            }
         }
     }
 

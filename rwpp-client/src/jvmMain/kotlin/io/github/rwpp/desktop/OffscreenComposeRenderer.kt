@@ -20,6 +20,8 @@ import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.platform.*
@@ -31,6 +33,8 @@ import androidx.compose.ui.unit.IntSize
 import io.github.rwpp.api.event.broadcastIn
 import io.github.rwpp.event.events.KeyboardEvent
 import io.github.rwpp.logic.hud.GameUiPauseState
+import io.github.rwpp.platform.desktopBackDispatcher
+import io.github.rwpp.platform.routeDesktopKeyEvent
 import io.github.rwpp.ui.RenderThreadDispatcher
 import io.github.rwpp.ui.UI
 import io.github.rwpp.ui.desktopComposeKeyEvent
@@ -550,20 +554,9 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
 
         val composeKeyEvent = desktopComposeKeyEvent(composeKey, type, c, isCtrl, isAlt, isShift)
 
-        // Compose treats Tab as focus traversal before Slick can feed it into game bindings.
-        val gameOwnsTab = composeKey == Key.Tab && !menuOwnsInput() && !imeDialog.inputMethodsEnabled &&
-                !GameUiPauseState.blocked && !UI.showPlayerList &&
-                UI.dialogContent == null && UI.briefing == null && UI.warning == null && UI.question == null
-        val consumed = !gameOwnsTab && scene.sendKeyEvent(composeKeyEvent)
-        val blocked = menuOwnsInput()
-        // A blocked screen keeps the key away from both the native listener and the
-        // RWPP game hotkey bus; releases still reach the game to clear held keys.
-        // Escape is the exception for the pause menu and HUD edit mode: GameScreen closes them
-        // from this bus, so swallowing it left both overlays impossible to dismiss by keyboard.
-        if (!consumed && (!blocked || composeKey == Key.Escape && gameOverlayOwnsEscape())) {
-            KeyboardEvent(composeKeyEvent).broadcastIn()
-        }
-        if (type == KeyEventType.KeyDown && (consumed || blocked || composeKey == Key.Escape)) {
+        val consumed = routeKeyEvent(composeKeyEvent)
+        // Key releases still reach Slick so held game keys can be cleared.
+        if (type == KeyEventType.KeyDown && (consumed || composeKey == Key.Escape)) {
             _input.consumeEvent()
         }
         needRender = true
@@ -583,6 +576,24 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
                 io.github.rwpp.appKoin.get<io.github.rwpp.ui.GameScreen>().isEditMode ||
                 io.github.rwpp.appKoin.get<io.github.rwpp.ui.GameScreen>().sandboxEditorDialogOpen ||
                 io.github.rwpp.ui.isShowSendMessageDialog
+
+    @OptIn(InternalComposeUiApi::class)
+    private fun routeKeyEvent(event: KeyEvent, forwardToGame: Boolean = true): Boolean {
+        val blocked = menuOwnsInput()
+        val escapeDown = event.key == Key.Escape && event.type == KeyEventType.KeyDown
+        // Tab remains a gameplay hotkey when no overlay owns the keyboard.
+        val gameOwnsTab = forwardToGame && event.key == Key.Tab && !blocked && !imeDialog.inputMethodsEnabled &&
+                !GameUiPauseState.blocked && !UI.showPlayerList &&
+                UI.dialogContent == null && UI.briefing == null && UI.warning == null && UI.question == null
+        return routeDesktopKeyEvent(
+            escapeDown = escapeDown,
+            sceneConsumed = !gameOwnsTab && scene.sendKeyEvent(event),
+            gameInputBlocked = blocked && !(escapeDown && gameOverlayOwnsEscape()),
+            forwardToGame = forwardToGame,
+            dispatchBack = desktopBackDispatcher::dispatch,
+            broadcastToGame = { KeyboardEvent(event).broadcastIn() },
+        )
+    }
 
     @OptIn(InternalComposeUiApi::class)
     fun sendAwtKeyEvent(e: java.awt.event.KeyEvent, type: KeyEventType) {
@@ -609,7 +620,8 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
             nativeEvent = e
         )
 
-        scene.sendKeyEvent(composeKeyEvent)
+        // The IME peer only owns Compose input; Slick remains the source of game hotkeys.
+        if (routeKeyEvent(composeKeyEvent, forwardToGame = false)) e.consume()
         needRender = true
     }
 
