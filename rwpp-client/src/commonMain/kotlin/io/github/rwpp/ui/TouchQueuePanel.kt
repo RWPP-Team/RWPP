@@ -134,10 +134,6 @@ internal fun TouchQueuePanel(
                 if (details.isNotBlank()) Text(details, fontSize = (11f * tooltipScale).sp)
             }
             Text(readI18n("rwpp.hud.queue.count", button.queued), color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (button.pendingProduction > 0) Text(
-                readI18n("rwpp.production.pendingCount", button.pendingProduction),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 AeroButton(
                     readI18n("rwpp.hud.queue.add"), onClick = onAdd, enabled = button.canAdd,

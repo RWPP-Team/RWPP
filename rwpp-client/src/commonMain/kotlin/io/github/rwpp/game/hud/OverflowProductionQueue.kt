@@ -50,8 +50,17 @@ internal object OverflowProductionQueue {
         return pending.count { it.action == action.storedActionId && it.owners.any(selected::contains) }
     }
 
-    fun pendingCountForFactory(unit: GameUnit): Int =
-        if (!enabled || unit !is FactoryInterface) 0 else pending.count { unit in it.owners }
+    /** Waiting orders across all owned factories in the current match. Read under the game update lock. */
+    fun pendingOrderCount(engine: GameEngine): Int {
+        if (!enabled || map !== engine.map || team !== engine.playerTeam || pending.isEmpty()) return 0
+        return pending.sumOf { request ->
+            if (request.singleOwner) {
+                if (request.owners.any { canControl(engine, it) }) 1 else 0
+            } else {
+                request.owners.count { canControl(engine, it) }
+            }
+        }
+    }
 
     fun enqueue(engine: GameEngine, action: SpecialAction, units: List<OrderableUnit>): Boolean {
         if (!enabled || !isProductionAction(action) || !syncSession(engine)) return false

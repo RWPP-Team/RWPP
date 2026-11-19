@@ -469,9 +469,9 @@ class CommandCanvasTest : DesktopComposeGraphicsTest() {
                 org.jetbrains.skia.Bitmap().use { bitmap ->
                     bitmap.allocPixels(image.imageInfo)
                     assertTrue(image.readPixels(bitmap))
-                    assertTrue((0 until image.height).any { y ->
+                    assertFalse((0 until image.height).any { y ->
                         (0 until image.width).any { x -> bitmap.getColor(x, y) == 0xffffcb74.toInt() }
-                    }, "A waiting-only order must draw its own badge while the native queue is empty")
+                    }, "Waiting orders must not draw a separate badge on production buttons")
                 }
                 image.encodeToData()!!.use {
                     java.nio.file.Files.write(

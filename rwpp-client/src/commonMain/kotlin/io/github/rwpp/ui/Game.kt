@@ -55,6 +55,7 @@ import io.github.rwpp.game.hotkeys.NativeGameHotkeys
 import io.github.rwpp.game.hotkeys.SelectionCameraFollowController
 import io.github.rwpp.game.hud.AdvancedRally
 import io.github.rwpp.game.hud.AeroDamageSignals
+import io.github.rwpp.game.hud.OverflowProductionQueue
 import io.github.rwpp.game.hud.SurvivalWaveHud
 import io.github.rwpp.game.hud.SurvivalWavePresentation
 import io.github.rwpp.game.hud.SurvivalWaveSampler
@@ -441,7 +442,9 @@ class GameScreen : Screen {
 
         Box(Modifier.fillMaxSize()) {
             Box(Modifier.align(Alignment.TopStart).padding(start = 8.dp, top = 52.dp)) {
-                AeroReplayControls(visible = !showPauseMenu && !isEditMode && !interfaceHidden)
+                val topHudVisible = !showPauseMenu && !isEditMode && !interfaceHidden
+                AeroReplayControls(visible = topHudVisible)
+                if (topHudVisible) WaitingProductionStatus()
             }
         }
 
@@ -486,6 +489,26 @@ class GameScreen : Screen {
                 saveDialog = null
                 showPauseMenu = false
             })
+        }
+    }
+
+    @Composable
+    private fun WaitingProductionStatus() {
+        var pending by remember { mutableIntStateOf(0) }
+        OnGameUpdate {
+            val engine = GameEngine.getInstance()
+            pending = if (engine == null || engine.replayEngine.isPlayingReplay) 0
+            else OverflowProductionQueue.pendingOrderCount(engine)
+        }
+        if (pending > 0) {
+            Text(
+                text = readI18n("rwpp.production.pendingCount", pending),
+                modifier = Modifier
+                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(4.dp))
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.labelMedium,
+            )
         }
     }
 

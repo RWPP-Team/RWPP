@@ -368,9 +368,8 @@ private class CommandButtonFrameBuilder {
             }
             val pending = OverflowProductionQueue.pendingCount(action, selection)
             val holdFire = if (action === HoldFireAction) HoldFireAction.state(engine, selection) else null
-            val nativeLabel = if (action === HoldFireAction) HoldFireAction.buttonLabel(holdFire)
+            val label = if (action === HoldFireAction) HoldFireAction.buttonLabel(holdFire)
             else actionCallbacks.label(queued, action.priceValue, nowNanos)
-            val label = nativeLabel
             val glyph = actionCallbacks.glyph
             val image = if (primary != null && glyph == null && identity in visibleIds) {
                 ActionImages.load(action, primary, visible = true)?.also { displayedImages[identity] = it }
@@ -1125,23 +1124,8 @@ internal fun CommandSurface(
                                 if (!button.dimmed) colors.onSurface else colors.onSurfaceVariant,
                             )
                         )
-                        val queueBadge = when {
-                            button.queued > 0 && button.pendingProduction > 0 -> "${button.queued} +${button.pendingProduction}"
-                            button.pendingProduction > 0 -> "+${button.pendingProduction}"
-                            button.queued > 0 -> button.queued.toString()
-                            else -> null
-                        }
-                        val badgeLayout = queueBadge?.let {
-                            text.measure(
-                                it, style = TextStyle(
-                                    color = if (button.pendingProduction > 0) Color(0xffffcb74) else colors.onPrimary,
-                                    fontSize = 12.sp,
-                                ), maxLines = 1,
-                            )
-                        }
-                        val badgeWidth = badgeLayout?.let { maxOf(28.dp.toPx(), it.size.width + 8.dp.toPx()) } ?: 0f
                         if (button.hotkey.isNotBlank()) {
-                            val reserved = if (badgeWidth > 0f) badgeWidth + 6.dp.toPx() else 0f
+                            val reserved = if (button.queued > 0) 34.dp.toPx() else 0f
                             val layout = text.measure(
                                 AnnotatedString(button.hotkey),
                                 style = TextStyle(color = Color(0xff8cf59a), fontSize = 10.sp),
@@ -1151,14 +1135,17 @@ internal fun CommandSurface(
                             val left = (right - layout.size.width).coerceAtLeast(origin.x + 2.dp.toPx())
                             drawText(layout, topLeft = Offset(left, origin.y + 3.dp.toPx()))
                         }
-                        if (badgeLayout != null) {
-                            val badge = origin + Offset(extent.width - badgeWidth - 6.dp.toPx(), 4.dp.toPx())
-                            val badgeHeight = maxOf(19.dp.toPx(), badgeLayout.size.height.toFloat())
-                            val badgeSize = Size(badgeWidth, badgeHeight)
-                            val pending = button.pendingProduction > 0
-                            drawRect(if (pending) Color(0xff13232d) else colors.primary, badge, badgeSize)
-                            if (pending) drawRect(Color(0xffffcb74), badge, badgeSize, style = Stroke(1.dp.toPx()))
-                            drawText(badgeLayout, topLeft = badge + Offset(4.dp.toPx(), (badgeHeight - badgeLayout.size.height) / 2))
+                        if (button.queued > 0) {
+                            val badge = origin + Offset(extent.width - 34.dp.toPx(), 4.dp.toPx())
+                            drawRect(colors.primary, badge, Size(28.dp.toPx(), 19.dp.toPx()))
+                            label(
+                                "${button.queued}",
+                                badge + Offset(4.dp.toPx(), 0f),
+                                25.dp.toPx(),
+                                19.dp.toPx(),
+                                13,
+                                colors.onPrimary
+                            )
                         }
                     }
                 }
