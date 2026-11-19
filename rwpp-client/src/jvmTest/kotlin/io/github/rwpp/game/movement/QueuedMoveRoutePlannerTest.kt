@@ -91,6 +91,23 @@ class QueuedMoveRoutePlannerTest {
     }
 
     @Test
+    fun anAlreadyDirectNativeRouteKeepsTheOriginalOrder() {
+        val motion = builderMotion()
+        val goal = MovePoint(650f, motion.position.y)
+        val native = assertNotNull(directMoveNodes(motion.position, goal))
+        assertNull(MoveRoutePlanner.planQueued(clearGrid(), motion, goal, native, 1f))
+    }
+
+    @Test
+    fun missingOrIncompleteNativeRoutesCannotSupplyABaseline() {
+        val motion = builderMotion()
+        val goal = MovePoint(650f, motion.position.y)
+        val grid = clearGrid()
+        assertNull(MoveRoutePlanner.planQueued(grid, motion, goal, emptyList(), 1f))
+        assertNull(MoveRoutePlanner.planQueued(grid, motion, goal, listOf(MovePoint(450f, goal.y)), 1f))
+    }
+
+    @Test
     fun buildBaselineStopsAtItsRangeAndRejectsAnApparentMoveImprovement() {
         val goal = MovePoint(560f, 210f)
         val native = listOf(MovePoint(500f, 210f), MovePoint(600f, 400f), goal)
@@ -156,6 +173,18 @@ class QueuedMoveRoutePlannerTest {
         assertTrue(plan.targets.size in 2..MAX_ASSISTED_MOVE_TARGETS)
         assertTrue(plan.plannedEstimatedTime < plan.nativeEstimatedTime)
         assertTrue(MoveRoutePlanner.estimateQueued(grid, motion, plan.targets, 1f, native, plan.terrainClearance).completed)
+    }
+
+    @Test
+    fun theNativeTileWalkCanRejectAGeometricallyClearShorelineLeg() {
+        val mask = resource("two-sides-reported-0955-mask.bin")
+        val grid = MoveNavigationGrid(40f, 960f, 68, 53, 20f, 20f, BooleanArray(mask.size) { mask[it] != 0.toByte() })
+        val motion = builderMotion().copy(position = MovePoint(239.1261f, 1835.9917f))
+        val target = MovePoint(390f, 1270f)
+        assertTrue(grid.isClear(motion.position, target, 2f))
+        val estimate = MoveRoutePlanner.estimateQueued(grid, motion, listOf(target), terrainClearance = 2f)
+        assertFalse(estimate.completed)
+        assertEquals("native-direct-blocked", estimate.failureReason)
     }
 
     @Test
