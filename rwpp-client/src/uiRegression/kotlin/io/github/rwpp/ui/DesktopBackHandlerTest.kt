@@ -9,6 +9,30 @@ import kotlin.test.assertTrue
 
 class DesktopBackHandlerTest {
     @Test
+    fun roomBackClosesTheNestedPickerBeforeTheOptions() {
+        val engineType = com.corrodinggames.rts.gameFramework.GameEngine::class.java
+        val singleton = engineType.getDeclaredField("al").apply { isAccessible = true }
+        val previous = singleton.get(null)
+        val unsafe = sun.misc.Unsafe::class.java.getDeclaredField("theUnsafe").apply { isAccessible = true }
+            .get(null) as sun.misc.Unsafe
+        singleton.set(null, unsafe.allocateInstance(com.corrodinggames.rts.game.RWGameEngine::class.java))
+        try {
+            val screen = BattleRoomScreen().apply {
+                optionVisible = true
+                recyclingUnitVisible = true
+            }
+            assertTrue(screen.dismissRoomOverlay())
+            assertFalse(screen.recyclingUnitVisible)
+            assertTrue(screen.optionVisible, "Closing the nested picker must keep the room options open")
+            assertTrue(screen.dismissRoomOverlay())
+            assertFalse(screen.optionVisible)
+            assertFalse(screen.dismissRoomOverlay(), "Only the room itself is left to handle Back")
+        } finally {
+            singleton.set(null, previous)
+        }
+    }
+
+    @Test
     fun pageBackOwnsOneEscapeAndDisposalRestoresNavigatorBack() {
         val dispatcher = BackActionDispatcher()
         val actions = mutableListOf<String>()
