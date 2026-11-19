@@ -31,7 +31,7 @@ internal fun ClientHudSettings(settings: Settings) {
             AeroSettingToggle(
                 readI18n("rwpp.settings.hideOriginalHud"),
                 settings.hideOriginalHud
-            ) { appKoin.get<GameScreen>().setOriginalHudHidden(it) }
+            ) { appKoin.get<GameScreen>().setOriginalHudHidden(it, persist = false) }
             AeroSettingToggle(
                 readI18n("rwpp.hud.editor.settings.animations"),
                 settings.hudAnimations

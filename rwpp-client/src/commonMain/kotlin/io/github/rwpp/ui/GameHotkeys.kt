@@ -7,7 +7,6 @@
 
 package io.github.rwpp.ui
 
-import io.github.rwpp.api.config.ConfigIO
 import io.github.rwpp.appKoin
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
@@ -122,9 +121,7 @@ internal fun HotkeySettings(settings: Settings) {
                 settings.hotkeyBindings = imported
                 bindingsRevision++
                 GameScope.launch { NativeGameHotkeys.apply(settings) }
-                appKoin.get<ConfigIO>().saveConfig(settings)
             },
-            save = { appKoin.get<ConfigIO>().saveConfig(settings) },
         )
         AeroTextField(search, { search = it }, readI18n("rwpp.hotkeys.search"), Modifier.fillMaxWidth())
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
