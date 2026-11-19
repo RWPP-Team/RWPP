@@ -495,21 +495,38 @@ class GameScreen : Screen {
 
     @Composable
     private fun WaitingProductionStatus() {
-        var pending by remember { mutableIntStateOf(0) }
+        val selection = selectedUnits
+        var orders by remember(selection) { mutableStateOf<Map<String, Int>>(emptyMap()) }
         OnGameUpdate {
             val engine = GameEngine.getInstance()
-            pending = if (engine == null || engine.replayEngine.isPlayingReplay) 0
-            else OverflowProductionQueue.pendingOrderCount(engine)
+            orders = if (engine == null || engine.replayEngine.isPlayingReplay) emptyMap()
+            else OverflowProductionQueue.selectedWaitingOrders(engine, selection)
         }
-        if (pending > 0) {
+        if (orders.isEmpty()) return
+
+        val colors = MaterialTheme.colorScheme
+        Column(
+            modifier = Modifier
+                .widthIn(max = 224.dp)
+                .background(colors.surfaceContainerHigh.copy(alpha = 0.82f), RoundedCornerShape(4.dp))
+                .padding(horizontal = 8.dp, vertical = 5.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
             Text(
-                text = readI18n("rwpp.production.pendingCount", pending),
-                modifier = Modifier
-                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(4.dp))
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                color = MaterialTheme.colorScheme.onSurface,
+                text = readI18n("rwpp.production.pendingCount", orders.values.sum()),
+                color = colors.onSurface,
                 style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
             )
+            Column(Modifier.heightIn(max = 136.dp).verticalScroll(rememberScrollState())) {
+                for ((name, count) in orders) {
+                    Text(
+                        text = "$name ×$count",
+                        color = colors.onSurface,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+            }
         }
     }
 
