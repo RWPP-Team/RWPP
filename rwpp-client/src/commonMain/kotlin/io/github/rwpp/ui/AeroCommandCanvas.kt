@@ -368,9 +368,8 @@ private class CommandButtonFrameBuilder {
             }
             val pending = OverflowProductionQueue.pendingCount(action, selection)
             val holdFire = if (action === HoldFireAction) HoldFireAction.state(engine, selection) else null
-            val nativeLabel = if (action === HoldFireAction) HoldFireAction.buttonLabel(holdFire)
+            val label = if (action === HoldFireAction) HoldFireAction.buttonLabel(holdFire)
             else actionCallbacks.label(queued, action.priceValue, nowNanos)
-            val label = if (pending == 0) nativeLabel else "$nativeLabel · +$pending"
             val glyph = actionCallbacks.glyph
             val image = if (primary != null && glyph == null && identity in visibleIds) {
                 ActionImages.load(action, primary, visible = true)?.also { displayedImages[identity] = it }

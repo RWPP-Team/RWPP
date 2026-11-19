@@ -459,12 +459,20 @@ class CommandCanvasTest : DesktopComposeGraphicsTest() {
             incoming.set(CommandFrame("建造中心", 0.85f, 0.4f, 3, List(24) {
                 CommandButton(
                     "单位 $it\n$500", queued = if (it == 0) 12 else 0,
+                    pendingProduction = if (it == 1) 5 else 0,
                     progress = if (it == 0) 0.4f else 0f, image = icon
                 )
             }))
             repeat(3) { render() }
             java.nio.file.Files.createDirectories(java.nio.file.Path.of("build/ui-regression"))
             surface.makeImageSnapshot().use { image ->
+                org.jetbrains.skia.Bitmap().use { bitmap ->
+                    bitmap.allocPixels(image.imageInfo)
+                    assertTrue(image.readPixels(bitmap))
+                    assertFalse((0 until image.height).any { y ->
+                        (0 until image.width).any { x -> bitmap.getColor(x, y) == 0xffffcb74.toInt() }
+                    }, "Waiting orders must not draw a separate badge on production buttons")
+                }
                 image.encodeToData()!!.use {
                     java.nio.file.Files.write(
                         java.nio.file.Path.of("build/ui-regression/aero-command-console.png"),
