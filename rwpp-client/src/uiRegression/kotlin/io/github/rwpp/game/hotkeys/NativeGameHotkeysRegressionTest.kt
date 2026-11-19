@@ -12,6 +12,25 @@ import kotlin.test.assertTrue
 
 class NativeGameHotkeysRegressionTest {
     @Test
+    fun discardingNewOverrideRestoresNativeBindingEvenWhenOriginalSettingsHadNoOverride() = withNativeKeyLabels {
+        val input = InputController()
+        val settings = Settings(hotkeyBindingsMigrationVersion = 1)
+        NativeGameHotkeys.apply(input, settings)
+        val button = input.attackMoveButton
+        val original = button.inputBindings.toList()
+        val restore = NativeGameHotkeys.captureBindings(input)
+
+        settings.hotkeyBindings = mapOf(button.settingsKey to "ALT+F1")
+        NativeGameHotkeys.apply(input, settings)
+        assertBindings(button, input, "ALT+F1")
+
+        settings.hotkeyBindings = emptyMap()
+        restore()
+        NativeGameHotkeys.apply(input, settings)
+        assertEquals(original, button.inputBindings.toList())
+    }
+
+    @Test
     fun nativeTargetedActionsRemainConfigurableThroughSavedKeyboardBindings() = withNativeKeyLabels {
         val input = InputController()
         val listed = NativeGameHotkeys.buttons(input)

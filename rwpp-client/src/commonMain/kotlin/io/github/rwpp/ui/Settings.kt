@@ -26,6 +26,9 @@ import io.github.rwpp.LocalWindowManager
 import io.github.rwpp.api.config.ConfigIO
 import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.config.Settings
+import io.github.rwpp.game.hotkeys.NativeGameHotkeys
+import io.github.rwpp.logic.config.SettingsEditSession
+import io.github.rwpp.platform.BackHandler
 import io.github.rwpp.screen.LocalScreenNavigator
 import io.github.rwpp.screen.Screen
 import io.github.rwpp.sound.Sounds
@@ -52,17 +55,94 @@ class SettingsScreen(
         val appContext = koinInject<AppContext>()
         val settings = koinInject<Settings>()
         val compact = LocalWindowManager.current != WindowManager.Large
+        val gameScreen = koinInject<GameScreen>()
+        val engine = remember { com.corrodinggames.rts.gameFramework.GameEngine.getInstance() }
+        val editSession = remember {
+            synchronized(engine.gameUpdateLock) {
+                NativeGameHotkeys.apply(settings)
+                SettingsEditSession.capture(
+                    settings,
+                    readNativeSetting = { configIO.getGameConfig<Any?>(it) },
+                    writeNativeSetting = configIO::setGameConfig,
+                )
+            }
+        }
+        val restoreHotkeys = remember {
+            synchronized(engine.gameUpdateLock) { NativeGameHotkeys.captureBindings() }
+        }
+        val originalHudComponents = remember { gameScreen.dataList.toList() }
+        val originalTheme = remember { UI.selectedColorSchemeName }
+        val originalBackground = remember { UI.backgroundImagePath }
+        val originalLanguage = remember { Rwml.get().ui().messages().language() }
 
         var backgroundImagePath by remember { mutableStateOf(settings.backgroundImagePath ?: "") }
+        val originalBackgroundInput = remember { backgroundImagePath }
         // The opacity state resolves its default before Koin exists in some hosts.
         LaunchedEffect(Unit) { HudOpacity.syncFrom(settings) }
-        var savedOnExit by remember { mutableStateOf(false) }
-        DisposableEffect(Unit) {
-            onDispose {
-                settings.backgroundImagePath = backgroundImagePath
+        var finished by remember { mutableStateOf(false) }
+        var showExitPrompt by remember { mutableStateOf(false) }
+
+        fun restorePreview() {
+            synchronized(engine.gameUpdateLock) {
+                editSession.restore()
+                restoreHotkeys()
+            }
+            gameScreen.setOriginalHudHidden(settings.hideOriginalHud, persist = false)
+            gameScreen.dataList.clear()
+            gameScreen.dataList.addAll(originalHudComponents)
+            AeroUiScalePreference.multiplier = settings.globalUiScale
+            HudOpacity.syncFrom(settings)
+            UI.selectedColorSchemeName = originalTheme
+            UI.backgroundImagePath = originalBackground
+            val messages = Rwml.get().ui().messages()
+            if (messages.language() != originalLanguage) messages.language(originalLanguage)
+        }
+
+        fun saveAndReturn() {
+            if (finished) return
+            settings.backgroundImagePath = backgroundImagePath
+            runCatching { configIO.saveAllConfig() }.onSuccess {
+                finished = true
+                showExitPrompt = false
                 UI.backgroundImagePath = backgroundImagePath
-                if (!savedOnExit) runCatching { configIO.saveAllConfig() }.onFailure {
-                    io.github.rwpp.api.logging.logger().error("Could not save configuration while closing settings", it)
+                navigator.pop()
+            }.onFailure {
+                io.github.rwpp.api.logging.logger().error("Could not save configuration", it)
+                UI.showWarning(readI18n("rwpp.settings.saveFailed", it.message.orEmpty()))
+            }
+        }
+
+        fun discardAndReturn() {
+            if (finished) return
+            runCatching { restorePreview() }.onSuccess {
+                finished = true
+                showExitPrompt = false
+                navigator.pop()
+            }.onFailure {
+                io.github.rwpp.api.logging.logger().error("Could not restore settings preview", it)
+                UI.showWarning(readI18n("rwpp.settings.restoreFailed", it.message.orEmpty()))
+            }
+        }
+
+        fun requestReturn() {
+            if (editSession.hasChanges() || backgroundImagePath != originalBackgroundInput ||
+                gameScreen.dataList.toList() != originalHudComponents ||
+                Rwml.get().ui().messages().language() != originalLanguage
+            ) showExitPrompt = true
+            else discardAndReturn()
+        }
+
+        BackHandler(enabled = true) { if (showExitPrompt) showExitPrompt = false else requestReturn() }
+        UnsavedChangesDialog(
+            visible = showExitPrompt,
+            onSave = ::saveAndReturn,
+            onDiscard = ::discardAndReturn,
+            onContinue = { showExitPrompt = false },
+        )
+        DisposableEffect(editSession) {
+            onDispose {
+                if (!finished) runCatching { restorePreview() }.onFailure {
+                    io.github.rwpp.api.logging.logger().error("Could not restore configuration while closing settings", it)
                 }
             }
         }
@@ -121,17 +201,7 @@ class SettingsScreen(
                         AeroButton(
                             text = readI18n("rwpp.common.exitAndSave"),
                             isDanger = true,
-                            onClick = {
-                                settings.backgroundImagePath = backgroundImagePath
-                                runCatching { configIO.saveAllConfig() }.onSuccess {
-                                    savedOnExit = true
-                                    UI.backgroundImagePath = backgroundImagePath
-                                    navigator.pop()
-                                }.onFailure {
-                                    io.github.rwpp.api.logging.logger().error("Could not save configuration", it)
-                                    UI.showWarning(readI18n("rwpp.settings.saveFailed", it.message.orEmpty()))
-                                }
-                            },
+                            onClick = ::saveAndReturn,
                             clickSound = Sounds.closePopup,
                             modifier = Modifier.width(120.dp)
                         )
@@ -339,13 +409,8 @@ class SettingsScreen(
                                                     // runtime field in step so a stale value cannot
                                                     // override the switch before the next start.
                                                     configIO.setGameConfig("slick2dBorderless", it)
-                                                    // The native display mode is chosen at startup, so
-                                                    // persist immediately instead of relying on the
-                                                    // exit-time save.
-                                                    runCatching {
-                                                        com.corrodinggames.rts.gameFramework.GameEngine
-                                                            .getInstance().settings.save()
-                                                    }
+                                                    // Persist with the other settings only after Save;
+                                                    // discarding must also undo this startup preference.
                                                 }
                                             )
                                         }
@@ -680,6 +745,12 @@ class SettingsScreen(
                             }
                         }
                     }
+                    AeroButton(
+                        text = readI18n("rwpp.edit.discardAndReturn"),
+                        onClick = ::discardAndReturn,
+                        clickSound = Sounds.closePopup,
+                        modifier = Modifier.align(Alignment.End).padding(top = 8.dp),
+                    )
                 }
             }
         }

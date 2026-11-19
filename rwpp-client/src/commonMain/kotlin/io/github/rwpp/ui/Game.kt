@@ -185,7 +185,7 @@ class GameScreen : Screen {
         }
     }
 
-    fun setOriginalHudHidden(hidden: Boolean) {
+    fun setOriginalHudHidden(hidden: Boolean, persist: Boolean = true) {
         appKoin.get<Settings>().hideOriginalHud = hidden
         hudSettingsRevision++
         NativeHudVisibility.update()
@@ -206,7 +206,7 @@ class GameScreen : Screen {
             add("events", 0.5f, 0.10f)
             add("observer_statistics", 0.70f, 0.16f)
         }
-        appKoin.get<io.github.rwpp.api.config.ConfigIO>().saveAllConfig()
+        if (persist) appKoin.get<io.github.rwpp.api.config.ConfigIO>().saveAllConfig()
     }
 
     private fun isSelectionUnchanged(current: List<GameUnit>, engineList: List<GameUnit>): Boolean {
@@ -390,8 +390,8 @@ class GameScreen : Screen {
                                 GameEngine.getInstance().cameraScrollActive = false
                             }
                         } else if (isEditMode) {
-                            isEditMode = false
-                            appKoin.get<io.github.rwpp.api.config.ConfigIO>().saveAllConfig()
+                            // The HUD editor owns its save/discard decision.
+                            return@launch
                         } else if (saveDialog != null) saveDialog = null
                         else showPauseMenu = !showPauseMenu
                     }
@@ -410,7 +410,7 @@ class GameScreen : Screen {
             HudEditor(
                 components,
                 isEditMode,
-                { isEditMode = it; if (!it) appKoin.get<io.github.rwpp.api.config.ConfigIO>().saveAllConfig() },
+                { isEditMode = it },
                 { dataList.add(it) },
                 { dataList.remove(it.data) },
                 activeTemplates,
@@ -418,7 +418,6 @@ class GameScreen : Screen {
                 onImportLayout = { imported ->
                     dataList.clear()
                     dataList.addAll(imported)
-                    appKoin.get<io.github.rwpp.api.config.ConfigIO>().saveAllConfig()
                 },
                 layoutComponentIds = availableTemplates.keys,
             )
