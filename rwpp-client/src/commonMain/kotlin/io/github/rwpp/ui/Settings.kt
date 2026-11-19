@@ -382,11 +382,6 @@ class SettingsScreen(
                                                 settings.singleUnitMoveAssist,
                                                 onCheckedChange = { settings.singleUnitMoveAssist = it },
                                             )
-                                            AeroSettingToggle(
-                                                readI18n("rwpp.settings.singleUnitMoveDebug"),
-                                                settings.singleUnitMoveDebug,
-                                                onCheckedChange = { settings.singleUnitMoveDebug = it },
-                                            )
 
                                             AeroSettingToggle(
                                                 label = readI18n("menus.settings.option.forceEnglish"),
@@ -594,6 +589,11 @@ class SettingsScreen(
                                         AeroSettingToggle(
                                             readI18n("rwpp.debug.performance"), settings.showPerformanceUsage,
                                             onCheckedChange = { settings.showPerformanceUsage = it })
+                                        AeroSettingToggle(
+                                            readI18n("rwpp.settings.singleUnitMoveDebug"),
+                                            settings.singleUnitMoveDebug,
+                                            onCheckedChange = { settings.singleUnitMoveDebug = it },
+                                        )
                                     }
 
                                     "rwpp-client" -> AeroSettingGroup(

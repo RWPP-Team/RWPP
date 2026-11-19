@@ -1,7 +1,8 @@
 # Single-unit move assistance
 
 Enable **Settings → Gameplay → Single-unit move assistance (experimental, ground units)**.
-The default is off. **Log move assistance diagnostics** also works with assistance off for comparison runs.
+The default is off. Use **Settings → Developer / Debug → Log move assistance diagnostics**
+to record comparison runs with assistance on or off.
 
 Each plan handles one locally owned, body-steered LAND unit. Ordinary MOVE orders, Shift-queued MOVE
 orders and the approach to a BUILD order are supported. The client observes up to 16 units ordered
