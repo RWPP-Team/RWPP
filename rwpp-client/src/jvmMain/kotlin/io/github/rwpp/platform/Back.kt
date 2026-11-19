@@ -8,28 +8,18 @@
 package io.github.rwpp.platform
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.type
-import io.github.rwpp.api.event.GlobalEventChannel
-import io.github.rwpp.event.OnDispose
-import io.github.rwpp.event.events.KeyboardEvent
 
 @Composable
 actual fun BackHandler(enabled: Boolean, onBack: () -> Unit) {
+    val enabledState = rememberUpdatedState(enabled)
     val callback = rememberUpdatedState(onBack)
-    if (enabled) {
-        GlobalEventChannel.filter(KeyboardEvent::class).OnDispose {
-            subscribeAlways { event ->
-                val navigator = io.github.rwpp.ui.UI.liveNavigator
-                if (event.keyEvent.key == Key.Escape && event.keyEvent.type == KeyEventType.KeyDown &&
-                    navigator != null && navigator.current !is io.github.rwpp.ui.GameScreen
-                ) {
-                    callback.value()
-                }
-            }
-        }
+    DisposableEffect(Unit) {
+        val unregister = desktopBackDispatcher.register(
+            enabled = { enabledState.value },
+            onBack = { callback.value() },
+        )
+        onDispose { unregister() }
     }
 }

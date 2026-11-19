@@ -168,7 +168,7 @@ fun App() {
         }
     }
 
-    BackHandler(navigator.canPop) { navigator.pop() }
+    BackHandler(navigator.canPop && navigator.current !is GameScreen) { navigator.pop() }
 
     RWPPTheme {
         BoxWithConstraints(

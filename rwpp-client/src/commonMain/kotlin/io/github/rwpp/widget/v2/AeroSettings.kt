@@ -160,10 +160,15 @@ fun AeroSettingRow(
     subLabel: String? = null,
     control: @Composable () -> Unit
 ) {
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val colors = MaterialTheme.colorScheme
     Row(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 40.dp)
+            .hoverable(interaction)
+            .background(if (hovered) colors.surfaceContainerHighest else Color.Transparent)
             .padding(horizontal = 8.dp, vertical = 2.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
@@ -177,8 +182,8 @@ fun AeroSettingRow(
             Text(
                 text = label,
                 fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = if (hovered) FontWeight.Bold else FontWeight.SemiBold,
+                color = if (hovered) colors.primary else colors.onSurface,
                 fontFamily = FontFamily.Monospace,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis

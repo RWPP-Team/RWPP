@@ -9,6 +9,8 @@ package io.github.rwpp.hud
 
 
 import io.github.rwpp.ui.PortableConfigActions
+import io.github.rwpp.ui.UnsavedChangesDialog
+import io.github.rwpp.ui.UI
 import kotlinx.serialization.builtins.ListSerializer
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -47,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.config.HudComponentData
 import io.github.rwpp.config.Settings
+import io.github.rwpp.platform.BackHandler
 import io.github.rwpp.widget.v2.*
 import org.koin.compose.koinInject
 import kotlin.math.abs
@@ -63,6 +66,8 @@ class HudComponentState(
     var height by mutableFloatStateOf(0f)
     private var viewportWidth = 0f
     private var viewportHeight = 0f
+    private var legacyViewportWidth = 0f
+    private var legacyViewportHeight = 0f
 
     fun maximumScale(fillWidth: Boolean = false, fillHeight: Boolean = false): Float {
         // A fill axis already compensates for scale by resizing the underlying content.
@@ -78,6 +83,8 @@ class HudComponentState(
     }
 
     fun updateViewport(width: Float, height: Float, legacyWidth: Float = width, legacyHeight: Float = height) {
+        if (legacyViewportWidth == 0f) legacyViewportWidth = legacyWidth
+        if (legacyViewportHeight == 0f) legacyViewportHeight = legacyHeight
         if (data.relativeX == null) data.relativeX = hudRelativePosition(data.xDp, legacyWidth, this.width * scale)
         if (data.relativeY == null) data.relativeY = hudRelativePosition(data.yDp, legacyHeight, this.height * scale)
         viewportWidth = width
@@ -97,6 +104,25 @@ class HudComponentState(
             data.relativeY = hudRelativePosition(y, viewportHeight, height * scale)
         }
     }
+
+    internal fun restoreFrom(snapshot: HudComponentData) {
+        data.id = snapshot.id
+        data.xDp = snapshot.xDp
+        data.yDp = snapshot.yDp
+        data.scale = snapshot.scale
+        data.relativeX = snapshot.relativeX
+        data.relativeY = snapshot.relativeY
+        x = snapshot.xDp
+        y = snapshot.yDp
+        scale = snapshot.scale
+        if (viewportWidth > 0f && viewportHeight > 0f) {
+            updateViewport(viewportWidth, viewportHeight, legacyViewportWidth, legacyViewportHeight)
+        }
+    }
+
+    internal fun layoutPosition(snapshot: HudComponentData): Pair<Float, Float> =
+        (snapshot.relativeX ?: hudRelativePosition(snapshot.xDp, legacyViewportWidth, width * snapshot.scale)) to
+                (snapshot.relativeY ?: hudRelativePosition(snapshot.yDp, legacyViewportHeight, height * snapshot.scale))
 
     fun moveBy(deltaX: Float, deltaY: Float, viewportWidth: Float, viewportHeight: Float) {
         x = (x + deltaX).coerceIn(0f, (viewportWidth - width * scale).coerceAtLeast(0f))
@@ -469,40 +495,33 @@ private fun HudEditorToolbar(
     onAddComponent: () -> Unit,
     onLayoutFiles: (() -> Unit)?,
     onSaveAndExit: () -> Unit,
+    onDiscardAndExit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val addLabel = readI18n("rwpp.hud.editor.addComponent")
     val saveLabel = readI18n("rwpp.hud.editor.saveAndExit")
+    val discardLabel = readI18n("rwpp.hud.editor.discardAndExit")
     val addSubtext = readI18n("rwpp.hud.editor.addSubtext")
-    val saveSubtext = readI18n("rwpp.hud.editor.saveSubtext")
 
-    if (widthDp >= 600f) {
-        Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            AeroButton(addLabel, onAddComponent, modifier = Modifier.weight(1f), subText = addSubtext)
-            if (onLayoutFiles != null) AeroButton(
-                readI18n("rwpp.portable.layout"), onLayoutFiles, modifier = Modifier.weight(1f),
-            )
-            AeroButton(saveLabel, onSaveAndExit, modifier = Modifier.weight(1f), subText = saveSubtext)
-        }
-    } else {
-        Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (widthDp < 420f) {
-                AeroButton(addLabel, onAddComponent, modifier = Modifier.fillMaxWidth(), subText = addSubtext)
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    AeroButton(addLabel, onAddComponent, modifier = Modifier.weight(1f), subText = addSubtext)
-                    AeroButton(saveLabel, onSaveAndExit, modifier = Modifier.weight(1f), subText = saveSubtext)
-                }
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (widthDp >= 600f) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                AeroButton(addLabel, onAddComponent, modifier = Modifier.weight(1f), subText = addSubtext)
+                if (onLayoutFiles != null) AeroButton(
+                    readI18n("rwpp.portable.layout"), onLayoutFiles, modifier = Modifier.weight(1f),
+                )
             }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                AeroButton(saveLabel, onSaveAndExit, modifier = Modifier.weight(1f))
+                AeroButton(discardLabel, onDiscardAndExit, modifier = Modifier.weight(1f), isDanger = true)
+            }
+        } else {
+            AeroButton(addLabel, onAddComponent, modifier = Modifier.fillMaxWidth(), subText = addSubtext)
             if (onLayoutFiles != null) AeroButton(
                 readI18n("rwpp.portable.layout"), onLayoutFiles, modifier = Modifier.fillMaxWidth(),
             )
-            if (widthDp < 420f) {
-                AeroButton(saveLabel, onSaveAndExit, modifier = Modifier.fillMaxWidth(), subText = saveSubtext)
-            }
+            AeroButton(saveLabel, onSaveAndExit, modifier = Modifier.fillMaxWidth())
+            AeroButton(discardLabel, onDiscardAndExit, modifier = Modifier.fillMaxWidth(), isDanger = true)
         }
     }
 }
@@ -524,14 +543,49 @@ fun HudEditor(
     var horizontalGuidelineY by remember { mutableStateOf<Float?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
     var showLayoutFiles by remember { mutableStateOf(false) }
+    var showExitConfirmation by remember { mutableStateOf(false) }
     var settingsComponent by remember { mutableStateOf<HudComponentState?>(null) }
     val density = LocalDensity.current
     val latestSaveConfig = rememberUpdatedState(onSaveConfig)
+    val latestComponents = rememberUpdatedState(components)
+    val latestReplaceLayout = rememberUpdatedState<(List<HudComponentData>) -> Unit> { restored ->
+        if (onImportLayout != null) onImportLayout(restored)
+        else {
+            components.forEach(onDeleteComponent)
+            restored.forEach(onAddComponent)
+        }
+    }
+    val editSettings = if (isEditMode) koinInject<Settings>() else null
+    val editSession = remember(isEditMode) { editSettings?.let { HudEditSession(components, it) } }
+    DisposableEffect(editSession) {
+        onDispose { editSession?.discard(latestReplaceLayout.value) }
+    }
+    fun discardAndExit() {
+        editSession?.discard(latestReplaceLayout.value)
+        showExitConfirmation = false
+        onEditModeChange(false)
+    }
+    fun saveAndExit() {
+        editSession?.save(latestComponents.value, latestSaveConfig.value)?.onSuccess {
+            showExitConfirmation = false
+            onEditModeChange(false)
+        }?.onFailure {
+            io.github.rwpp.api.logging.logger().error("Could not save HUD layout", it)
+            UI.showWarning(readI18n("rwpp.settings.saveFailed", it.message.orEmpty()))
+        }
+    }
+    BackHandler(isEditMode && !showAddDialog && !showLayoutFiles && settingsComponent == null && !showExitConfirmation) {
+        if (editSession?.hasChanges(latestComponents.value) == true) showExitConfirmation = true
+        else discardAndExit()
+    }
     LaunchedEffect(isEditMode) {
         if (!isEditMode) {
             showAddDialog = false
             showLayoutFiles = false
             settingsComponent = null
+            showExitConfirmation = false
+            verticalGuidelineX = null
+            horizontalGuidelineY = null
         }
     }
 
@@ -693,10 +747,8 @@ fun HudEditor(
                     widthDp = toolbarWidthDp,
                     onAddComponent = { showAddDialog = true },
                     onLayoutFiles = if (onImportLayout != null) ({ showLayoutFiles = true }) else null,
-                    onSaveAndExit = {
-                        components.forEach(HudComponentState::syncToData)
-                        onEditModeChange(false)
-                    },
+                    onSaveAndExit = ::saveAndExit,
+                    onDiscardAndExit = ::discardAndExit,
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .widthIn(max = 640.dp)
@@ -749,6 +801,7 @@ fun HudEditor(
                             "rwpp-hud-layout.toml", ListSerializer(HudComponentData.serializer()),
                             snapshot = { components.map { it.syncToData(); it.data.copy() } },
                             apply = { imported ->
+                                check(editSession?.isActive == true) { "The HUD layout editor has already closed" }
                                 require(imported.size <= 128 && imported.all {
                                     it.id in layoutComponentIds && it.xDp.isFinite() && it.yDp.isFinite() &&
                                             it.scale in 0.05f..5f &&
@@ -757,7 +810,6 @@ fun HudEditor(
                                 })
                                 onImportLayout(imported.map { it.copy(instanceId = java.util.UUID.randomUUID().toString()) })
                             },
-                            save = { components.forEach(HudComponentState::syncToData); onSaveConfig() },
                         )
                         AeroButton(readI18n("rwpp.common.close"), dismiss, modifier = Modifier.fillMaxWidth())
                     }
@@ -768,9 +820,14 @@ fun HudEditor(
             val template = availableTemplates[component.data.id] ?: return@let
             HudEditorSettingsDialog(hudSettingsScopeFor(component.data.id), component, template, onDismiss = {
                 settingsComponent = null
-                latestSaveConfig.value()
             })
         }
+        UnsavedChangesDialog(
+            visible = showExitConfirmation,
+            onSave = ::saveAndExit,
+            onDiscard = ::discardAndExit,
+            onContinue = { showExitConfirmation = false },
+        )
     }
 }
 

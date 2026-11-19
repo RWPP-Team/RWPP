@@ -50,6 +50,9 @@ internal object OverflowProductionQueue {
         return pending.count { it.action == action.storedActionId && it.owners.any(selected::contains) }
     }
 
+    fun pendingCountForFactory(unit: GameUnit): Int =
+        if (!enabled || unit !is FactoryInterface) 0 else pending.count { unit in it.owners }
+
     fun enqueue(engine: GameEngine, action: SpecialAction, units: List<OrderableUnit>): Boolean {
         if (!enabled || !isProductionAction(action) || !syncSession(engine)) return false
         val owners = owners(action, units).filter { canControl(engine, it) }
