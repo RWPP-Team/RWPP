@@ -12,6 +12,11 @@ API 与 client 是两个扩展，client 声明 `dependsOn=io.github.rwpp.api` �
 
 无 UI 扩展可复用 `networkRuntimeJar` 任务生成的轻量网络归档。
 
+单单位移动辅助可在“设置 → 游戏性”中启用，默认关闭。它按转向和预计到达时间选择路线，
+一次提交连续的原生移动路点，保留 Shift 后续目标和蓝图建造任务。
+“记录移动辅助调试日志”也可用于关闭辅助时的对照运行。
+适用范围、回退行为与验证方法见 [single-unit-move-assist.md](docs/single-unit-move-assist.md)。
+
 ```kotlin
 implementation(files("libs/rwpp-client-2.0.1.1-network.jar"))
 ```

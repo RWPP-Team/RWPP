@@ -377,6 +377,16 @@ class SettingsScreen(
                                                 settings.terrainEdgeBuilding,
                                                 onCheckedChange = { settings.terrainEdgeBuilding = it },
                                             )
+                                            AeroSettingToggle(
+                                                readI18n("rwpp.settings.singleUnitMoveAssist"),
+                                                settings.singleUnitMoveAssist,
+                                                onCheckedChange = { settings.singleUnitMoveAssist = it },
+                                            )
+                                            AeroSettingToggle(
+                                                readI18n("rwpp.settings.singleUnitMoveDebug"),
+                                                settings.singleUnitMoveDebug,
+                                                onCheckedChange = { settings.singleUnitMoveDebug = it },
+                                            )
 
                                             AeroSettingToggle(
                                                 label = readI18n("menus.settings.option.forceEnglish"),

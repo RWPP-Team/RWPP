@@ -145,7 +145,9 @@ data class Settings(
     var mouseMoveView: Boolean = false,
     var allowCameraOverscroll: Boolean = false,
     var cameraOverscrollPixels: Float = 160f,
-    // var pathfindingOptimization: Boolean = false,
+    /** Local command assistance; all resulting orders still use the native multiplayer protocol. */
+    var singleUnitMoveAssist: Boolean = false,
+    var singleUnitMoveDebug: Boolean = false,
     var boldText: Boolean = false,
     var forceEnglish: Boolean = false,
 
