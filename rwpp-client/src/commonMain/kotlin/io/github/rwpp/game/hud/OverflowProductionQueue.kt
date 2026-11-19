@@ -50,16 +50,26 @@ internal object OverflowProductionQueue {
         return pending.count { it.action == action.storedActionId && it.owners.any(selected::contains) }
     }
 
-    /** Waiting orders across all owned factories in the current match. Read under the game update lock. */
-    fun pendingOrderCount(engine: GameEngine): Int {
-        if (!enabled || map !== engine.map || team !== engine.playerTeam || pending.isEmpty()) return 0
-        return pending.sumOf { request ->
-            if (request.singleOwner) {
-                if (request.owners.any { canControl(engine, it) }) 1 else 0
-            } else {
-                request.owners.count { canControl(engine, it) }
+    /** A read-only snapshot of waiting orders for the current selection. Caller holds the game update lock. */
+    fun selectedWaitingOrders(engine: GameEngine, selection: List<GameUnit>): Map<String, Int> {
+        if (!enabled || map !== engine.map || team !== engine.playerTeam ||
+            pending.isEmpty() || selection.isEmpty()
+        ) return emptyMap()
+        val names = HashMap<Pair<OrderableUnit, ActionId>, String?>()
+        val counts = linkedMapOf<String, Int>()
+        for (request in pending) {
+            for (owner in request.owners) {
+                if (owner !in selection || !canControl(engine, owner)) continue
+                val name = names.getOrPut(owner to request.action) {
+                    val action = resolveQueueAction(owner, request.action)
+                    action?.unitType?.displayName
+                        ?: action?.getDisplayNameForUnit(owner)?.takeIf { it.isNotBlank() }
+                } ?: continue
+                counts[name] = (counts[name] ?: 0) + 1
+                if (request.singleOwner) break
             }
         }
+        return counts
     }
 
     fun enqueue(engine: GameEngine, action: SpecialAction, units: List<OrderableUnit>): Boolean {
