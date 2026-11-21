@@ -55,6 +55,7 @@ import io.github.rwpp.config.Settings
 import io.github.rwpp.event.OnDispose
 import io.github.rwpp.game.*
 import io.github.rwpp.game.room.*
+import io.github.rwpp.platform.BackHandler
 import io.github.rwpp.protocolVersion
 import io.github.rwpp.screen.LocalScreenNavigator
 import io.github.rwpp.screen.Screen
@@ -104,6 +105,18 @@ class BattleRoomScreen : Screen {
     private var mapsLoaded by mutableStateOf(false)
     private var mapCatalogRefresh by mutableIntStateOf(0)
 
+    internal fun dismissRoomOverlay(): Boolean {
+        when {
+            recyclingUnitVisible -> recyclingUnitVisible = false
+            banUnitVisible -> banUnitVisible = false
+            optionVisible -> { optionVisible = false; update++ }
+            showMapSelectView -> showMapSelectView = false
+            playerOverrideVisible -> { playerOverrideVisible = false; update++ }
+            else -> return false
+        }
+        return true
+    }
+
     @Composable
     override fun Content() {
         val navigator = LocalScreenNavigator.current
@@ -120,6 +133,47 @@ class BattleRoomScreen : Screen {
         val updateAction = { update += 1 }
 
         val scope = rememberCoroutineScope()
+        var leaveConfirmationVisible by remember(room) { mutableStateOf(false) }
+        var leaving by remember(room) { mutableStateOf(false) }
+
+        BackHandler(navigator.current === this@BattleRoomScreen) {
+            if (!leaving) {
+                when {
+                    leaveConfirmationVisible -> leaveConfirmationVisible = false
+                    dismissRoomOverlay() -> Unit
+                    else -> leaveConfirmationVisible = true
+                }
+            }
+        }
+
+        AnimatedAlertDialog(
+            visible = leaveConfirmationVisible,
+            onDismissRequest = { leaveConfirmationVisible = false },
+        ) { dismiss ->
+            AeroPanel(Modifier.widthIn(max = 420.dp).fillMaxWidth(0.94f)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(readI18n("rwpp.multiplayer.room.leaveConfirm"), style = MaterialTheme.typography.titleLarge)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AeroButton(readI18n("rwpp.common.cancel"), dismiss, modifier = Modifier.weight(1f))
+                        AeroButton(
+                            text = readI18n("rwpp.multiplayer.room.leave"),
+                            isDanger = true,
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                if (!leaving && navigator.current === this@BattleRoomScreen) {
+                                    leaving = true
+                                    room.disconnect()
+                                    // A restored Android composition may have the room as its root.
+                                    if (!navigator.pop()) {
+                                        navigator.replaceAll(navigator.koinScope.get<MainMenuScreen>())
+                                    }
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+        }
 
         GlobalEventChannel.filter(RefreshUIEvent::class).OnDispose {
             subscribeAlways { scope.launch { updateAction() } }
@@ -314,14 +368,7 @@ class BattleRoomScreen : Screen {
                                 modifier = Modifier.width(if (compact) 84.dp else 120.dp)
                                     .height(if (compact) 40.dp else 48.dp),
                                 clickSound = Sounds.closePopup,
-                                onClick = {
-                                    room.disconnect()
-                                    // A restored Android composition may hold the room as the
-                                    // root, where pop() has nowhere to go.
-                                    if (!navigator.pop()) {
-                                        navigator.replaceAll(navigator.koinScope.get<MainMenuScreen>())
-                                    }
-                                },
+                                onClick = { leaveConfirmationVisible = true },
                             )
                         }
                         if (!compact) AeroDivider()

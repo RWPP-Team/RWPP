@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -58,7 +59,7 @@ private object LoadingOverlayPresentation {
     }
 }
 
-private var loadingOverlayGeneration by mutableStateOf(0L)
+private var loadingOverlayGeneration by mutableLongStateOf(0L)
 
 /** Begins a generation-tagged draw acknowledgement for the active loading overlay. */
 internal fun beginLoadingOverlayPresentation(): Long = LoadingOverlayPresentation.begin().also {
@@ -100,7 +101,7 @@ private fun WallpaperLayer(path: String) {
 
 /** Main RWPP screen and the in-game overlays, shared by both host surfaces. */
 @Composable
-fun MainComposeContent(showBackground: Boolean = true, safeInsets: Boolean = false) {
+fun MainComposeContent(showBackground: Boolean = true, safeInsets: Boolean = false) = RwppScopeTrees.Content {
     val foregroundInsets =
         if (safeInsets) {
             Modifier.windowInsetsPadding(WindowInsets.safeDrawing)

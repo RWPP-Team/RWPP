@@ -9,8 +9,16 @@ package io.github.rwpp.game
 
 import com.corrodinggames.rts.gameFramework.GameEngine
 import com.corrodinggames.rts.java.JavaCanvas
+import io.github.rwpp.api.coroutines.GameMainDispatcher
+import io.github.rwpp.ui.DesktopComposeRuntime
+import kotlinx.coroutines.withContext
 import org.lwjgl.opengl.*
 import org.newdawn.slick.opengl.TextureImpl
+
+internal actual suspend fun <T> runNativeModWork(reloadData: Boolean, action: () -> T): T =
+    if (reloadData) DesktopComposeRuntime.runModReload(action) else withContext(GameMainDispatcher) { action() }
+
+internal actual fun presentNativeModProgress() = DesktopComposeRuntime.presentModProgress()
 
 /** Isolate Slick uploads from pixel-store state left by another renderer sharing the context. */
 internal fun <T> withSlickTextureUploadState(block: () -> T): T {

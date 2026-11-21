@@ -209,6 +209,31 @@ internal class CommandGeometry {
     var height = 0f
     var contentHeight = 0f
     var scrollbarHitWidth = 0f
+    private var layoutSizes: List<HudActionSize> = emptyList()
+    private var layoutRowHeight = 0
+    private var layoutGap = 0
+
+    fun updateLayout(next: CommandFrame, width: Float, height: Float, top: Float, rowHeight: Int, gap: Int, scrollbar: Float) {
+        frame = next
+        if (this.width == width && this.height == height && this.top == top && layoutRowHeight == rowHeight &&
+            layoutGap == gap && layoutSizes.size == next.buttons.size && next.buttons.indices.all {
+                layoutSizes[it].heightScale == next.buttons[it].heightScale && layoutSizes[it].columns == next.buttons[it].columns
+            }
+        ) return
+        this.width = width
+        this.height = height
+        this.top = top
+        layoutRowHeight = rowHeight
+        layoutGap = gap
+        layoutSizes = next.buttons.map { HudActionSize(it.heightScale, it.columns) }
+        val fullWidth = nativeHudActionLayout(width.toInt(), rowHeight, 2, layoutSizes, gap)
+        val needsScrollbar = fullWidth.any { it.y + it.height > height - top }
+        scrollbarHitWidth = if (needsScrollbar) scrollbar else 0f
+        rects = if (needsScrollbar) nativeHudActionLayout(
+            (width - scrollbar).roundToInt().coerceAtLeast(1), rowHeight, 2, layoutSizes, gap,
+        ) else fullWidth
+        contentHeight = (rects.maxOfOrNull { it.y + it.height } ?: 0).toFloat()
+    }
     val offset get() = scroll.coerceIn(0f, (contentHeight - (height - top)).coerceAtLeast(0f))
     fun hit(point: Offset): Int? {
         if (point.y !in top..<height) return null
@@ -274,9 +299,22 @@ private class HudActionCallbacks(
     val primaryType: com.corrodinggames.rts.game.units.UnitTypeInterface?,
     val selection: List<com.corrodinggames.rts.game.units.Unit>,
     val identity: String,
+    val source: () -> com.corrodinggames.rts.game.units.Unit?,
     val info: () -> Pair<String, String>,
     val activate: (Boolean) -> Unit,
+    val activateSalvo: (Boolean) -> Unit,
 ) {
+    val salvoIdentity = "$identity:salvo"
+    val layoutButton = CommandButton(
+        label = "", heightScale = action.buttonWidthScale, columns = action.buttonColumnSpan,
+        enabled = false, identity = identity, info = info, activate = activate,
+        opensBuildingPlacement = action.actionType == ActionType.placeBuilding,
+    )
+    val salvoInfo: () -> Pair<String, String> = {
+        val (title, details) = info()
+        readI18n("rwpp.hud.targetedSalvo", title) to details
+    }
+    val salvoLayoutButton = layoutButton.copy(identity = salvoIdentity, info = salvoInfo, activate = activateSalvo)
     private var cachedQueued = Int.MIN_VALUE
     private var cachedPrice = Int.MIN_VALUE
     private var cachedLabel = ""
@@ -291,9 +329,10 @@ private class HudActionCallbacks(
         val priceChanged = price != cachedPrice
         val sampleDue = hudActionLabelSampleDue(lastNameSampleAtNanos, nowNanos)
         if (queueChanged || priceChanged || sampleDue) {
+            val owner = source()
             val displayName = if (action.actionType == ActionType.infoOnly) action.displayNameWithCount
-            else hudActionLabelForUnit(action, primary, queued)
-            val tooltipTitle = primary?.let { action.getTooltipTitle(it) }.orEmpty()
+            else hudActionLabelForUnit(action, owner, queued)
+            val tooltipTitle = owner?.let { action.getTooltipTitle(it) }.orEmpty()
             if (displayName != cachedDisplayName || tooltipTitle != cachedTooltipTitle) {
                 cachedDisplayName = displayName
                 cachedTooltipTitle = tooltipTitle
@@ -340,11 +379,13 @@ private class CommandButtonFrameBuilder {
             io.github.rwpp.appKoin.get<io.github.rwpp.config.Settings>().showFactoryEconomy
         }.getOrDefault(true)
         economy.beginFrame(if (showEconomy) primary else null, nowNanos)
+        val primaryType = primary?.unitTypeInterface
+        val productionId = productionSelection.identity
+        val allowSalvo = !engine.replayEngine.isPlayingReplay && !isAeroLiveObserver(engine)
         for (index in actions.indices) {
             val action = actions[index]
             var callbacksForAction = callbacks.getOrNull(index)
             var callbacksReplaced = false
-            val primaryType = primary?.unitTypeInterface
             if (callbacksForAction == null || callbacksForAction.action !== action ||
                 callbacksForAction.primary !== primary || callbacksForAction.primaryType !== primaryType ||
                 callbacksForAction.selection !== selection
@@ -357,6 +398,13 @@ private class CommandButtonFrameBuilder {
             val actionCallbacks = callbacksForAction
 
             val identity = actionCallbacks.identity
+            val showSalvo = allowSalvo && TargetedSalvo.supports(engine.interfaceEngine, action, selection)
+            val visible = identity in visibleIds || showSalvo && actionCallbacks.salvoIdentity in visibleIds
+            if (!visible && identity != productionId) {
+                buttonScratch.add(actionCallbacks.layoutButton)
+                if (showSalvo) buttonScratch.add(actionCallbacks.salvoLayoutButton)
+                continue
+            }
             // Native resolves permission and affordability across the whole selection. Asking only
             // the primary unit disables an upgrade that another selected unit can perform, which is
             // why a mixed level selection could not upgrade from the mouse but still did from keys.
@@ -368,17 +416,17 @@ private class CommandButtonFrameBuilder {
             }
             val pending = OverflowProductionQueue.pendingCount(action, selection)
             val holdFire = if (action === HoldFireAction) HoldFireAction.state(engine, selection) else null
-            val nativeLabel = if (action === HoldFireAction) HoldFireAction.buttonLabel(holdFire)
+            val label = if (action === HoldFireAction) HoldFireAction.buttonLabel(holdFire)
             else actionCallbacks.label(queued, action.priceValue, nowNanos)
-            val label = if (pending == 0) nativeLabel else "$nativeLabel · +$pending"
             val glyph = actionCallbacks.glyph
-            val image = if (primary != null && glyph == null && identity in visibleIds) {
-                ActionImages.load(action, primary, visible = true)?.also { displayedImages[identity] = it }
+            val owner = actionCallbacks.source()
+            val image = if (owner != null && glyph == null && visible) {
+                ActionImages.load(action, owner, visible = true)?.also { displayedImages[identity] = it }
                     ?: displayedImages[identity]
             } else null
             val queuePanel = hudUsesTouchQueuePanel(
                 touch, action.actionType, action.hasPersistentTooltip(),
-                hudActionQueueEntry(action, selection),
+                touch && hudActionQueueEntry(action, selection),
             )
             val canAdd = available || unlocked && OverflowProductionQueue.supports(action, selection)
             val enabled = canAdd || pending > 0 || queuePanel && queued > 0 ||
@@ -397,12 +445,15 @@ private class CommandButtonFrameBuilder {
             val flash = runCatching { engine.interfaceEngine.isSpecialActionUsable(action) }
                 .getOrDefault(false)
             val category = action.actionCategory
-            val active = holdFire == HoldFireState.ON || engine.interfaceEngine.activeSpecialAction === action
+            val salvoActive = TargetedSalvo.isActive(engine.interfaceEngine, action)
+            val active = holdFire == HoldFireState.ON ||
+                    engine.interfaceEngine.activeSpecialAction === action && !salvoActive
             val demoBlocked = BattleInterface.isSpecialActionDemoBlocked(action)
             val techLevel = action.unitType?.techLevel ?: action.techLevel
             val economyValue = economy.sample(action)
-            val old = published.getOrNull(index)
-            val hotkey = hotkeys.getOrNull(index)?.label ?: ""
+            val old = published.getOrNull(buttonScratch.size)
+            val hotkey = hotkeys.getOrNull(index)?.button?.getBindingLabel()
+                ?.takeUnless { it.substringAfterLast('+').equals("UNKNOWN", ignoreCase = true) }.orEmpty()
             buttonScratch.add(
                 if (old != null && mayReuseCommandButton(
                         callbacksReplaced,
@@ -443,6 +494,20 @@ private class CommandButtonFrameBuilder {
                     economy = economyValue,
                 )
             )
+            if (showSalvo) {
+                val salvoLabel = readI18n("rwpp.hud.targetedSalvo", label)
+                val salvo = buttonScratch.last().copy(
+                    label = salvoLabel,
+                    identity = actionCallbacks.salvoIdentity,
+                    hotkey = "",
+                    info = actionCallbacks.salvoInfo,
+                    activate = actionCallbacks.activateSalvo,
+                    active = salvoActive,
+                    opensTouchQueue = false,
+                )
+                val previous = published.getOrNull(buttonScratch.size)
+                buttonScratch.add(if (previous == salvo) previous else salvo)
+            }
         }
         if (published.size == buttonScratch.size && published.indices.all { published[it] === buttonScratch[it] }) {
             return published
@@ -460,10 +525,16 @@ private class CommandButtonFrameBuilder {
         productionSelection: HudProductionSelection,
     ): HudActionCallbacks {
         val identity = "${System.identityHashCode(primary)}:${action.actionIdString}"
-        val source = when (action) {
-            is UnitTypeInfo -> selection.firstOrNull { it.unitTypeInterface === action.unitType }
-            is UnitInfoBox -> selection.firstOrNull { it is OrderableUnit } ?: primary
-            else -> primary
+        val source by lazy(LazyThreadSafetyMode.NONE) {
+            when (action) {
+                is UnitTypeInfo -> selection.firstOrNull { it.unitTypeInterface === action.unitType }
+                is UnitInfoBox -> selection.firstOrNull { it is OrderableUnit } ?: primary
+                is IndirectedAction -> action.targetUnit
+                else -> selection.firstOrNull {
+                    runCatching { it.getSpecialAction(action.storedActionId) === action }.getOrDefault(false)
+                }
+                    ?: primary
+            }
         }
         val info = { hudActionInfo(action, source) }
         val activate: (Boolean) -> Unit = { remove ->
@@ -472,7 +543,7 @@ private class CommandButtonFrameBuilder {
             val available = hudActionAvailableNow(engine, action, unlocked)
             val queuePanel = hudUsesTouchQueuePanel(
                 touch, action.actionType, action.hasPersistentTooltip(),
-                hudActionQueueEntry(action, selection),
+                touch && hudActionQueueEntry(action, selection),
             )
             if (!remove && queuePanel) {
                 val repeat = productionSelection.tap(identity)
@@ -488,7 +559,15 @@ private class CommandButtonFrameBuilder {
                 executeHudAction(action, selection, remove)
             }
         }
-        return HudActionCallbacks(action, primary, primary?.unitTypeInterface, selection, identity, info, activate)
+        val activateSalvo: (Boolean) -> Unit = { remove ->
+            if (!remove) {
+                productionSelection.clear()
+                executeHudAction(action, selection, remove = false, salvo = true)
+            }
+        }
+        return HudActionCallbacks(
+            action, primary, primary?.unitTypeInterface, selection, identity, { source }, info, activate, activateSalvo,
+        )
     }
 }
 
@@ -555,9 +634,7 @@ private fun sameCommandButtonVisuals(
         button.economy == economy
 
 private data class CommandHotkey(
-    val label: String,
     val button: InputControllerButton?,
-    val slot: Int,
     val nativeHandled: Boolean,
 )
 
@@ -572,7 +649,6 @@ private fun commandHotkeys(engine: GameEngine, actions: List<SpecialAction>): Li
     return try {
         val battle = engine.interfaceEngine.battleInterface
         val input = engine.inputController
-        val slots = input.unitActionButtons
         // InterfaceEngine.update consumes these dedicated buttons itself. Reclaim and
         // rally have no such consumer, so they rely on the replacement action bar.
         val nativeHandled = listOf(
@@ -587,11 +663,7 @@ private fun commandHotkeys(engine: GameEngine, actions: List<SpecialAction>): Li
                 battle.getHotkeyForSpecialAction(action, index, allActions)
             }.getOrNull()
             CommandHotkey(
-                label = button?.getBindingLabel()
-                    ?.takeUnless { it.substringAfterLast('+').equals("UNKNOWN", ignoreCase = true) }
-                    .orEmpty(),
                 button = button,
-                slot = button?.let { resolved -> slots.indexOfFirst { it === resolved } } ?: -1,
                 nativeHandled = action === HoldFireAction || nativeHandled.any { it === button },
             )
         }
@@ -902,23 +974,7 @@ internal fun CommandSurface(
             }
         }) {
         val snapshot = frame.value
-        geometry.frame = snapshot
-        // The HP/name readout was removed, so action rows start at the top of the panel.
-        geometry.top = 4.dp.toPx(); geometry.height = size.height; geometry.width = size.width
-        val baseHeight = 64.dp.roundToPx()
-        val actionSizes = snapshot.buttons.map { HudActionSize(it.heightScale, it.columns) }
-        val fullWidthRects = nativeHudActionLayout(
-            size.width.toInt(), baseHeight, 2, actionSizes, 4.dp.roundToPx()
-        )
-        val fullWidthContentHeight = (fullWidthRects.maxOfOrNull { it.y + it.height } ?: 0).toFloat()
-        val viewportHeight = (size.height - geometry.top).coerceAtLeast(0f)
-        val reserveScrollbar = fullWidthContentHeight > viewportHeight
-        geometry.scrollbarHitWidth = if (reserveScrollbar) 12.dp.toPx() else 0f
-        val layoutWidth = (size.width - geometry.scrollbarHitWidth).roundToInt().coerceAtLeast(1)
-        geometry.rects = if (reserveScrollbar) nativeHudActionLayout(
-            layoutWidth, baseHeight, 2, actionSizes, 4.dp.roundToPx()
-        ) else fullWidthRects
-        geometry.contentHeight = (geometry.rects.maxOfOrNull { it.y + it.height } ?: 0).toFloat()
+        geometry.updateLayout(snapshot, size.width, size.height, 4.dp.toPx(), 64.dp.roundToPx(), 4.dp.roundToPx(), 12.dp.toPx())
         visibility?.ids = geometry.visibleIds()
         fun panel(origin: Offset, extent: Size, accent: Color, active: Boolean = false) {
             val cut = minOf(8.dp.toPx(), extent.height / 3)
@@ -1266,9 +1322,9 @@ internal fun GameScreen.AeroCommandConsole() {
                 CommandSurface(model, isEditMode, Modifier.fillMaxSize(), visibility, placementActive = {
                     GameEngine.getInstance()?.interfaceEngine?.activeSpecialAction?.actionType == ActionType.placeBuilding
                 })
-                val index = commands.indexOfFirst { it == queueAction }
                 TouchQueuePopup(
-                    model.value.buttons.getOrNull(index).takeUnless { isEditMode || showPauseMenu },
+                    model.value.buttons.firstOrNull { it.identity == productionSelection.identity }
+                        .takeUnless { isEditMode || showPauseMenu },
                     onAdd = { queueAction?.let { executeHudAction(it, selectedUnits, false) } },
                     onRemove = { queueAction?.let { executeHudAction(it, selectedUnits, true) } },
                     onClose = productionSelection::clear

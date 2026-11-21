@@ -5,6 +5,11 @@
  * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
+import java.io.OutputStream
+import java.security.DigestInputStream
+import java.security.MessageDigest
+import java.util.HexFormat
+
 plugins {
     base
     id("jvm-toolchains")
@@ -71,7 +76,7 @@ listOf("jvm", "android").forEach { platform ->
     }
 }
 
-val extensionPack = tasks.register("extensionPack") {
+tasks.register("extensionPack") {
     group = "distribution"
     description = "Build the JVM pack by default; select Android with -PextensionPlatform=android."
     dependsOn(provider {
@@ -80,7 +85,6 @@ val extensionPack = tasks.register("extensionPack") {
         "rwpp${platform.replaceFirstChar(Char::uppercaseChar)}ExtensionPack"
     })
 }
-tasks.assemble { dependsOn(extensionPack) }
 
 val extensionPackCheckHost = configurations.create("extensionPackCheckHost") {
     isCanBeConsumed = false
@@ -119,6 +123,38 @@ listOf("jvm", "android").forEach { platform ->
         }
     }
 }
+
+val releasePackages = tasks.register<Sync>("releasePackages") {
+    group = "distribution"
+    description = "Build, verify, and stage both RWPP release packs with their JARs and SHA-256 checksums."
+    into(layout.buildDirectory.dir("release-assets"))
+    listOf("Jvm", "Android").forEach { platform ->
+        dependsOn("verify${platform}ExtensionPack")
+        from(tasks.named<Zip>("rwpp${platform}ExtensionPack"))
+        listOf(":rwpp-api", ":rwpp-client").forEach { module ->
+            from(provider {
+                project(module).tasks.named<Jar>("rwpp${platform}ExtensionJar").get().archiveFile.get().asFile
+            })
+        }
+    }
+    doLast {
+        val hex = HexFormat.of()
+        val archives = destinationDir.listFiles().orEmpty()
+            .filter { it.isFile && it.extension in setOf("jar", "zip") }
+            .sortedBy { it.name }
+        check(archives.size == 6) { "Expected two packs and four release JARs." }
+        destinationDir.resolve("SHA256SUMS.txt").writeText(
+            archives.joinToString(separator = "\n", postfix = "\n") { archive ->
+                val digest = MessageDigest.getInstance("SHA-256")
+                DigestInputStream(archive.inputStream().buffered(), digest).use {
+                    it.transferTo(OutputStream.nullOutputStream())
+                }
+                "${hex.formatHex(digest.digest())}  ${archive.name}"
+            }
+        )
+    }
+}
+tasks.assemble { dependsOn(releasePackages) }
 
 allprojects {
     group = "io.github.rwpp"

@@ -133,7 +133,11 @@ object Logic : Initialization {
                         require(queue.remove(name)) { "Unexpected downloaded mod: $name" }
                         setDownloadingTitle(index + 1)
                         withContext(Dispatchers.IO) {
-                            File(modDir, "$name.rwmod").writeBytes(data)
+                            val target = File(modDir, "$name.rwmod")
+                            check(target.absoluteFile.parentFile.let { it.isDirectory || it.mkdirs() }) {
+                                "Cannot create the native mod directory"
+                            }
+                            target.writeBytes(data)
                         }
                         // The room may have disconnected while the file was being written.
                         if (modQueue !== queue) return@runCatching

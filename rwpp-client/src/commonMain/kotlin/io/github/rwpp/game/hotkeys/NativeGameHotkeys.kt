@@ -83,6 +83,22 @@ internal object NativeGameHotkeys {
         apply(GameEngine.getInstance().inputController, settings)
     }
 
+    /** Preserve native bindings too: removing an override from Settings does not reset its button. */
+    fun captureBindings(): () -> Unit = captureBindings(GameEngine.getInstance().inputController)
+
+    internal fun captureBindings(input: InputController): () -> Unit {
+        val bindings = buttons(input).associateWith { it.inputBindings.toList() }
+        val chatDefaultWasSuppressed = nativeChatDefaultTWasSuppressed
+        return {
+            bindings.forEach { (button, original) ->
+                button.inputBindings.clear()
+                button.inputBindings.addAll(original)
+            }
+            applied = null
+            nativeChatDefaultTWasSuppressed = chatDefaultWasSuppressed
+        }
+    }
+
     /** Native-controller overload allows deterministic tests without initializing the game singleton. */
     internal fun apply(input: InputController, settings: Settings) {
         migrateLegacyHotkeyDefaults(settings)
@@ -109,7 +125,6 @@ internal object NativeGameHotkeys {
                 return
             }
             apply(settings)
-            NativeBuilderGroupAssistance.update(settings, blocked)
             BuildingPlanningController.onGameUpdate(blocked)
             if (!blocked && followSelectionButton.isPressed) toggleFollowSelection(engine)
             SelectionCameraFollowController.updateOnGameThread(

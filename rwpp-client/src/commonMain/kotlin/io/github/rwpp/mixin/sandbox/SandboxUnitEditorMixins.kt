@@ -15,8 +15,10 @@ import com.corrodinggames.rts.game.units.actions.ActionType
 import com.corrodinggames.rts.game.units.actions.SpecialAction
 import com.corrodinggames.rts.gameFramework.CommandControllerCommand
 import com.corrodinggames.rts.gameFramework.GameEngine
+import com.corrodinggames.rts.gameFramework.effects.Blueprint
 import com.corrodinggames.rts.gameFramework.gui.InterfaceEngine
 import com.corrodinggames.rts.gameFramework.utility.FastArrayList
+import io.github.rwpp.game.building.NativeBuilderAssignment
 import io.github.rwpp.game.sandbox.dispatchSandboxUnitEdit
 import io.github.rwpp.game.sandbox.sandboxNativeEditorActionsAllowed
 import io.github.rwpp.game.sandbox.shouldForceEditorBuild
@@ -120,9 +122,14 @@ private const val CAN_PLACE_AT =
 private const val SET_BUILD_WAYPOINT =
     "com/corrodinggames/rts/gameFramework/CommandControllerCommand.setBuildWaypoint(" +
             "FFLcom/corrodinggames/rts/game/units/UnitTypeInterface;I)V"
+private const val BLUEPRINT_BUILDER =
+    "com/corrodinggames/rts/gameFramework/effects/Blueprint.buildUnit:Lcom/corrodinggames/rts/game/units/OrderableUnit;"
+private const val WAYPOINT_COUNT = "com/corrodinggames/rts/game/units/OrderableUnit.getWaypointCount()I"
 
 @AsmMixin("com/corrodinggames/rts/gameFramework/gui/InterfaceEngine", priority = 900)
 object SandboxEditorForceBuildMixin {
+    private var multipleSites = false
+    private var assignedBuilder: OrderableUnit? = null
     @WrapOperation(
         method = HANDLE_BUILDING_PLACEMENT,
         ordinal = 0,
@@ -209,11 +216,21 @@ object SandboxEditorForceBuildMixin {
 
     @WrapOperation(
         method = HANDLE_BUILDING_PLACEMENT,
+        at = At(InjectionPoint.INVOKE, target = "java/util/ArrayList.iterator()Ljava/util/Iterator;"),
+        require = 1,
+    )
+    fun inspectPlacementSites(sites: ArrayList<*>, original: Operation<Iterator<*>>): Iterator<*> {
+        multipleSites = sites.size > 1
+        return original.call(sites)
+    }
+
+    @WrapOperation(
+        method = HANDLE_BUILDING_PLACEMENT,
         ordinal = 0,
         at = At(InjectionPoint.INVOKE, target = SET_BUILD_WAYPOINT),
         require = 1,
     )
-    fun dispatchEditorBuildAsNativeSpawn(
+    fun prepareNativeBuildingCommand(
         command: CommandControllerCommand,
         x: Float,
         y: Float,
@@ -221,12 +238,34 @@ object SandboxEditorForceBuildMixin {
         techLevel: Int,
         original: Operation<kotlin.Unit>,
     ) {
+        assignedBuilder = null
         original.call(command, x, y, unitType, techLevel)
         if (isSandboxEditorBuildPlacement(GameEngine.getInstance().interfaceEngine)) {
             command.hasSystemAction = true
             command.systemActionId = 5
+        } else {
+            assignedBuilder = NativeBuilderAssignment.assign(command, multipleSites)
         }
+    }
 
+    @WrapOperation(
+        method = HANDLE_BUILDING_PLACEMENT,
+        at = At(InjectionPoint.FIELD_ASSIGN, target = BLUEPRINT_BUILDER),
+        require = 1,
+    )
+    fun setNativeBlueprintBuilder(blueprint: Blueprint, builder: OrderableUnit, original: Operation<kotlin.Unit>) {
+        original.call(blueprint, assignedBuilder ?: builder)
+    }
+
+    @WrapOperation(
+        method = HANDLE_BUILDING_PLACEMENT,
+        at = At(InjectionPoint.INVOKE, target = WAYPOINT_COUNT),
+        require = 1,
+    )
+    fun getNativeBlueprintBuilderQueueSize(builder: OrderableUnit, original: Operation<Int>): Int {
+        val owner = assignedBuilder ?: builder
+        assignedBuilder = null
+        return original.call(owner)
     }
 }
 

@@ -10,6 +10,8 @@ package io.github.rwpp.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.unit.dp
 import io.github.rwpp.AppContext
@@ -31,12 +33,42 @@ internal fun ClientHudSettings(settings: Settings) {
             AeroSettingToggle(
                 readI18n("rwpp.settings.hideOriginalHud"),
                 settings.hideOriginalHud
-            ) { appKoin.get<GameScreen>().setOriginalHudHidden(it) }
+            ) { appKoin.get<GameScreen>().setOriginalHudHidden(it, persist = false) }
             AeroSettingToggle(
-                readI18n("rwpp.hud.editor.settings.animations"),
-                settings.hudAnimations
-            ) { settings.hudAnimations = it }
+                label = readI18n("rwpp.settings.enhancedReinforceTroops"),
+                defaultValue = settings.enhancedReinforceTroops,
+                onCheckedChange = { settings.enhancedReinforceTroops = it }
+            )
+            AeroSettingToggle(
+                label = readI18n("rwpp.settings.showUnitTargetLine"),
+                defaultValue = settings.showUnitTargetLine,
+                onCheckedChange = { settings.showUnitTargetLine = it }
+            )
+
+
             var mapTextScale by remember(settings) { mutableFloatStateOf(settings.mapTextScale.coerceIn(0.5f, 2f)) }
+
+            AeroSettingToggle(
+                readI18n("rwpp.settings.advancedRallyPoints"),
+                settings.advancedRallyPoints,
+                onCheckedChange = { settings.advancedRallyPoints = it },
+            )
+            AeroSettingToggle(
+                label = readI18n("rwpp.settings.targetedSalvo"),
+                defaultValue = settings.showTargetedSalvo,
+                subLabel = readI18n("rwpp.settings.targetedSalvo.hint"),
+                onCheckedChange = { settings.showTargetedSalvo = it },
+            )
+            AeroSettingToggle(
+                readI18n("rwpp.settings.overflowProductionQueue"),
+                settings.overflowProductionQueue,
+                onCheckedChange = { settings.overflowProductionQueue = it },
+            )
+            AeroSettingToggle(
+                readI18n("rwpp.graphics.terrainEdgeBuilding"),
+                settings.terrainEdgeBuilding,
+                onCheckedChange = { settings.terrainEdgeBuilding = it },
+            )
             AeroSettingSlider(
                 label = readI18n("rwpp.settings.mapTextScale"),
                 value = mapTextScale,
@@ -49,20 +81,31 @@ internal fun ClientHudSettings(settings: Settings) {
                 defaultValue = settings.mapTextFixedWorldSize,
                 subLabel = readI18n("rwpp.settings.mapTextFixedWorldSize.hint"),
             ) { settings.mapTextFixedWorldSize = it }
-            if (koinInject<AppContext>().isDesktop()) {
-                val rates = remember { listOf(30, 60, 90, 120, 144, 240, 300) }
-                var selectedRate by remember {
-                    mutableIntStateOf(
-                        rates.indexOf(settings.hudRefreshRate).coerceAtLeast(0)
-                    )
-                }
-                AeroSettingDropDown(
-                    label = readI18n("rwpp.settings.hudRefreshRate"),
-                    items = rates.map { readI18n("rwpp.settings.hudRefreshRate.value", it) },
-                    selectedIndex = selectedRate,
-                    onItemSelected = { index, _ -> selectedRate = index; settings.hudRefreshRate = rates[index] },
+            AeroSettingToggle(
+                label = readI18n("rwpp.settings.factoryEconomy"),
+                defaultValue = settings.showFactoryEconomy,
+                subLabel = readI18n("rwpp.settings.factoryEconomy.hint"),
+                onCheckedChange = { settings.showFactoryEconomy = it }
+            )
+
+            if (koinInject<AppContext>().isAndroid()) {
+                AeroSettingToggle(
+                    label = readI18n("rwpp.settings.enableVolumeKeyMapping"),
+                    defaultValue = settings.enableVolumeKeyMapping,
+                    onCheckedChange = { settings.enableVolumeKeyMapping = it }
+                )
+                AeroSettingToggle(
+                    label = readI18n("rwpp.settings.mouseMoveView"),
+                    defaultValue = settings.mouseMoveView,
+                    onCheckedChange = { settings.mouseMoveView = it }
                 )
             }
+        }
+        AeroSettingGroup(
+            title = "SMART SELECTION",
+            tag = "OPTIONAL"
+        ) {
+            SmartSelectionSettings(settings)
         }
         AeroSettingGroup("SURVIVAL") {
             var showPoints by remember { mutableStateOf(settings.showSurvivalSpawnPoints) }
@@ -132,19 +175,20 @@ internal fun ClientHudSettings(settings: Settings) {
                 readI18n("rwpp.hud.editor.settings.groupOrders"),
                 settings.aeroGroupOrders
             ) { settings.aeroGroupOrders = it }
+
+        }
+        AeroSettingGroup("UNIT OVERLAYS") {
             AeroSettingToggle(
                 readI18n("rwpp.hud.editor.settings.rangeAnimations"),
                 settings.aeroRangeEffects
             ) { settings.aeroRangeEffects = it }
+            AeroSettingToggle(readI18n("rwpp.hud.editor.settings.rangeTeamColors"), settings.aeroRangeUseTeamColors) {
+                settings.aeroRangeUseTeamColors = it
+            }
             AeroSettingToggle(
                 readI18n("rwpp.hud.editor.settings.enemyRanges"),
                 settings.aeroEnemyRangesOnly
             ) { settings.aeroEnemyRangesOnly = it }
-        }
-        AeroSettingGroup("UNIT OVERLAYS") {
-            AeroSettingToggle(readI18n("rwpp.hud.editor.settings.rangeTeamColors"), settings.aeroRangeUseTeamColors) {
-                settings.aeroRangeUseTeamColors = it
-            }
             AeroSettingToggle(
                 readI18n("rwpp.hud.editor.settings.buildingRanges"),
                 settings.showBuildingAttackRange
@@ -197,5 +241,26 @@ internal fun ClientHudSettings(settings: Settings) {
                 settings.hudChatShowTimestamp
             ) { settings.hudChatShowTimestamp = it }
         }
+
     }
+}
+
+@Composable
+private fun SmartSelectionSettings(settings: Settings) {
+    SmartSelectionExtraBuilderTypesButton(settings)
+
+    var builderAssistanceEnabled by remember { mutableStateOf(settings.builderQueueProtectionEnabled) }
+    AeroSettingToggle(
+        label = readI18n("rwpp.settings.builderAssistance.enabled"),
+        defaultValue = builderAssistanceEnabled,
+        onCheckedChange = {
+            builderAssistanceEnabled = it
+            settings.builderQueueProtectionEnabled = it
+        }
+    )
+    Text(
+        text = readI18n("rwpp.settings.builderAssistance.help"),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }

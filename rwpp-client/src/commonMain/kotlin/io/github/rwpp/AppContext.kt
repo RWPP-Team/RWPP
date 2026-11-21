@@ -25,6 +25,9 @@ interface AppContext : KoinComponent {
     /** Opens a platform file picker. Does nothing when the platform has no picker. */
     fun openFileChooser(onChooseFile: (File) -> Unit)
 
+    /** Releases a temporary picker copy after the caller no longer needs it. */
+    fun releasePickerFile(file: File) = Unit
+
     /** Export a file through the platform's document picker and, where available, share it. */
     fun shareFile(name: String, sourcePath: String, openSource: () -> InputStream, onResult: (Result<Unit>) -> Unit)
 

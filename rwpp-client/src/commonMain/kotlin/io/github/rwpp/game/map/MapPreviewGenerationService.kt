@@ -50,6 +50,26 @@ class MapPreviewGenerationService {
     fun supports(map: GameMap): Boolean = map.mapType != GameSetupMapType.savedGame &&
             map.enginePath.endsWith(".tmx", ignoreCase = true)
 
+    internal suspend fun spawnPositions(map: GameMap): List<MapSpawnPosition> {
+        if (!supports(map)) return emptyList()
+        return withContext(Dispatchers.IO) {
+            try {
+                val context = currentCoroutineContext()
+                val tmx = map.openInputStream().use { it.readBounded(MAX_TMX_BYTES) { context.ensureActive() } }
+                readMapSpawnPositions(tmx, map.enginePath) { path ->
+                    openPreviewResource(path)?.use {
+                        it.readBounded(MAX_TSX_BYTES) { context.ensureActive() }
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // A sidecar preview can still be displayed when the TMX is missing or unsupported.
+                emptyList()
+            }
+        }
+    }
+
     suspend fun generate(map: GameMap, maxDimensionPx: Int = DEFAULT_PREVIEW_DIMENSION): Result<GeneratedMapPreview> {
         return try {
             require(supports(map)) { "This map cannot be previewed from a local TMX file" }
@@ -140,6 +160,125 @@ private const val MAX_TOTAL_LAYER_CELLS = 16_000_000L
 private const val FLAG_H = 0x80000000.toInt()
 private const val FLAG_V = 0x40000000
 private const val FLAG_D = 0x20000000
+
+internal data class MapSpawnPosition(val slot: Int, val xFraction: Float, val yFraction: Float)
+
+private enum class StartingUnit { Builder, CommandCenter }
+
+private data class StartingUnitTile(val slot: Int, val kind: StartingUnit)
+
+/** Reads native unit placements without opening any terrain images or loading a game map. */
+internal suspend fun readMapSpawnPositions(
+    tmx: ByteArray,
+    mapPath: String,
+    readTsx: (String) -> ByteArray?,
+): List<MapSpawnPosition> {
+    val context = currentCoroutineContext()
+    require(tmx.size <= MAX_TMX_BYTES)
+    val root = parsePreviewXml(tmx).documentElement
+    if (root.tagName != "map" || root.getAttribute("orientation") != "orthogonal" ||
+        root.getAttribute("infinite") == "1"
+    ) return emptyList()
+    val width = root.intAttr("width")
+    val height = root.intAttr("height")
+    val tileWidth = root.intAttr("tilewidth")
+    val tileHeight = root.intAttr("tileheight")
+    require(width > 0 && height > 0 && width.toLong() * height <= MAX_CELLS)
+    require(tileWidth in 1..256 && tileHeight in 1..256)
+    val worldWidth = width.toDouble() * tileWidth
+    val worldHeight = height.toDouble() * tileHeight
+    val results = HashMap<Int, Pair<StartingUnit, MapSpawnPosition>>()
+
+    fun record(placement: StartingUnitTile, x: Double, y: Double) {
+        if (x !in 0.0..worldWidth || y !in 0.0..worldHeight) return
+        val (slot, kind) = placement
+        if (results[slot]?.first?.let { it >= kind } == true) return
+        results[slot] = kind to MapSpawnPosition(slot, (x / worldWidth).toFloat(), (y / worldHeight).toFloat())
+    }
+
+    val tilesets = root.directChildren("tileset")
+    require(tilesets.size <= MAX_TILES)
+    val unitTiles = HashMap<Int, StartingUnitTile>()
+    val mapDirectory = mapPath.replace('\\', '/').substringBeforeLast('/', "")
+    var tsxBytes = 0L
+    for (tileset in tilesets) {
+        context.ensureActive()
+        val first = tileset.getAttribute("firstgid").toIntOrNull()?.takeIf { it > 0 } ?: continue
+        val source = tileset.getAttribute("source")
+        val definition = if (source.isBlank()) tileset else {
+            if (source.contains("://") || source.startsWith("data:", ignoreCase = true)) continue
+            val bytes = previewResourceCandidates(source, mapDirectory, mapPath).firstNotNullOfOrNull(readTsx)
+                ?: continue
+            tsxBytes += bytes.size
+            require(bytes.size <= MAX_TSX_BYTES && tsxBytes <= MAX_ASSET_BYTES)
+            parsePreviewXml(bytes).documentElement
+        }
+        for (tile in definition.directChildren("tile")) {
+            val id = tile.getAttribute("id").toIntOrNull()?.takeIf { it in 0..0x0FFFFFFF - first } ?: continue
+            val placement = tile.startingUnit() ?: continue
+            unitTiles[first + id] = placement
+        }
+    }
+
+    var layerCount = 0
+    var cells = 0L
+    fun scan(parent: Element, parentX: Double, parentY: Double, depth: Int) {
+        require(depth <= 16) { "TMX layer groups are nested too deeply" }
+        for (layer in parent.directElementChildren()) {
+            if (layer.tagName !in setOf("layer", "objectgroup", "group")) continue
+            context.ensureActive()
+            require(++layerCount <= MAX_LAYERS)
+            val x = parentX + layer.optionalFiniteDouble("offsetx", 0.0) +
+                layer.optionalFiniteDouble("x", 0.0) * tileWidth
+            val y = parentY + layer.optionalFiniteDouble("offsety", 0.0) +
+                layer.optionalFiniteDouble("y", 0.0) * tileHeight
+            when (layer.tagName) {
+                "group" -> scan(layer, x, y, depth + 1)
+                "objectgroup" -> for (obj in layer.directChildren("object")) {
+                    val placement = obj.startingUnit() ?: continue
+                    record(
+                        placement,
+                        x + obj.optionalFiniteDouble("x", 0.0) + obj.optionalFiniteDouble("width", 0.0) / 2,
+                        y + obj.optionalFiniteDouble("y", 0.0) + obj.optionalFiniteDouble("height", 0.0) / 2,
+                    )
+                }
+                "layer" -> if (unitTiles.isNotEmpty()) {
+                    val layerWidth = layer.getAttribute("width").toIntOrNull() ?: width
+                    val layerHeight = layer.getAttribute("height").toIntOrNull() ?: height
+                    val layerCells = layerWidth.toLong() * layerHeight
+                    require(layerWidth > 0 && layerHeight > 0 && layerCells <= MAX_CELLS)
+                    cells += layerCells
+                    require(cells <= MAX_TOTAL_LAYER_CELLS)
+                    val data = layer.directChildren("data").singleOrNull() ?: continue
+                    val gids = decodeGids(data, layerWidth, layerHeight) { context.ensureActive() }
+                    gids.forEachIndexed { index, gid ->
+                        if (index % 4096 == 0) context.ensureActive()
+                        val placement = unitTiles[gid and 0x0FFFFFFF] ?: return@forEachIndexed
+                        record(placement, x + (index % layerWidth + 0.5) * tileWidth, y + (index / layerWidth + 0.5) * tileHeight)
+                    }
+                }
+            }
+        }
+    }
+    scan(root, 0.0, 0.0, 0)
+    return results.values.map { it.second }.sortedBy { it.slot }
+}
+
+private fun Element.startingUnit(): StartingUnitTile? {
+    val properties = directChildren("properties").firstOrNull()?.directChildren("property") ?: return null
+    fun property(name: String): String? = properties.lastOrNull { it.getAttribute("name") == name }
+        ?.let { if (it.hasAttribute("value")) it.getAttribute("value") else it.textContent }
+
+    val native = property("unit")
+    val custom = property("customUnit")
+    val kind = when {
+        "commandCenter".equals(native, true) || "commandCenter".equals(custom, true) -> StartingUnit.CommandCenter
+        "builder".equals(native, true) || "builder".equals(custom, true) -> StartingUnit.Builder
+        else -> return null
+    }
+    val slot = property("team")?.trim()?.toIntOrNull()?.takeIf { it in 0..127 } ?: return null
+    return StartingUnitTile(slot, kind)
+}
 
 private data class PreviewImage(
     val raster: MapPreviewRaster,

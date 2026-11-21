@@ -631,8 +631,7 @@ class GameModeSession(
 
     private fun Throwable?.append(next: Throwable?): Throwable? {
         if (next == null) return this
-        val current = this
-        if (current == null) return next
+        val current = this ?: return next
         if (current !== next) current.addSuppressedSafely(next)
         return current
     }

@@ -49,6 +49,15 @@ before the engine loads. RWPP then opens its own menu and draws the HUD above th
 The server accepts KCP and TCP on the same port. The client prefers KCP and falls back to TCP when the handshake
 receives no reply. Console commands and startup options are listed in [rwpp-server/README.md](rwpp-server/README.md).
 
+## Build
+
+With JDK 25 and the Android SDK configured, run `./gradlew build` (`./gradlew.bat build` on Windows). The build produces
+verified Desktop and Android extension packs, their individual API and client JARs, and `SHA256SUMS.txt` in
+`build/release-assets`. Run `./gradlew :releasePackages` to build just these release files.
+
+The optional `rwmlLocalRepo` property gives a local game mapping repository priority. If it lacks the pinned
+`game-lib` version, Gradle resolves that version from Maven Central.
+
 ## Extensions
 
 An extension depends on `rwml-core` and `game-lib` at the same RWML version. Extensions that need shared game services also depend
@@ -56,7 +65,8 @@ on `io.github.rwpp-team:rwpp-api:2.0.1` from Maven Central. The host provides th
 dependencies. [rwpp-api/README.md](rwpp-api/README.md) describes the event channel, the command registry and the
 configuration services.
 
-The optional desktop [ComposeScopeTree probe](https://rwpp-team.top/extension/compose-scope-tree/) uses the published 0.1.1 compiler plugin and runtime to inspect and edit mounted Compose scopes in a development build.
+Desktop and Android release packs include ComposeScopeTree 0.1.1 by default. The
+[UI customization guide](docs/UI-CUSTOMIZATION.zh.md) shows how to edit a button, replace a layout, and customize scene transitions.
 
 ## Credits
 

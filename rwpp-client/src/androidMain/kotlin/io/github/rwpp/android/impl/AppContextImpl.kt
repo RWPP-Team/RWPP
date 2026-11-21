@@ -113,6 +113,15 @@ class AppContextImpl : BaseAppContextImpl() {
         return Environment.getExternalStorageDirectory().absolutePath + "/rustedWarfare/$path"
     }
 
+    override fun releasePickerFile(file: java.io.File) {
+        val imports = java.io.File(get<android.app.Activity>().filesDir, "rwpp/imports").canonicalFile
+        val selected = file.canonicalFile
+        val staging = selected.parentFile ?: return
+        if (staging.parentFile != imports) return
+        selected.delete()
+        staging.delete()
+    }
+
     override fun shareFile(
         name: String,
         sourcePath: String,

@@ -8,6 +8,14 @@
 package io.github.rwpp.game
 
 import com.corrodinggames.rts.gameFramework.GameEngine
+import coil3.SingletonImageLoader
+import io.github.rwpp.api.coroutines.GameMainDispatcher
+import io.github.rwpp.graphics.ActionImages
+
+internal actual suspend fun <T> runNativeModWork(reloadData: Boolean, action: () -> T): T =
+    GameMainDispatcher.runIdleGameWork(action)
+
+internal actual fun presentNativeModProgress() = Unit
 
 /**
  * The Android host records frames onto a hardware canvas from its own thread while mod data is
@@ -16,8 +24,9 @@ import com.corrodinggames.rts.gameFramework.GameEngine
  * icon caches also hold the old definitions, so they are dropped once the swap completed.
  */
 internal actual fun withNativeModReloadGraphics(engine: GameEngine, reload: () -> Unit) {
+    ActionImages.clear()
+    SingletonImageLoader.get(engine.context.applicationContext).memoryCache?.clear()
     synchronized(engine.renderLock) {
         reload()
     }
-    io.github.rwpp.graphics.ActionImages.clear()
 }

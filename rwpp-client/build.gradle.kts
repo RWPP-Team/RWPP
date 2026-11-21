@@ -19,13 +19,21 @@ plugins {
     `maven-publish`
 }
 
-val scopeTreeVersion = providers.gradleProperty("scopeTreeVersion").orNull
-val scopeTreeCompiler = scopeTreeVersion?.let { version ->
-    configurations.create("scopeTreeCompiler") {
-        isCanBeResolved = true
-        isCanBeConsumed = false
-        isTransitive = false
-    }.also { dependencies.add(it.name, "io.github.rwpp-team:compose-scope-tree-compiler-plugin:$version") }
+val scopeTreeVersion = "0.1.1"
+val scopeTreeCompiler = configurations.create("scopeTreeCompiler") {
+    isCanBeResolved = true
+    isCanBeConsumed = false
+    isTransitive = false
+}.also { dependencies.add(it.name, "io.github.rwpp-team:compose-scope-tree-compiler-plugin:$scopeTreeVersion") }
+
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    inputs.files(scopeTreeCompiler)
+    compilerOptions.freeCompilerArgs.add(
+        "-Xcompiler-plugin-order=dev.composescopetree.compiler>androidx.compose.compiler.plugins.kotlin"
+    )
+    compilerOptions.freeCompilerArgs.add(
+        providers.provider { "-Xplugin=${scopeTreeCompiler.singleFile.absolutePath}" }
+    )
 }
 
 // Export metadata deliberately; ordinary builds consume the checked-in platform snapshots.
@@ -59,17 +67,6 @@ kotlin {
     androidTarget()
     jvm {
         val mainCompilation = compilations.getByName("main")
-        if (scopeTreeCompiler != null) {
-            mainCompilation.compileTaskProvider.configure {
-                inputs.files(scopeTreeCompiler)
-                compilerOptions.freeCompilerArgs.add(
-                    "-Xcompiler-plugin-order=dev.composescopetree.compiler>androidx.compose.compiler.plugins.kotlin"
-                )
-                compilerOptions.freeCompilerArgs.add(
-                    providers.provider { "-Xplugin=${scopeTreeCompiler.singleFile.absolutePath}" }
-                )
-            }
-        }
         val uiRegression = compilations.create("uiRegression") {
             associateWith(mainCompilation)
             defaultSourceSet.kotlin.srcDir("src/uiRegression/kotlin")
@@ -109,6 +106,7 @@ kotlin {
             api(libs.compose.material3)
             api(libs.compose.components.resources)
             api(libs.compose.ui)
+            api("io.github.rwpp-team:compose-scope-tree-compose-ui:$scopeTreeVersion")
             api(libs.compose.material.icons.core)
             api(libs.koin.annotations)
             api(libs.koin.compose)
@@ -140,10 +138,9 @@ kotlin {
         }
 
         jvmMain {
-            kotlin.srcDir(if (scopeTreeVersion != null) "src/scopeTreeProbe/kotlin" else "src/withoutScopeTreeProbe/kotlin")
+            kotlin.srcDir("src/scopeTreeProbe/kotlin")
         }
         jvmMain.dependencies {
-            scopeTreeVersion?.let { implementation("io.github.rwpp-team:compose-scope-tree-compose-ui:$it") }
             compileOnly(files("$rootDir/lib/slick.jar", "$rootDir/lib/lwjgl.jar"))
             api(libs.compose.desktop.common)
             // Compile against Android signatures without shadowing the JDK with the bundled

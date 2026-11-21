@@ -71,6 +71,7 @@ val mapDir by lazy {
     appKoin.get<AppContext>().externalStoragePath("maps")
 }
 
-val modDir by lazy {
-    appKoin.get<AppContext>().externalStoragePath("units")
-}
+val modDir: String
+    get() = com.corrodinggames.rts.gameFramework.files.FileLoader.convertAbstractPath(
+        com.corrodinggames.rts.game.units.custom.CustomUnitMetadataLoader.getModsUnitsDirectory()
+    )

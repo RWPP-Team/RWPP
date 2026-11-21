@@ -25,7 +25,7 @@ import kotlinx.coroutines.launch
 /** Use the native command queue so HUD actions retain multiplayer ordering and permission checks. */
 internal fun executeHudAction(action: SpecialAction, units: List<Unit>) = executeHudAction(action, units, false)
 
-internal fun executeHudAction(action: SpecialAction, units: List<Unit>, remove: Boolean) {
+internal fun executeHudAction(action: SpecialAction, units: List<Unit>, remove: Boolean, salvo: Boolean = false) {
     GameScope.launch {
         val engine = GameEngine.getInstance()
         val ui = engine.interfaceEngine
@@ -42,9 +42,11 @@ internal fun executeHudAction(action: SpecialAction, units: List<Unit>, remove: 
             return@launch
         }
         if (engine.replayEngine.isPlayingReplay || isAeroLiveObserver(engine)) return@launch
+        if (salvo && !TargetedSalvo.supports(ui, action, units)) return@launch
 
         val targets = units.filterIsInstance<OrderableUnit>().filter {
-            ui.canPlayerControlUnit(it) && (remove || hudActionUnlocked(action, it))
+            val owned = if (salvo) it.getSpecialAction(action.storedActionId) else action
+            ui.canPlayerControlUnit(it) && (remove || owned != null && hudActionUnlocked(owned, it))
         }
         val primary = targets.firstOrNull()
 
@@ -95,7 +97,10 @@ internal fun executeHudAction(action: SpecialAction, units: List<Unit>, remove: 
 
         when (route) {
             HudActionRoute.QueueAction, HudActionRoute.RemoveQueueAction, HudActionRoute.RemoveTargetedOrder -> {
-                if (route != HudActionRoute.RemoveTargetedOrder) ui.activeSpecialAction = null
+                if (route != HudActionRoute.RemoveTargetedOrder) {
+                    TargetedSalvo.arm(null)
+                    ui.activeSpecialAction = null
+                }
                 // The native action bar raises this hint from its own click handling, which the Aero
                 // action bar replaces; without this the player queues into a full cap in silence.
                 if (route == HudActionRoute.QueueAction && action.canQueueMultiple()) {
@@ -129,6 +134,7 @@ internal fun executeHudAction(action: SpecialAction, units: List<Unit>, remove: 
                 } else action.performDirectAction(primary)
             }
             HudActionRoute.ActivateAction, HudActionRoute.PlaceBuilding -> {
+                TargetedSalvo.arm(action.takeIf { salvo })
                 ui.specialActionSourceUnit = if (route == HudActionRoute.PlaceBuilding) primary else null
                 if (action.actionType == ActionType.patrol) ui.patrolWaypointCount = 0
                 if (route == HudActionRoute.PlaceBuilding && ui.activeSpecialAction == null) ui.queuePlacementMode =
@@ -213,17 +219,17 @@ internal fun hudActionAvailable(action: SpecialAction, nativeAvailability: () ->
 internal fun hudActionUnlocked(action: SpecialAction, unit: OrderableUnit): Boolean {
     val owner: OrderableUnit = (action as? IndirectedAction)?.targetUnit ?: unit
     val selectionWide = action.isAvailableForSelection
-    // A unit whose native action list is not initialised cannot answer the ownership question.
-    // Leaving that undecided lets the remaining native checks decide instead of failing the HUD.
-    val owned = selectionWide ||
-            runCatching { owner.getSpecialAction(action.storedActionId) != null }.getOrDefault(true)
+    val owned = if (selectionWide || action is IndirectedAction) action else {
+        // A unit without an initialized action list can still resolve the passed native action.
+        runCatching { owner.getSpecialAction(action.storedActionId) }.getOrElse { action } ?: return false
+    }
     val resolvable = selectionWide ||
-            runCatching { action.isAvailableForUnit(owner) }.getOrDefault(false)
-    return owned && resolvable &&
-            runCatching { !action.isNoCostForUnit(owner) }.getOrDefault(false) &&
-            runCatching { StatusEffectSpecialActionBlock.a(owner, action.storedActionId) <= 0 }
+            runCatching { owned.isAvailableForUnit(owner) }.getOrDefault(false)
+    return resolvable &&
+            runCatching { !owned.isNoCostForUnit(owner) }.getOrDefault(false) &&
+            runCatching { StatusEffectSpecialActionBlock.a(owner, owned.storedActionId) <= 0 }
                 .getOrDefault(false) &&
-            !BattleInterface.isSpecialActionDemoBlocked(action)
+            !BattleInterface.isSpecialActionDemoBlocked(owned)
 }
 
 /**
@@ -234,6 +240,9 @@ internal fun hudActionUnlocked(action: SpecialAction, unit: OrderableUnit): Bool
 internal fun hudActionUnlockedForSelection(action: SpecialAction, units: List<Unit>): Boolean {
     if (action.actionType == ActionType.infoOnly) return true
     val ui = GameEngine.getInstance().interfaceEngine
+    if (action is IndirectedAction) {
+        return ui.canPlayerControlUnit(action.targetUnit) && hudActionUnlocked(action, action.targetUnit)
+    }
     for (unit in units) {
         if (unit !is OrderableUnit) continue
         // A modded or half-initialised unit can throw while resolving its native action list; one
