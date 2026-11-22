@@ -47,6 +47,17 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools platforms;android-37.0 build-tools;36.0.0'
+      - name: Expose the Android 37 jar to the extension pack builder
+        shell: bash
+        run: |
+          set -euo pipefail
+          platforms="$ANDROID_HOME/platforms"
+          # The tagged D8 task uses the major-version directory name.
+          test -f "$platforms/android-37.0/android.jar"
+          if [[ ! -e "$platforms/android-37" ]]; then
+            ln -s android-37.0 "$platforms/android-37"
+          fi
+          test -f "$platforms/android-37/android.jar"
       - uses: gradle/actions/setup-gradle@v4
       - name: Build and verify JVM and Android packs
         run: >-
