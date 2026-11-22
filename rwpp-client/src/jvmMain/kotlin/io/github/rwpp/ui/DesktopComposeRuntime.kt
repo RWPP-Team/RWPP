@@ -7,6 +7,7 @@
 
 package io.github.rwpp.ui
 
+import com.corrodinggames.rts.gameFramework.GameEngine
 import com.corrodinggames.rts.java.SlickMainGame
 import io.github.rwpp.api.game.Game
 import io.github.rwpp.api.logging.logger
@@ -145,15 +146,24 @@ internal object DesktopComposeRuntime {
         while (true) (modReloads.poll() ?: break).invoke()
         // Runs on the Slick thread that owns the LWJGL window, outside the AWT GL bridge.
         // The HUD frame pacer can skip a Compose frame, so this state must not be gated by it.
+        val engine = GameEngine.getInstance()
+        val nativeWorld = engine?.let {
+            nativeMapOwnsSurface(it.gameLoopActive, it.map?.mapLoaded == true, it.currentMapPath)
+        } ?: false
+        val wallpaperChanged = UI.nativeWorldOwnsSurface != nativeWorld
+        if (wallpaperChanged) UI.nativeWorldOwnsSurface = nativeWorld
         val gameplay = scene.syncSystemShortcutGate()
         if (gameplay != lastGameplayOwnership) {
             lastGameplayOwnership = gameplay
             framePacer.request()
         }
-        if (framePacer.shouldRender(System.nanoTime(), settings.hudRefreshRate)) {
-            bridge.call { DesktopScopeTreeMetrics.render(scene) }
+        if (wallpaperChanged || framePacer.shouldRender(System.nanoTime(), settings.hudRefreshRate)) {
+            bridge.call {
+                if (wallpaperChanged) scene.forceFrame()
+                DesktopScopeTreeMetrics.render(scene)
+            }
         }
-        com.corrodinggames.rts.gameFramework.GameEngine.getInstance()?.let { DesktopWorldCanvases.draw(it) }
+        engine?.let { DesktopWorldCanvases.draw(it) }
         // This method only composites an existing GL texture. Keep it on Slick's
         // current context instead of transferring that context to AWT every game frame.
         scene.drawToScreen()

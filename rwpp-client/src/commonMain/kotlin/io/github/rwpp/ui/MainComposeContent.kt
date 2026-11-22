@@ -90,13 +90,23 @@ fun showSendMessageDialog() {
 internal expect fun PlatformBackgroundLayer(path: String)
 
 /**
- * The wallpaper is composited above the native game surface. This layer reads the navigator
- * state itself, so a missed parent recomposition cannot leave the image over a running game.
+ * The wallpaper is composited above the native game surface. Native maps can be displayed
+ * before the navigation stack receives its GameScreen.
  */
 @Composable
 private fun WallpaperLayer(path: String) {
-    if (rememberNavigatorHoldsGameScreen()) return
+    if (rememberWallpaperHidden()) return
     PlatformBackgroundLayer(path)
+}
+
+@Composable
+internal fun rememberWallpaperHidden(): Boolean =
+    UI.nativeWorldOwnsSurface || rememberNavigatorHoldsGameScreen()
+
+internal fun nativeMapOwnsSurface(loopActive: Boolean, mapLoaded: Boolean, path: String?): Boolean {
+    if (!loopActive || !mapLoaded || path.isNullOrBlank()) return false
+    val normalized = path.replace('\\', '/').trimStart('/').removePrefix("assets/")
+    return !normalized.startsWith("maps/menu_background/", ignoreCase = true)
 }
 
 /** Main RWPP screen and the in-game overlays, shared by both host surfaces. */
@@ -111,7 +121,7 @@ fun MainComposeContent(showBackground: Boolean = true, safeInsets: Boolean = fal
     Box(modifier = Modifier.fillMaxSize()) {
         // The background layer is part of the window, which is composited above the native
         // game surface; drawing it during gameplay would hide the running game.
-        if (showBackground && !rememberNavigatorHoldsGameScreen()) {
+        if (showBackground) {
             WallpaperLayer(UI.backgroundImagePath)
         }
         Box(modifier = Modifier.fillMaxSize().then(foregroundInsets), contentAlignment = Alignment.Center) {

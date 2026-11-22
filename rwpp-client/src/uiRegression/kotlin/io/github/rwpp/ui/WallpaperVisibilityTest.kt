@@ -50,9 +50,17 @@ class WallpaperVisibilityTest : DesktopComposeGraphicsTest() {
         var gameplayVisible = false
         var frameTime = 0L
         try {
-            scene.setContent { gameplayVisible = rememberNavigatorHoldsGameScreen() }
+            scene.setContent { gameplayVisible = rememberWallpaperHidden() }
             frameTime = drawFrame(scene, recomposer, tasks, surface, frameTime)
             assertFalse(gameplayVisible, "the wallpaper stays visible before the navigator is published")
+
+            UI.nativeWorldOwnsSurface = true
+            frameTime = drawFrame(scene, recomposer, tasks, surface, frameTime)
+            assertTrue(gameplayVisible, "a native map alone already owns the window")
+
+            UI.nativeWorldOwnsSurface = false
+            frameTime = drawFrame(scene, recomposer, tasks, surface, frameTime)
+            assertFalse(gameplayVisible, "ending native gameplay restores the wallpaper before navigation starts")
 
             val navigator = ScreenNavigator(
                 MenuScreen(),
@@ -71,12 +79,23 @@ class WallpaperVisibilityTest : DesktopComposeGraphicsTest() {
             assertFalse(gameplayVisible, "returning to the menu restores the wallpaper")
         } finally {
             UI.publishNavigator(null)
+            UI.nativeWorldOwnsSurface = false
             scene.close()
             recomposer.close()
             while (true) (tasks.poll() ?: break).run()
             surface.close()
             app.close()
         }
+    }
+
+    @Test
+    fun onlyLoadedGameplayMapsOwnTheNativeSurface() {
+        assertTrue(nativeMapOwnsSurface(true, true, "maps/normal/mission.tmx"))
+        assertTrue(nativeMapOwnsSurface(true, true, "/SD/rusted_warfare_maps/custom.tmx"))
+        assertFalse(nativeMapOwnsSurface(true, true, "assets\\maps\\menu_background\\forest.tmx"))
+        assertFalse(nativeMapOwnsSurface(false, true, "maps/normal/mission.tmx"))
+        assertFalse(nativeMapOwnsSurface(true, false, "maps/normal/mission.tmx"))
+        assertFalse(nativeMapOwnsSurface(true, true, null))
     }
 
     /** GameScreen reads native i18n in its constructor; the visibility check only uses its type. */

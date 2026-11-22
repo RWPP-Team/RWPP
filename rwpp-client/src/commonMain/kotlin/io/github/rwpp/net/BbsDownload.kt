@@ -6,8 +6,10 @@
 package io.github.rwpp.net
 
 import com.corrodinggames.rts.gameFramework.files.FileLoader
+import io.github.rwpp.api.game.Game
 import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.api.net.Net
+import io.github.rwpp.appKoin
 import io.github.rwpp.game.importRwmod
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -71,7 +73,10 @@ internal suspend fun Net.downloadBbsResource(
                 }
                 importRwmod(file)
             }
-            ResourceType.Map -> withContext(Dispatchers.IO) { installBbsMap(file) }
+            ResourceType.Map -> {
+                withContext(Dispatchers.IO) { installBbsMap(file) }
+                appKoin.get<Game>().invalidateMapCatalog()
+            }
         }
         onProgress(1f)
     } finally {

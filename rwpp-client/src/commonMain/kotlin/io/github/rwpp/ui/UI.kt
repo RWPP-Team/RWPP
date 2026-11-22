@@ -42,6 +42,8 @@ object UI : Initialization, IUserInterface {
     internal var liveNavigator by mutableStateOf<ScreenNavigator?>(null)
         private set
 
+    internal var nativeWorldOwnsSurface by mutableStateOf(false)
+
     /** Null clears the published navigator when its composition is disposed. */
     internal fun publishNavigator(navigator: ScreenNavigator?) {
         liveNavigator = navigator
