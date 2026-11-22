@@ -202,29 +202,27 @@ fun AnimatedTransitionDialog(
     onDismissStarted: () -> Unit = {},
     content: @Composable (AnimatedTransitionDialogHelper) -> Unit
 ) {
-    val onDismissSharedFlow: MutableSharedFlow<Any> = remember { MutableSharedFlow() }
+    val onDismissSharedFlow: MutableSharedFlow<Any> = remember { MutableSharedFlow(replay = 1) }
     val coroutineScope: CoroutineScope = rememberCoroutineScope()
     val animateTrigger = remember { mutableStateOf(false) }
+    val currentOnDismissRequest by rememberUpdatedState(onDismissRequest)
 
     LaunchedEffect(key1 = Unit) {
-        launch {
+        val opening = launch {
             delay(DIALOG_BUILD_TIME.milliseconds)
             animateTrigger.value = true
         }
-        launch {
-            onDismissSharedFlow.asSharedFlow().collectLatest {
-                startDismissWithExitAnimation(animateTrigger, onDismissRequest)
-            }
+        onDismissSharedFlow.asSharedFlow().collectLatest {
+            opening.cancel()
+            startDismissWithExitAnimation(animateTrigger) { currentOnDismissRequest() }
         }
     }
 
     Dialog(
         onDismissRequest = {
             if (enableDismiss) {
-                onDismissStarted()
-                coroutineScope.launch {
-                    startDismissWithExitAnimation(animateTrigger, onDismissRequest)
-                }
+                AnimatedTransitionDialogHelper(coroutineScope, onDismissSharedFlow, onDismissStarted)
+                    .triggerAnimatedDismiss()
             }
         },
         properties = DialogProperties(usePlatformDefaultWidth = false)

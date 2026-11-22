@@ -52,6 +52,22 @@ object WorldPostSamplerLogMixin {
 object WorldDisplacementSamplerMixin {
     @AsmInject(
         method = "updateShaderUniforms(Lcom/corrodinggames/rts/gameFramework/render/PaintGLShader;)V",
+        target = InjectionPoint.HEAD,
+        require = 1
+    )
+    fun refreshScreenBaseSampler(callback: CallbackInfo, self: Any, shader: PaintGLShader) {
+        // The native uploader only binds dirty textures. Unit 1 is context state: terrain,
+        // material and effect passes can replace its binding while screenBase itself stays the same.
+        for (value in shader.values) {
+            if (value.shaderName == "screenBase" && value.texture != null && !value.textureSizeUniform) {
+                value.dirty = true
+                break
+            }
+        }
+    }
+
+    @AsmInject(
+        method = "updateShaderUniforms(Lcom/corrodinggames/rts/gameFramework/render/PaintGLShader;)V",
         target = InjectionPoint.RETURN,
         require = 1
     )

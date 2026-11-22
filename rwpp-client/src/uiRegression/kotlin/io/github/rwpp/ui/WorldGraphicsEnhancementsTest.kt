@@ -293,9 +293,29 @@ class WorldGraphicsEnhancementsTest {
             "updateShaderUniforms", "bindSamplers"
         )
         assertHook(
+            "com/corrodinggames/rts/java/JavaCanvas", WorldDisplacementSamplerMixin::class.java,
+            "updateShaderUniforms", "refreshScreenBaseSampler"
+        )
+        assertHook(
             "com/corrodinggames/rts/java/JavaCanvas", WorldPostSamplerLogMixin::class.java,
             "updateShaderUniforms", "samplerLog"
         )
+    }
+
+    @Test
+    fun nativeDisplacementRebindsUnchangedSourceButKeepsSizeAndOtherUniformsCached() {
+        val shader = NativePostShader()
+        val source = BitmapOrTexture()
+        shader.setTextureUniform("screenBase", source)
+        shader.setTextureUniformAlt("screenBaseSize", source)
+        shader.setTextureUniform("u_sceneMaterials", BitmapOrTexture())
+        shader.values.forEach { it.dirty = false }
+
+        WorldDisplacementSamplerMixin.refreshScreenBaseSampler(
+            kim.der.asm.api.annotation.CallbackInfo(), Any(), shader
+        )
+
+        assertEquals(listOf("screenBase"), shader.values.filter { it.dirty }.map { it.shaderName })
     }
 
     private fun assertHook(target: String, mixin: Class<*>, methodName: String, handlerName: String) {

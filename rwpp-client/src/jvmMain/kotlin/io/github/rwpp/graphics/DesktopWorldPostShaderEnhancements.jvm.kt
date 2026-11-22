@@ -36,15 +36,17 @@ internal object DesktopWorldPostShaderEnhancements {
         val engine = owner as GameEngine
         val access = owner as NativeDesktopWorldAccess
         val enabled = supported(engine.graphics)
+        val base = access.rwppPostImage()
         fun configure(image: com.corrodinggames.rts.game.InGameImage?, displacement: Boolean) {
             image ?: return
             val shader = (image as NativePostImageAccess).rwppPostShader() ?: return
             val active = if (displacement) updateDisplacementSource(shader, enabled) else updateSource(shader, enabled)
             if (!active) return
             shader.setFloatUniform("u_sunStrength", WorldGraphicsEnhancements.worldLightingStrength())
-            DesktopWorldTerrainMaterials.bindSceneMaterials(shader, engine, image.image)
+            // Both passes light the same world texture. The displacement image supplies offsets.
+            DesktopWorldTerrainMaterials.bindSceneMaterials(shader, engine, base?.image)
         }
-        configure(access.rwppPostImage(), false)
+        configure(base, false)
         configure(access.rwppDisplacementImage(), true)
     }
 

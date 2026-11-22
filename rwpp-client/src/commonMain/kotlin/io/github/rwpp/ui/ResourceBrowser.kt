@@ -45,6 +45,7 @@ import io.github.rwpp.sound.Sounds
 import io.github.rwpp.widget.v2.*
 import io.github.rwpp.widget.v2.scrollbar.LazyVerticalGridScrollbar
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.jetbrains.compose.resources.painterResource
@@ -61,6 +62,8 @@ class ResourceBrowserScreen : Screen {
         var showTransfer by remember { mutableStateOf(false) }
         var progress by remember { mutableStateOf<Float?>(null) }
         var downloadError by remember { mutableStateOf<String?>(null) }
+        var installed by remember { mutableStateOf(false) }
+        var transferJob by remember { mutableStateOf<Job?>(null) }
 
         var isLoading by remember { mutableStateOf(false) }
         val net = koinInject<Net>()
@@ -102,22 +105,26 @@ class ResourceBrowserScreen : Screen {
 
         if (showTransfer) {
             val percentage = progress
-            val done = percentage == 1f || downloadError != null
+            val done = installed || downloadError != null
             AnimatedAlertDialog(
                 visible = true,
-                onDismissRequest = { if (done) showTransfer = false },
-                enableDismiss = done,
+                onDismissRequest = {
+                    showTransfer = false
+                    transferJob = null
+                },
+                onDismissStarted = { transferJob?.cancel() },
             ) { dismiss ->
+                LaunchedEffect(installed) {
+                    if (installed) dismiss()
+                }
                 AeroPanel(
                     modifier = Modifier
                         .widthIn(max = 320.dp)
                         .fillMaxWidth(0.92f)
-                        .heightIn(max = 180.dp)
-                        .padding(12.dp)
                 ) {
                     Column(
-                        modifier = Modifier.fillMaxSize().padding(12.dp),
-                        verticalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         AeroHeader(
@@ -145,12 +152,10 @@ class ResourceBrowserScreen : Screen {
                             else LinearProgressIndicator(progress = { percentage }, modifier = progressBar)
                         }
 
-                        if (done) {
-                            AeroButton(
-                                text = readI18n("rwpp.common.close").uppercase(),
-                                onClick = dismiss
-                            )
-                        }
+                        AeroButton(
+                            text = readI18n(if (done) "rwpp.common.close" else "rwpp.common.cancel").uppercase(),
+                            onClick = dismiss
+                        )
                     }
                 }
             }
@@ -353,10 +358,12 @@ class ResourceBrowserScreen : Screen {
                                                     if (!showTransfer) {
                                                         progress = null
                                                         downloadError = null
+                                                        installed = false
                                                         showTransfer = true
-                                                        scope.launch {
+                                                        transferJob = scope.launch {
                                                             try {
                                                                 net.downloadBbsResource(info, resourceType) { progress = it }
+                                                                installed = true
                                                             } catch (cancelled: CancellationException) {
                                                                 throw cancelled
                                                             } catch (failure: Exception) {
