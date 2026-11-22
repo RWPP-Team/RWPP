@@ -30,24 +30,11 @@ jobs:
           java-version: '25'
       - uses: android-actions/setup-android@v3
         with:
-          # The legacy "tools" package was removed from Google's SDK repository.
-          # Leaving the action's default packages installs it, sdkmanager exits 1,
-          # and every later build and publish step is skipped.
-          packages: platform-tools
-      - name: Install the stable Android platform used by CI
-        shell: bash
-        run: |
-          set -euo pipefail
-          # API 37 is only shipped with Android Studio previews and is absent from
-          # the stable SDK repository that CI's sdkmanager can see. The archives
-          # only need android.jar for D8 and the Android plugin, so CI builds with
-          # the latest stable platform and overrides the compile level below.
-          sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+          packages: 'platform-tools platforms;android-37.0 build-tools;36.0.0'
       - uses: gradle/actions/setup-gradle@v4
       - name: Build and verify JVM and Android packs
         run: >-
           ./gradlew
-          -PandroidCompileSdk=36
           verifyJvmExtensionPack verifyAndroidExtensionPack
       - name: Collect packs and individual extension archives
         shell: bash
@@ -166,7 +153,7 @@ jobs:
           java-version: '25'
       - uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+          packages: 'platform-tools platforms;android-37.0 build-tools;36.0.0'
       - uses: gradle/actions/setup-gradle@v4
       - name: Build the signed API and client Maven bundle
         id: bundle
@@ -176,7 +163,7 @@ jobs:
         run: |
           set -euo pipefail
           version="${RELEASE_TAG#v}"
-          ./gradlew --no-daemon -PandroidCompileSdk=36 bundleForCentral
+          ./gradlew --no-daemon bundleForCentral
           bundle="build/rwpp-$version-central-bundle.zip"
           python3 .github/scripts/publish-central.py verify rwpp "$RELEASE_TAG" "$bundle"
           echo "path=$bundle" >> "$GITHUB_OUTPUT"
