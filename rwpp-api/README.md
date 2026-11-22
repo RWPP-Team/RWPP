@@ -62,3 +62,7 @@ class ExampleExtension : Extension {
 ModPacket 和编解码位于 `io.github.rwpp.api.net.packets`，两端共用模组分发。
 API 不依赖 Netty 或 Java-KCP。客户端 JDK 收发由 client 提供，服务端 Netty 收发由 server 提供。
 联机默认优先 KCP，握手无回应时回退 TCP。
+
+## 许可
+
+RWPP API 使用 [RWPP-Team Shield License 1.0.0](../LICENSE.md)。

@@ -29,6 +29,7 @@ import kotlin.math.roundToInt
 /** Both settings entry points edit the existing persisted fields. No migration or reset. */
 @Composable
 internal fun ClientHudSettings(settings: Settings) {
+    val appContext = koinInject<AppContext>()
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         AeroSettingGroup("GENERAL") {
             AeroSettingToggle(
@@ -118,12 +119,14 @@ internal fun ClientHudSettings(settings: Settings) {
                 onCheckedChange = { settings.showFactoryEconomy = it }
             )
 
-            if (koinInject<AppContext>().isAndroid()) {
+            if (appContext.isAndroid()) {
                 AeroSettingToggle(
                     label = readI18n("rwpp.settings.enableVolumeKeyMapping"),
                     defaultValue = settings.enableVolumeKeyMapping,
                     onCheckedChange = { settings.enableVolumeKeyMapping = it }
                 )
+            }
+            if (appContext.isDesktop()) {
                 AeroSettingToggle(
                     label = readI18n("rwpp.settings.mouseMoveView"),
                     defaultValue = settings.mouseMoveView,

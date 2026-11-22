@@ -50,6 +50,9 @@ The Extensions page lists the extensions loaded for the current session and expo
 Under **Settings → Client**, you can choose battlefield unit colors and opt in to construction assistance or
 targeted salvo buttons. See the [feature guide](https://rwpp-team.top/rwpp/features/) for details.
 
+Use the Resource Browser to search RTSBox or browse its weekly charts. Downloaded `.rwmod` files
+and `.tmx` maps go into the game's native directories.
+
 The server accepts KCP and TCP on the same port. The client prefers KCP and falls back to TCP when the handshake
 receives no reply. Console commands and startup options are listed in [rwpp-server/README.md](rwpp-server/README.md).
 

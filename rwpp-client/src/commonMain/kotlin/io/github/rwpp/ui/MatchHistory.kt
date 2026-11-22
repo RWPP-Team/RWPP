@@ -18,10 +18,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.rwpp.api.config.ConfigIO
@@ -196,7 +199,7 @@ class MatchHistoryScreen : Screen {
                         if (entries.isEmpty()) {
                             item(key = "history-empty") {
                                 AeroPanel(Modifier.fillMaxWidth()) {
-                                    Text(
+                                    MatchHistoryText(
                                         readI18n("rwpp.matchHistory.empty"),
                                         modifier = Modifier.fillMaxWidth().padding(24.dp),
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -268,7 +271,7 @@ private fun MatchHistoryRetentionControl(
     onSelected: (Int) -> Unit,
 ) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        Text(
+        MatchHistoryText(
             readI18n("rwpp.matchHistory.retention"),
             color = MaterialTheme.colorScheme.onSurface,
             fontSize = 12.sp,
@@ -285,14 +288,14 @@ private fun MatchHistoryRetentionControl(
             onItemSelected = { index -> matchHistoryRetentionOptions.getOrNull(index)?.let(onSelected) },
             modifier = Modifier.fillMaxWidth(),
         )
-        Text(
+        MatchHistoryText(
             readI18n("rwpp.matchHistory.retention.help"),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 10.sp,
             fontFamily = FontFamily.Monospace,
         )
         if (!error.isNullOrBlank()) {
-            Text(
+            MatchHistoryText(
                 readI18n("rwpp.matchHistory.retention.failed", error),
                 color = MaterialTheme.colorScheme.error,
                 fontSize = 11.sp,
@@ -323,8 +326,8 @@ private fun MatchHistoryCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = MapNames.getPrettyMapName(entry.mapPath),
+                MatchHistoryText(
+                    text = matchHistoryMapTitle(entry.mapPath, readI18n("rwpp.matchHistory.unknownMap")),
                     modifier = Modifier.weight(1f),
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 15.sp,
@@ -390,7 +393,7 @@ private fun MatchHistoryCard(
                 )
             }
             if (replayUnavailable || replayError) {
-                Text(
+                MatchHistoryText(
                     readI18n("rwpp.matchHistory.replay.unavailable"),
                     color = MaterialTheme.colorScheme.error,
                     fontSize = 11.sp,
@@ -430,9 +433,9 @@ private fun MatchPlayerStatistics(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
+                MatchHistoryText(
                     text = buildString {
-                        append(stats.name.ifBlank { readI18n("rwpp.matchHistory.unnamedPlayer", stats.teamId) })
+                        append(stats.name.orEmpty().ifBlank { readI18n("rwpp.matchHistory.unnamedPlayer", stats.teamId) })
                         if (stats.isAI) append(" · ").append(readI18n("rwpp.matchHistory.ai"))
                         if (stats.isObserver) append(" · ").append(readI18n("rwpp.matchHistory.observer"))
                     },
@@ -476,7 +479,7 @@ private fun MatchPlayerStatistics(
                     ),
                 )
                 val kdCounts = matchHistoryUnitKdCounts(stats)
-                Text(
+                MatchHistoryText(
                     readI18n("rwpp.matchHistory.unitKd.help", kdCounts.kills, kdCounts.losses),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 10.sp,
@@ -519,14 +522,14 @@ private fun MatchHistoryRow(label: String, value: String) {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.Top,
     ) {
-        Text(
+        MatchHistoryText(
             label,
             modifier = Modifier.weight(0.42f),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 11.sp,
             fontFamily = FontFamily.Monospace,
         )
-        Text(
+        MatchHistoryText(
             value,
             modifier = Modifier.weight(0.58f),
             color = MaterialTheme.colorScheme.onSurface,
@@ -536,6 +539,33 @@ private fun MatchHistoryRow(label: String, value: String) {
         )
     }
 }
+
+/** Use the annotated layout path for history labels that can change while lazy rows are reused. */
+@Composable
+private fun MatchHistoryText(
+    text: String?,
+    modifier: Modifier = Modifier,
+    color: Color = Color.Unspecified,
+    fontSize: TextUnit = TextUnit.Unspecified,
+    fontFamily: FontFamily? = null,
+    fontWeight: FontWeight? = null,
+    maxLines: Int = Int.MAX_VALUE,
+    overflow: TextOverflow = TextOverflow.Clip,
+) {
+    Text(
+        text = remember(text) { AnnotatedString(text.orEmpty()) },
+        modifier = modifier,
+        color = color,
+        fontSize = fontSize,
+        fontFamily = fontFamily,
+        fontWeight = fontWeight,
+        maxLines = maxLines,
+        overflow = overflow,
+    )
+}
+
+internal fun matchHistoryMapTitle(path: String?, fallback: String): String =
+    MapNames.getPrettyMapName(path.orEmpty()).ifBlank { fallback }
 
 @Composable
 internal fun matchOutcomeLabel(outcome: MatchOutcome): String = readI18n(

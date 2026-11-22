@@ -44,6 +44,8 @@ RWPP 是 Rusted Warfare 的客户端与无界面服务端。两者都以 [RWML](
 
 主菜单的「扩展」页面显示本次已加载的扩展及其注册的设置。在「设置 → 客户端」可切换战场单位配色，也可开启自动建造协助和点地行动齐发。详见[功能说明](https://rwpp-team.top/rwpp/features/)。
 
+主菜单的「资源浏览器」支持搜索铁锈盒子的模组和地图，也可从下载周榜获取资源。下载后的 `.rwmod` 和 `.tmx` 会进入游戏原生目录。
+
 服务端在同一端口提供 KCP 与 TCP。客户端优先使用 KCP，握手无回应时回退
 TCP。控制台命令与启动选项见 [rwpp-server/README.md](rwpp-server/README.md)。
 

@@ -146,7 +146,7 @@ data class Settings(
     var displayUnitGroupXOffset: Int = 0,
     var changeGameTheme: Boolean = false,
     var showUnitTargetLine: Boolean = false,
-    var mouseMoveView: Boolean = false,
+    @Volatile var mouseMoveView: Boolean = false,
     var allowCameraOverscroll: Boolean = false,
     var cameraOverscrollPixels: Float = 160f,
     /** Local command assistance; all resulting orders still use the native multiplayer protocol. */

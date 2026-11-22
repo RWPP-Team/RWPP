@@ -31,3 +31,7 @@ or skips coordinates already available in Maven Central. You can also run the wo
 default branch with `central_tag` set to a published stable release tag. This runs only the Central
 job and uses the tagged source. If Central does not return a deployment ID after submission, check
 the Portal before retrying. The pre-CI 2.0.1.1 deployment is skipped.
+
+To rebuild and replace the packages of a published stable release, run the workflow from the
+default branch with `release_tag`. This runs the package, GitHub, R2 and Central jobs in order.
+Leave `central_tag` blank for this operation.
