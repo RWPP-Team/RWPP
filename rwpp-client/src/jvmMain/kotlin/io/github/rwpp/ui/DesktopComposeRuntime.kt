@@ -153,13 +153,14 @@ internal object DesktopComposeRuntime {
         val wallpaperChanged = UI.nativeWorldOwnsSurface != nativeWorld
         if (wallpaperChanged) UI.nativeWorldOwnsSurface = nativeWorld
         val gameplay = scene.syncSystemShortcutGate()
-        if (gameplay != lastGameplayOwnership) {
+        val gameplayChanged = gameplay != lastGameplayOwnership
+        if (gameplayChanged) {
             lastGameplayOwnership = gameplay
             framePacer.request()
         }
         if (wallpaperChanged || framePacer.shouldRender(System.nanoTime(), settings.hudRefreshRate)) {
             bridge.call {
-                if (wallpaperChanged) scene.forceFrame()
+                if (wallpaperChanged || gameplayChanged) scene.forceFrame()
                 DesktopScopeTreeMetrics.render(scene)
             }
         }

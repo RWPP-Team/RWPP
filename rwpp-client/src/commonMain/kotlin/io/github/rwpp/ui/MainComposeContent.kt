@@ -96,7 +96,13 @@ internal expect fun PlatformBackgroundLayer(path: String)
 @Composable
 private fun WallpaperLayer(path: String) {
     if (rememberWallpaperHidden()) return
-    PlatformBackgroundLayer(path)
+    Box(Modifier.fillMaxSize().drawWithContent {
+        // The desktop scene can retain menu content across a navigation update. Check again
+        // when drawing so a retained wallpaper node cannot paint over the native world.
+        if (!UI.nativeWorldOwnsSurface && !navigatorHoldsGameScreen()) drawContent()
+    }) {
+        PlatformBackgroundLayer(path)
+    }
 }
 
 @Composable
