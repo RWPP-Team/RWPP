@@ -301,6 +301,14 @@ class MainMenuScreen : Screen {
         )
 
         AeroMenuButton(
+            title = readI18n("rwpp.extension.extension"),
+            subTitle = "LOADED EXTENSIONS",
+            iconPainter = painterResource(Res.drawable.extension_30),
+            onClick = { navigator.push<ExtensionsScreen>() },
+            accentColor = MaterialTheme.colorScheme.secondary,
+        )
+
+        AeroMenuButton(
             title = readI18n("rwpp.browser.resourceBrowser"),
             subTitle = "Community hub".uppercase(),
             iconPainter = painterResource(Res.drawable.public_30),

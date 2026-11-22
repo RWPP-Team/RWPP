@@ -10,6 +10,8 @@ package io.github.rwpp.graphics
 import android.graphics.Paint
 import com.corrodinggames.rts.game.Projectile
 import com.corrodinggames.rts.gameFramework.GameObject
+import io.github.rwpp.config.Settings
+import io.github.rwpp.config.UnitMapColorMode
 import io.github.rwpp.logic.GameVisualSettings
 import kotlin.math.roundToInt
 import com.corrodinggames.rts.game.units.Unit as NativeUnit
@@ -23,7 +25,7 @@ internal object NativeObjectOpacity {
     private val context = ThreadLocal.withInitial { Context() }
     fun current(): Float = context.get()!!.alpha
 
-    private fun alpha(obj: GameObject, settings: io.github.rwpp.config.Settings?): Float {
+    private fun alpha(obj: GameObject, settings: Settings?): Float {
         if (settings == null || settings.unitOpacity >= 1f && settings.projectileOpacity >= 1f) return 1f
         return when (obj) {
             is NativeUnit -> settings.unitOpacity
@@ -32,58 +34,37 @@ internal object NativeObjectOpacity {
         }.coerceIn(0f, 1f)
     }
 
-    fun drawObject(obj: GameObject, delta: Float): Boolean {
+    fun drawObject(obj: GameObject, delta: Float): Boolean = drawWorldObject(obj) { obj.draw(delta) }
+
+    fun drawWorldIcon(obj: GameObject, delta: Float): Boolean = drawWorldObject(obj) { obj.drawMinimap(delta) }
+
+    fun drawBack(obj: GameObject, delta: Float) = drawWorldObject(obj) { obj.PENDING_d_float(delta) }
+
+    private inline fun <T> drawWorldObject(obj: GameObject, crossinline draw: () -> T): T {
         val settings = GameVisualSettings.get()
         if (obj is NativeUnit && settings != null &&
-            (settings.unitAppearancePaintEnabled || settings.unitAppearanceOutlineBrighteningEnabled)
+            (settings.unitMapColorMode != UnitMapColorMode.PLAYER || settings.unitAppearancePaintEnabled ||
+                settings.unitAppearanceOutlineBrighteningEnabled)
         ) {
             return UnitAppearanceRenderBridge.withUnit(obj) {
-                drawObjectWithOpacity(obj, delta, settings)
+                drawObjectWithOpacity(obj, settings) { draw() }
             }
         }
-        return drawObjectWithOpacity(obj, delta, settings)
+        return drawObjectWithOpacity(obj, settings) { draw() }
     }
 
-    private fun drawObjectWithOpacity(
+    private inline fun <T> drawObjectWithOpacity(
         obj: GameObject,
-        delta: Float,
-        settings: io.github.rwpp.config.Settings?,
-    ): Boolean {
+        settings: Settings?,
+        draw: () -> T,
+    ): T {
         val objectAlpha = alpha(obj, settings)
-        if (objectAlpha >= 1f) return obj.draw(delta)
+        if (objectAlpha >= 1f) return draw()
         val state = context.get()!!
         val old = state.alpha
         state.alpha = objectAlpha
         return try {
-            obj.draw(delta)
-        } finally {
-            state.alpha = old
-        }
-    }
-
-    fun drawBack(obj: GameObject, delta: Float) {
-        val alpha = alpha(obj, GameVisualSettings.get())
-        if (alpha >= 1f) {
-            obj.PENDING_d_float(delta); return
-        }
-        val state = context.get()!!
-        val old = state.alpha
-        state.alpha = alpha
-        try {
-            obj.PENDING_d_float(delta)
-        } finally {
-            state.alpha = old
-        }
-    }
-
-    fun drawWorldIcon(obj: GameObject, delta: Float): Boolean {
-        val alpha = alpha(obj, GameVisualSettings.get())
-        if (alpha >= 1f) return obj.drawMinimap(delta)
-        val state = context.get()!!
-        val old = state.alpha
-        state.alpha = alpha
-        return try {
-            obj.drawMinimap(delta)
+            draw()
         } finally {
             state.alpha = old
         }

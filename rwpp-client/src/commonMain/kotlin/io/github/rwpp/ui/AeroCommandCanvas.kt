@@ -38,7 +38,9 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
@@ -76,7 +78,7 @@ internal data class CommandButton(
     val label: String, val heightScale: Float = 1f, val columns: Int = -1,
     val enabled: Boolean = true, val progress: Float = 0f, val queued: Int = 0,
     val cooldown: Float = 0f,
-    val image: ImageBitmap? = null, val info: () -> Pair<String, String> = { label to "" },
+    val image: ImageBitmap? = null, val info: () -> CommandInfo = { CommandInfo(label, "") },
     val activate: (Boolean) -> Unit = {}, val showInfo: Boolean = true,
     val glyph: HudActionGlyph? = null,
     val canAdd: Boolean = enabled,
@@ -98,13 +100,14 @@ internal data class CommandButton(
     val opensTouchQueue: Boolean = false,
     /** Minimum economy to keep every eligible factory producing this unit; null hides it. */
     val economy: FactoryEconomy? = null,
+    val shortages: CommandCostShortages = CommandCostShortages.None,
 )
 
 internal enum class HudActionGlyph { WAYPOINT, RALLY, UPGRADE }
 internal data class CommandFrame(
     val title: String = "", val health: Float = 0f,
     val shield: Float = 0f, val count: Int = 0, val buttons: List<CommandButton> = emptyList(),
-    val info: () -> Pair<String, String> = { title to "" }
+    val info: () -> CommandInfo = { CommandInfo(title, "") }
 )
 
 /** Callback lambdas are fresh snapshots, but must not force a static canvas to redraw each tick. */
@@ -121,15 +124,63 @@ internal fun sameCommandVisuals(a: CommandFrame, b: CommandFrame): Boolean =
                 x.usable == y.usable && x.flash == y.flash && x.active == y.active &&
                 x.demoBlocked == y.demoBlocked && x.pendingProduction == y.pendingProduction &&
                 x.opensBuildingPlacement == y.opensBuildingPlacement && x.opensTouchQueue == y.opensTouchQueue &&
-                x.economy == y.economy
+                x.economy == y.economy && x.shortages == y.shortages
     }
 
-internal data class CommandTooltip(val anchor: Rect, val title: String, val text: String, val pointerY: Float? = null)
+internal data class CommandInfo(val title: String, val text: AnnotatedString) {
+    constructor(title: String, text: String) : this(title, AnnotatedString(text))
+}
+
+internal data class CommandTooltip(
+    val anchor: Rect, val title: String, val text: AnnotatedString, val pointerY: Float? = null,
+) {
+    constructor(anchor: Rect, title: String, text: String, pointerY: Float? = null) :
+        this(anchor, title, AnnotatedString(text), pointerY)
+}
+
+internal data class CommandCostShortages(
+    val upfront: Set<CustomResource>,
+    val streaming: Set<CustomResource>,
+) {
+    companion object {
+        val None = CommandCostShortages(emptySet(), emptySet())
+    }
+}
+
+private val shortageColor = Color(0xffff6262)
+
+/** Compare amounts against the action's owner, independently of unlocks and production capacity. */
+internal fun hudActionCostShortages(
+    action: SpecialAction,
+    source: com.corrodinggames.rts.game.units.Unit?,
+): CommandCostShortages {
+    val wrapped = action as? IndirectedAction
+    val command = wrapped?.wrappedAction ?: action
+    val owner = wrapped?.targetUnit ?: source ?: return CommandCostShortages.None
+    val team = owner.team ?: return CommandCostShortages.None
+    if (command.actionCategory == SpecialActionCategory.infoOnlyStockpile) return CommandCostShortages.None
+
+    val upfront = buildSet {
+        command.customPrice?.forEachCostAmount { resource, amount ->
+            if (resource === CustomResource.CREDITS) {
+                if (!team.canAfford(amount) || !team.canAffordIncludingPending(amount.toInt())) add(resource)
+            } else if (resource.getAmount(owner) < amount) add(resource)
+        }
+    }
+    val streaming = buildSet {
+        command.secondaryPrice?.forEachCostAmount { resource, amount ->
+            if (resource.getAmount(owner) < amount) add(resource)
+        }
+    }
+    return if (upfront.isEmpty() && streaming.isEmpty()) CommandCostShortages.None
+    else CommandCostShortages(upfront, streaming)
+}
 
 internal fun hudActionInfo(
     action: SpecialAction,
     source: com.corrodinggames.rts.game.units.Unit?,
-): Pair<String, String> {
+    shortages: CommandCostShortages = hudActionCostShortages(action, source),
+): CommandInfo {
     val wrapped = action as? IndirectedAction
     val command = wrapped?.wrappedAction ?: action
     val owner = wrapped?.targetUnit ?: source
@@ -139,40 +190,67 @@ internal fun hudActionInfo(
             if (engine?.playerTeam == null) team.name.orEmpty()
             else engine.interfaceEngine.battleInterface.getTeamInfoText(team).trimEnd()
         }.orEmpty()
-        return readI18n("rwpp.hud.tooltip.unitOwner") to details
+        return CommandInfo(readI18n("rwpp.hud.tooltip.unitOwner"), details)
     }
     val title = if (command === HoldFireAction) readI18n("rwpp.hud.holdFire.enable")
     else command.getTooltipTitle(owner).orEmpty()
     val showsPrice = command.actionCategory != SpecialActionCategory.infoOnlyStockpile
-    val price = if (showsPrice) command.customPrice?.tooltipCostText() else null
-    val streaming = if (showsPrice) command.secondaryPrice?.tooltipCostText() else null
+    val price = if (showsPrice) command.customPrice?.tooltipCostText(shortages.upfront) else null
+    val streaming = if (showsPrice) command.secondaryPrice?.tooltipCostText(shortages.streaming) else null
     val economy = if (
         runCatching { io.github.rwpp.appKoin.get<io.github.rwpp.config.Settings>().showFactoryEconomy }
             .getOrDefault(true)
     ) FactoryEconomySampler().apply { beginFrame(source, System.nanoTime()) }.sample(action) else null
-    return title to listOfNotNull(
-        price?.let { readI18n("rwpp.hud.tooltip.cost", it) },
-        streaming?.let { readI18n("rwpp.hud.tooltip.streamingCost", it) },
-        economy?.let { readI18n("rwpp.hud.tooltip.factoryEconomy", it.perMinute, it.factories) },
-        BattleInterface.getSpecialActionQueueTimeText(action, false),
-        owner?.takeIf { command is UnitTypeInfo }?.let { BattleInterface.getUnitInfoStatsText(it, false, true, false) },
-        command.getDisplayDescriptionForUnit(owner),
-    ).filter(String::isNotBlank).joinToString("\n")
+    return CommandInfo(title, buildAnnotatedString {
+        if (price != null) appendTooltipCost("rwpp.hud.tooltip.cost", price)
+        if (streaming != null) appendTooltipCost("rwpp.hud.tooltip.streamingCost", streaming)
+        listOfNotNull(
+            economy?.let { readI18n("rwpp.hud.tooltip.factoryEconomy", it.perMinute, it.factories) },
+            BattleInterface.getSpecialActionQueueTimeText(action, false),
+            owner?.takeIf { command is UnitTypeInfo }?.let { BattleInterface.getUnitInfoStatsText(it, false, true, false) },
+            command.getDisplayDescriptionForUnit(owner),
+        ).filter(String::isNotBlank).forEach {
+            if (length > 0) append('\n')
+            append(it)
+        }
+    })
 }
 
-private fun CustomPrice.tooltipCostText(): String? {
-    val amounts = buildList {
-        if (credits > 0) add(CustomResource.CREDITS.formatAmountWithLabel(credits.toDouble(), false, false))
-        if (energy > 0) add(CustomResource.ENERGY.formatAmountWithLabel(energy.toDouble(), false, false))
-        if (hp > 0) add(CustomResource.HP.formatAmountWithLabel(hp.toDouble(), false, false))
-        if (shield > 0) add(CustomResource.SHIELD.formatAmountWithLabel(shield.toDouble(), false, false))
-        if (ammo > 0) add(CustomResource.AMMO.formatAmountWithLabel(ammo.toDouble(), false, false))
-        for (value in customResources.values) {
-            val entry = value as? StoredResource ?: continue
-            if (entry.amount > 0) add(entry.resource.formatAmountWithLabel(entry.amount, false, false))
-        }
+private inline fun CustomPrice.forEachCostAmount(consume: (CustomResource, Double) -> Unit) {
+    if (credits > 0) consume(CustomResource.CREDITS, credits.toDouble())
+    if (energy > 0) consume(CustomResource.ENERGY, energy.toDouble())
+    if (hp > 0) consume(CustomResource.HP, hp.toDouble())
+    if (shield > 0) consume(CustomResource.SHIELD, shield.toDouble())
+    if (ammo > 0) consume(CustomResource.AMMO, ammo.toDouble())
+    if (!customResources.isEmpty) for (value in customResources.values) {
+        val entry = value as? StoredResource ?: continue
+        if (entry.amount > 0) consume(entry.resource, entry.amount)
     }
-    return amounts.joinToString(" | ").takeIf(String::isNotEmpty)
+}
+
+private fun CustomPrice.tooltipCostText(shortages: Set<CustomResource>): AnnotatedString? = buildAnnotatedString {
+    forEachCostAmount { resource, amount ->
+        if (length > 0) append(" | ")
+        val start = length
+        append(resource.formatAmountWithLabel(amount, false, false))
+        if (resource in shortages) addStyle(SpanStyle(color = shortageColor), start, length)
+    }
+}.takeIf { it.isNotEmpty() }
+
+private fun AnnotatedString.Builder.appendTooltipCost(key: String, cost: AnnotatedString) {
+    if (length > 0) append('\n')
+    val label = readI18n(key, "\uFFFC")
+    append(label.substringBefore('\uFFFC'))
+    append(cost)
+    append(label.substringAfter('\uFFFC', ""))
+}
+
+internal fun commandButtonCaption(label: String, creditsShort: Boolean): AnnotatedString = buildAnnotatedString {
+    append(label)
+    val priceStart = label.lastIndexOf('\n') + 1
+    if (creditsShort && priceStart > 0 && label.getOrNull(priceStart) == '$') {
+        addStyle(SpanStyle(color = shortageColor), priceStart, length)
+    }
 }
 internal object CommandPointer {
     var inPanel = false
@@ -300,7 +378,7 @@ private class HudActionCallbacks(
     val selection: List<com.corrodinggames.rts.game.units.Unit>,
     val identity: String,
     val source: () -> com.corrodinggames.rts.game.units.Unit?,
-    val info: () -> Pair<String, String>,
+    val info: () -> CommandInfo,
     val activate: (Boolean) -> Unit,
     val activateSalvo: (Boolean) -> Unit,
 ) {
@@ -310,12 +388,11 @@ private class HudActionCallbacks(
         enabled = false, identity = identity, info = info, activate = activate,
         opensBuildingPlacement = action.actionType == ActionType.placeBuilding,
     )
-    val salvoInfo: () -> Pair<String, String> = {
-        val (title, details) = info()
-        readI18n("rwpp.hud.targetedSalvo", title) to details
+    val salvoInfo: () -> CommandInfo = {
+        val details = info()
+        details.copy(title = readI18n("rwpp.hud.targetedSalvo", details.title))
     }
     val salvoLayoutButton = layoutButton.copy(identity = salvoIdentity, info = salvoInfo, activate = activateSalvo)
-    private var cachedQueued = Int.MIN_VALUE
     private var cachedPrice = Int.MIN_VALUE
     private var cachedLabel = ""
     private var cachedDisplayName: String? = null
@@ -324,21 +401,20 @@ private class HudActionCallbacks(
     var glyph: HudActionGlyph? = null
         private set
 
-    fun label(queued: Int, price: Int, nowNanos: Long): String {
-        val queueChanged = queued != cachedQueued
+    fun label(price: Int, nowNanos: Long): String {
         val priceChanged = price != cachedPrice
         val sampleDue = hudActionLabelSampleDue(lastNameSampleAtNanos, nowNanos)
-        if (queueChanged || priceChanged || sampleDue) {
+        if (priceChanged || sampleDue) {
             val owner = source()
             val displayName = if (action.actionType == ActionType.infoOnly) action.displayNameWithCount
-            else hudActionLabelForUnit(action, owner, queued)
-            val tooltipTitle = owner?.let { action.getTooltipTitle(it) }.orEmpty()
+            else hudActionLabelForUnit(action, owner)
+            val tooltipTitle = if (action.actionType == ActionType.placeBuilding) ""
+            else owner?.let { action.getTooltipTitle(it) }.orEmpty()
             if (displayName != cachedDisplayName || tooltipTitle != cachedTooltipTitle) {
                 cachedDisplayName = displayName
                 cachedTooltipTitle = tooltipTitle
                 glyph = action.aeroCommandGlyph(displayName, tooltipTitle)
             }
-            cachedQueued = queued
             cachedPrice = price
             cachedLabel = displayName + if (price > 0) $$"\n$$${price}" else ""
             if (sampleDue) lastNameSampleAtNanos = nowNanos
@@ -359,6 +435,10 @@ private class CommandButtonFrameBuilder {
     private val buttonScratch = ArrayList<CommandButton>()
     private var published: List<CommandButton> = emptyList()
     private val economy = FactoryEconomySampler()
+    private var hotkeyActions: List<SpecialAction>? = null
+    private var hotkeySelection: List<com.corrodinggames.rts.game.units.Unit>? = null
+    private var nextHotkeyRefresh = 0L
+    private var hotkeys: List<CommandHotkey> = emptyList()
 
     fun build(
         engine: GameEngine,
@@ -373,7 +453,12 @@ private class CommandButtonFrameBuilder {
         while (callbacks.size > actions.size) callbacks.removeAt(callbacks.lastIndex)
         buttonScratch.clear()
         val nowNanos = System.nanoTime()
-        val hotkeys = commandHotkeys(engine, actions)
+        if (hotkeyActions !== actions || hotkeySelection !== selection || nowNanos >= nextHotkeyRefresh) {
+            hotkeys = commandHotkeys(engine, actions)
+            hotkeyActions = actions
+            hotkeySelection = selection
+            nextHotkeyRefresh = if (actions.size > 24) nowNanos + 100_000_000L else nowNanos
+        }
         activateCommandHotkeys(hotkeys, actions, selection)
         val showEconomy = runCatching {
             io.github.rwpp.appKoin.get<io.github.rwpp.config.Settings>().showFactoryEconomy
@@ -410,16 +495,15 @@ private class CommandButtonFrameBuilder {
             // why a mixed level selection could not upgrade from the mouse but still did from keys.
             val unlocked = hudActionUnlockedForSelection(action, selection)
             val available = hudActionAvailableNow(engine, action, unlocked)
-            var queued = 0
-            for (unit in selection) {
-                if (unit is OrderableUnit) queued += hudActionCountForUnit(action, unit, true)
-            }
+            val queued = if (action.actionType == ActionType.placeBuilding) 0
+            else selection.sumOf { hudActionCountForUnit(action, it, true) }
             val pending = OverflowProductionQueue.pendingCount(action, selection)
             val holdFire = if (action === HoldFireAction) HoldFireAction.state(engine, selection) else null
             val label = if (action === HoldFireAction) HoldFireAction.buttonLabel(holdFire)
-            else actionCallbacks.label(queued, action.priceValue, nowNanos)
+            else actionCallbacks.label(action.priceValue, nowNanos)
             val glyph = actionCallbacks.glyph
             val owner = actionCallbacks.source()
+            val shortages = hudActionCostShortages(action, owner)
             val image = if (owner != null && glyph == null && visible) {
                 ActionImages.load(action, owner, visible = true)?.also { displayedImages[identity] = it }
                     ?: displayedImages[identity]
@@ -436,7 +520,7 @@ private class CommandButtonFrameBuilder {
             val cooldown = hudActionCooldownForSelection(action, nativeProgress)
             val showInfo = action.actionType != ActionType.infoOnly ||
                     !touch && (action is UnitTypeInfo || action is UnitInfoBox)
-            val clickSound = if (queuePanel) null else io.github.rwpp.sound.Sounds.select
+            val clickSound = if (queuePanel || usesNativeActionFeedback(action.actionType)) null else io.github.rwpp.sound.Sounds.select
             val dimmed = !available || action.isDimmedInActionBar
             // renderActionBar paints the surface from isSpecialActionUsableBySelection and only the
             // border pulse from isSpecialActionUsable. Using the pulse as "usable" turned every
@@ -461,7 +545,7 @@ private class CommandButtonFrameBuilder {
                             old, label, action.buttonWidthScale, action.buttonColumnSpan, enabled, progress, queued,
                             image, showInfo, glyph, canAdd, clickSound, identity, dimmed, hotkey,
                             category, techLevel, usable, flash, active, demoBlocked, cooldown, pending,
-                            action.actionType == ActionType.placeBuilding, queuePanel, economyValue,
+                            action.actionType == ActionType.placeBuilding, queuePanel, economyValue, shortages,
                         ),
                     )
                 ) old else CommandButton(
@@ -492,6 +576,7 @@ private class CommandButtonFrameBuilder {
                     opensBuildingPlacement = action.actionType == ActionType.placeBuilding,
                     opensTouchQueue = queuePanel,
                     economy = economyValue,
+                    shortages = shortages,
                 )
             )
             if (showSalvo) {
@@ -538,22 +623,14 @@ private class CommandButtonFrameBuilder {
         }
         val info = { hudActionInfo(action, source) }
         val activate: (Boolean) -> Unit = { remove ->
-            val engine = GameEngine.getInstance()
-            val unlocked = hudActionUnlockedForSelection(action, selection)
-            val available = hudActionAvailableNow(engine, action, unlocked)
             val queuePanel = hudUsesTouchQueuePanel(
                 touch, action.actionType, action.hasPersistentTooltip(),
                 touch && hudActionQueueEntry(action, selection),
             )
             if (!remove && queuePanel) {
                 val repeat = productionSelection.tap(identity)
-                io.github.rwpp.sound.Sounds.playSound(
-                    if (!repeat) io.github.rwpp.sound.Sounds.openPopup
-                    else if (available) io.github.rwpp.sound.Sounds.select else io.github.rwpp.sound.Sounds.cancel,
-                )
-                if (repeat && (available || unlocked && OverflowProductionQueue.supports(action, selection))) {
-                    executeHudAction(action, selection, false)
-                }
+                if (repeat) executeHudAction(action, selection, false)
+                else io.github.rwpp.sound.Sounds.playSound(io.github.rwpp.sound.Sounds.openPopup)
             } else {
                 productionSelection.clear()
                 executeHudAction(action, selection, remove)
@@ -623,6 +700,7 @@ private fun sameCommandButtonVisuals(
     opensBuildingPlacement: Boolean,
     opensTouchQueue: Boolean,
     economy: FactoryEconomy?,
+    shortages: CommandCostShortages,
 ): Boolean = button.label == label && button.heightScale == heightScale && button.columns == columns &&
         button.enabled == enabled && button.progress == progress && button.cooldown == cooldown && button.queued == queued && button.image === image &&
         button.showInfo == showInfo && button.glyph == glyph && button.canAdd == canAdd &&
@@ -631,7 +709,7 @@ private fun sameCommandButtonVisuals(
         button.usable == usable && button.flash == flash && button.active == active &&
         button.demoBlocked == demoBlocked && button.pendingProduction == pendingProduction &&
         button.opensBuildingPlacement == opensBuildingPlacement && button.opensTouchQueue == opensTouchQueue &&
-        button.economy == economy
+        button.economy == economy && button.shortages == shortages
 
 private data class CommandHotkey(
     val button: InputControllerButton?,
@@ -722,14 +800,13 @@ internal fun CommandSurface(
     var scrollbarGrabOffset by remember { mutableFloatStateOf(0f) }
     val hoverState = remember { CommandHoverState() }
 
-    fun tooltip(point: Offset, info: Pair<String, String>): CommandTooltip {
+    fun tooltip(point: Offset, info: CommandInfo): CommandTooltip {
         val y = consoleCoordinates[0]?.takeIf { it.isAttached }?.localToRoot(point)?.y
-        return CommandTooltip(anchor, info.first, info.second, y)
+        return CommandTooltip(anchor, info.title, info.text, y)
     }
 
     /**
-     * The native HUD shows action information on hover. Blank console space and the title strip
-     * show the selected unit instead; a button without information closes the panel.
+     * Only action buttons and the unit title strip have hover information.
      */
     fun showHoverInfo(point: Offset, force: Boolean = false) {
         if (placementActive()) {
@@ -743,7 +820,7 @@ internal fun CommandSurface(
         val target = when {
             button?.opensTouchQueue == true && button.identity == HudQueuePopupTouch.selectedIdentity -> -2
             index != null && button?.showInfo == true -> index
-            index == null -> -1
+            index == null && point.y in 0f..<geometry.top && point.x in 0f..<geometry.width -> -1
             else -> -2
         }
         if (!force && target == hoverState.target && currentFrame === hoverState.frame) return
@@ -923,7 +1000,9 @@ internal fun CommandSurface(
                                         invalidateHoverInfo()
                                     }
                                     if (it.enabled || secondary || openingQueue) {
-                                        io.github.rwpp.sound.Sounds.playSound(if (secondary) io.github.rwpp.sound.Sounds.cancel else it.clickSound)
+                                        it.clickSound?.let { sound ->
+                                            io.github.rwpp.sound.Sounds.playSound(if (secondary) io.github.rwpp.sound.Sounds.cancel else sound)
+                                        }
                                         it.activate(secondary)
                                     }
                                 }
@@ -1052,7 +1131,7 @@ internal fun CommandSurface(
         }
 
         fun label(
-            value: String,
+            value: AnnotatedString,
             position: Offset,
             width: Float,
             height: Float,
@@ -1151,7 +1230,6 @@ internal fun CommandSurface(
                                 ),
                                 style = TextStyle(
                                     color = colors.primary, fontSize = 10.sp,
-                                    shadow = Shadow(Color.Black.copy(alpha = 0.85f), Offset(1f, 1f), 2f)
                                 ),
                                 maxLines = 1
                             )
@@ -1171,7 +1249,7 @@ internal fun CommandSurface(
                         }
                         val captionHeight = minOf(30.dp.toPx(), extent.height - 4.dp.toPx())
                         label(
-                            button.label,
+                            commandButtonCaption(button.label, CustomResource.CREDITS in button.shortages.upfront),
                             origin + Offset(6.dp.toPx(), extent.height - captionHeight),
                             // The caption shares the bottom edge with the economy chip.
                             (extent.width - 12.dp.toPx() - economyReserved).coerceAtLeast(1f),
@@ -1181,27 +1259,39 @@ internal fun CommandSurface(
                                 if (!button.dimmed) colors.onSurface else colors.onSurfaceVariant,
                             )
                         )
+                        val queueBadge = when {
+                            button.queued > 0 && button.pendingProduction > 0 -> "${button.queued} +${button.pendingProduction}"
+                            button.pendingProduction > 0 -> "+${button.pendingProduction}"
+                            button.queued > 0 -> button.queued.toString()
+                            else -> null
+                        }
+                        val badgeLayout = queueBadge?.let {
+                            text.measure(
+                                it, style = TextStyle(
+                                    color = if (button.pendingProduction > 0) Color(0xffffcb74) else colors.onPrimary,
+                                    fontSize = 10.sp,
+                                ), maxLines = 1,
+                            )
+                        }
+                        val badgeWidth = badgeLayout?.let { maxOf(28.dp.toPx(), it.size.width + 8.dp.toPx()) } ?: 0f
                         if (button.hotkey.isNotBlank()) {
-                            val reserved = if (button.queued > 0) 34.dp.toPx() else 0f
                             val layout = text.measure(
                                 AnnotatedString(button.hotkey),
                                 style = TextStyle(color = Color(0xff8cf59a), fontSize = 10.sp),
                                 maxLines = 1
                             )
-                            val right = origin.x + extent.width - 4.dp.toPx() - reserved
-                            val left = (right - layout.size.width).coerceAtLeast(origin.x + 2.dp.toPx())
-                            drawText(layout, topLeft = Offset(left, origin.y + 3.dp.toPx()))
+                            drawText(layout, topLeft = origin + Offset(2.dp.toPx(), 3.dp.toPx()))
                         }
-                        if (button.queued > 0) {
-                            val badge = origin + Offset(extent.width - 34.dp.toPx(), 4.dp.toPx())
-                            drawRect(colors.primary, badge, Size(28.dp.toPx(), 19.dp.toPx()))
-                            label(
-                                "${button.queued}",
-                                badge + Offset(4.dp.toPx(), 0f),
-                                25.dp.toPx(),
-                                19.dp.toPx(),
-                                13,
-                                colors.onPrimary
+                        if (badgeLayout != null) {
+                            val badge = origin + Offset(extent.width - badgeWidth - 6.dp.toPx(), 4.dp.toPx())
+                            val badgeHeight = badgeLayout.size.height + 2.dp.toPx()
+                            val badgeSize = Size(badgeWidth, badgeHeight)
+                            val pending = button.pendingProduction > 0
+                            drawRect(if (pending) Color(0xff13232d) else colors.primary, badge, badgeSize)
+                            if (pending) drawRect(Color(0xffffcb74), badge, badgeSize, style = Stroke(1.dp.toPx()))
+                            drawText(
+                                badgeLayout,
+                                topLeft = badge + Offset(4.dp.toPx(), (badgeHeight - badgeLayout.size.height) / 2)
                             )
                         }
                     }
@@ -1249,7 +1339,7 @@ internal fun GameScreen.AeroCommandConsole() {
     val cachedFrameTitle = remember { arrayOf(standbyTitle) }
     val cachedTitlePrimary = remember { arrayOfNulls<com.corrodinggames.rts.game.units.Unit>(1) }
     val cachedTitleType = remember { arrayOfNulls<com.corrodinggames.rts.game.units.UnitTypeInterface>(1) }
-    val cachedFrameInfo = remember { arrayOf({ standbyTitle to "" }) }
+    val cachedFrameInfo = remember { arrayOf({ CommandInfo(standbyTitle, "") }) }
     val cachedInfoPrimary = remember { arrayOfNulls<com.corrodinggames.rts.game.units.Unit>(1) }
     OnGameUpdate {
         val engine = GameEngine.getInstance()
@@ -1284,10 +1374,12 @@ internal fun GameScreen.AeroCommandConsole() {
         if (infoChanged) {
             cachedInfoPrimary[0] = primary
             cachedFrameInfo[0] = {
-                if (primary == null) standbyTitle to "" else primary.unitTypeInterface.displayName to
-                        (primary.unitTypeInterface.displayDescription + "\n" + BattleInterface.getUnitInfoStatsText(
+                if (primary == null) CommandInfo(standbyTitle, "")
+                else CommandInfo(primary.unitTypeInterface.displayName,
+                    primary.unitTypeInterface.displayDescription + "\n" + BattleInterface.getUnitInfoStatsText(
                             primary, false, true, false
-                        ))
+                        ),
+                )
             }
         }
         val nextButtons = buttonFrameBuilder.build(

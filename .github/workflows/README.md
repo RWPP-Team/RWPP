@@ -16,3 +16,15 @@ cannot see an uncommitted working tree.
 The build resolves `rwml-core` and `game-lib` from Maven Central at the same version, pinned in
 `gradle/libs.versions.toml`. Publish both RWML artifacts before building a RWPP release that depends
 on them.
+
+## Maven Central
+
+The `publish-central` job runs for a published, stable GitHub Release. The tag must match the
+Gradle project version. It signs a single bundle containing `io.github.rwpp-team:rwpp-api` and
+`io.github.rwpp-team:rwpp-client`, including their JVM and Android variants. Configure the
+`CENTRAL_USERNAME`, `CENTRAL_TOKEN`, and `GPG_PRIVATE_KEY` repository secrets. Use the Central
+Portal user token credentials and an armored private key. Set `GPG_PASSPHRASE` if the key requires it.
+
+The workflow stores its deployment ID as an Actions artifact. A rerun resumes that deployment
+or skips coordinates already available in Maven Central. If Central does not return a deployment
+ID after submission, check the Portal before retrying. The pre-CI 2.0.1.1 deployment is skipped.

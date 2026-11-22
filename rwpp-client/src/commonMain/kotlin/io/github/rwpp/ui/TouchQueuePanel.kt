@@ -121,7 +121,7 @@ internal fun TouchQueuePanel(
     onRemove: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val (title, details) = remember(button.info) { button.info() }
+    val (title, details) = remember(button.info, button.shortages) { button.info() }
     val tooltipScale = commandTooltipScale()
     AeroPanel(modifier.fillMaxWidth().padding(vertical = 4.dp).pointerInput(Unit) { detectTapGestures {} }) {
         Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {

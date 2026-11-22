@@ -7,7 +7,6 @@
 
 package io.github.rwpp.mixin.desktop
 
-import io.github.rwpp.game.network.DesktopWelcomeMessage
 import kim.der.asm.api.annotation.AsmInject
 import kim.der.asm.api.annotation.AsmMixin
 import kim.der.asm.api.annotation.CallbackInfo
@@ -29,26 +28,6 @@ object GameEngineLogMixin {
         ) {
             callbackInfo.cancel()
         }
-    }
-}
-
-@AsmMixin("com/corrodinggames/rts/java/MainLauncher")
-object MainLauncherMixin {
-    @AsmInject(
-        method = "onPlayerJoined(Lcom/corrodinggames/rts/gameFramework/network/Connection;Ljava/lang/String;Ljava/lang/String;)V",
-        target = InjectionPoint.HEAD,
-        cancellable = true,
-        require = 1,
-    )
-    fun sendWelcomeMessage(
-        callbackInfo: CallbackInfo,
-        @Suppress("UNUSED_PARAMETER") self: Any,
-        connection: Any,
-        @Suppress("UNUSED_PARAMETER") playerName: String?,
-        @Suppress("UNUSED_PARAMETER") playerId: String?,
-    ) {
-        DesktopWelcomeMessage.sendIfEnabled(connection)
-        callbackInfo.cancel()
     }
 }
 

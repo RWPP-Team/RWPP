@@ -33,7 +33,7 @@ RWPP 是 Rusted Warfare 的客户端与无界面服务端。两者都以 [RWML](
 
 ## 安装
 
-先安装 [RWML 1.0.3 或更新版本](https://github.com/RWPP-Team/RWML/releases/latest)，再从 [RWPP 2.0.1.1 发布页](https://github.com/RWPP-Team/RWPP/releases/tag/v2.0.1.1)
+先安装 [RWML 1.0.3 或更新版本](https://github.com/RWPP-Team/RWML/releases/latest)，再从 [RWPP 2.0.2 发布页](https://github.com/RWPP-Team/RWPP/releases/tag/v2.0.2)
 下载桌面或 Android 扩展整合包，在 RWML 启动器中导入。整合包包含 `io.github.rwpp.api` 与 `io.github.rwpp`，两个 JAR 也可以分别导入。
 
 两个扩展必须来自同一个发行版本。客户端声明对 API 的依赖，并独立注册自己的界面框架。
@@ -41,6 +41,8 @@ RWPP 是 Rusted Warfare 的客户端与无界面服务端。两者都以 [RWML](
 ## 使用
 
 启用扩展后，从 RWML 启动器启动游戏。Android 启动器先准备扩展，再加载游戏引擎。引擎就绪后，RWPP 打开自己的菜单，并在游戏画面上绘制 HUD。
+
+主菜单的「扩展」页面显示本次已加载的扩展及其注册的设置。在「设置 → 客户端」可切换战场单位配色，也可开启自动建造协助和点地行动齐发。详见[功能说明](https://rwpp-team.top/rwpp/features/)。
 
 服务端在同一端口提供 KCP 与 TCP。客户端优先使用 KCP，握手无回应时回退
 TCP。控制台命令与启动选项见 [rwpp-server/README.md](rwpp-server/README.md)。
@@ -57,13 +59,15 @@ TCP。控制台命令与启动选项见 [rwpp-server/README.md](rwpp-server/READ
 ## 扩展开发
 
 扩展依赖同一 RWML 版本的 `rwml-core` 与 `game-lib`。需要共用游戏服务时，从 Maven Central 引入
-`io.github.rwpp-team:rwpp-api:2.0.1`。三个库均由宿主在运行时提供，扩展只需声明编译期依赖。
+`io.github.rwpp-team:rwpp-api:2.0.2`。三个库均由宿主在运行时提供，扩展只需声明编译期依赖。
 [rwpp-api/README.md](rwpp-api/README.md) 说明事件通道、命令注册与配置服务。
 
-桌面和 Android 发布包默认包含 ComposeScopeTree 0.1.1。[界面扩展指南](docs/UI-CUSTOMIZATION.zh.md) 演示如何修改按钮、
+桌面和 Android 发布构建使用 `io.github.minxyzgo` 下的 ComposeScopeTree 0.1.1。[界面扩展指南](docs/UI-CUSTOMIZATION.zh.md) 演示如何修改按钮、
 替换布局容器，以及为场景切换设置自定义动画。
 
 ## 致谢
+
+感谢 [@WHT-MO](https://github.com/WHT-MO) 贡献实验性单单位寻路、Esc 导航、设置和 HUD 编辑放弃改动，以及工厂待产提示。见 [#117](https://github.com/RWPP-Team/RWPP/pull/117) 和 [#118](https://github.com/RWPP-Team/RWPP/pull/118)。
 
 [RW-HPS](https://github.com/deng-rui/RW-HPS)
 

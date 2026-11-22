@@ -152,7 +152,11 @@ class BattleRoomScreen : Screen {
         ) { dismiss ->
             AeroPanel(Modifier.widthIn(max = 420.dp).fillMaxWidth(0.94f)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(readI18n("rwpp.multiplayer.room.leaveConfirm"), style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        readI18n("rwpp.multiplayer.room.leaveConfirm"),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         AeroButton(readI18n("rwpp.common.cancel"), dismiss, modifier = Modifier.weight(1f))
                         AeroButton(

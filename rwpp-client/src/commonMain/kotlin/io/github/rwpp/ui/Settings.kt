@@ -199,11 +199,17 @@ class SettingsScreen(
 
                         Spacer(modifier = Modifier.width(if (compact) 8.dp else 16.dp))
                         AeroButton(
-                            text = readI18n("rwpp.common.exitAndSave"),
+                            text = readI18n("rwpp.edit.discardAndReturn"),
                             isDanger = true,
+                            onClick = ::discardAndReturn,
+                            clickSound = Sounds.closePopup,
+                            modifier = Modifier.width(160.dp),
+                        )
+                        AeroButton(
+                            text = readI18n("rwpp.common.exitAndSave"),
                             onClick = ::saveAndReturn,
                             clickSound = Sounds.closePopup,
-                            modifier = Modifier.width(120.dp)
+                            modifier = Modifier.width(130.dp).padding(start = 8.dp),
                         )
                     }
 
@@ -306,7 +312,7 @@ class SettingsScreen(
                                         )
                                         if (appContext.isDesktop()) {
                                             AeroSettingToggle(
-                                                label = readI18n("menus.settings.option.immersiveFullScreen"),
+                                                label = readI18n("rwpp.settings.borderlessFullscreen"),
                                                 defaultValue = configIO.getGameConfig("slick2dFullScreen"),
                                                 subLabel = readI18n("rwpp.settings.immersiveFullScreenHint"),
                                                 onCheckedChange = {
@@ -708,12 +714,6 @@ class SettingsScreen(
                             }
                         }
                     }
-                    AeroButton(
-                        text = readI18n("rwpp.edit.discardAndReturn"),
-                        onClick = ::discardAndReturn,
-                        clickSound = Sounds.closePopup,
-                        modifier = Modifier.align(Alignment.End).padding(top = 8.dp),
-                    )
                 }
             }
         }

@@ -5,28 +5,30 @@
  * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
-package io.github.rwpp.mixin.android
+package io.github.rwpp.mixin.network
 
-import com.corrodinggames.rts.game.Team
 import com.corrodinggames.rts.gameFramework.network.Connection
 import com.corrodinggames.rts.gameFramework.network.OutputNetStream
-import io.github.rwpp.android.cachePlayerSet
 import io.github.rwpp.api.game.Game
 import io.github.rwpp.api.game.RoomOption
 import io.github.rwpp.api.net.InternalPacketType
+import io.github.rwpp.api.net.packets.GamePacket
+import io.github.rwpp.api.net.sendPacketToClient
 import io.github.rwpp.appKoin
 import io.github.rwpp.config.Settings
 import io.github.rwpp.net.PreregisterPacketResult
 import io.github.rwpp.net.applyPreregisterRoomOption
 import io.github.rwpp.ui.UI
-import io.github.rwpp.welcomeMessage
 import kim.der.asm.api.annotation.*
 import net.peanuuutz.tomlkt.Toml
 import java.io.ByteArrayInputStream
 import java.io.DataInputStream
+import java.util.Collections
+import java.util.WeakHashMap
+import com.corrodinggames.rts.gameFramework.network.Packet as NativePacket
 
 @AsmMixin("com/corrodinggames/rts/gameFramework/network/NetworkEngine")
-object AndroidRoomOptionHandshakeMixin {
+object RoomOptionHandshakeMixin {
     @Redirect(
         method = "sendPreregisterInfo(Lcom/corrodinggames/rts/gameFramework/network/Connection;)V",
         ordinal = 0,
@@ -40,21 +42,17 @@ object AndroidRoomOptionHandshakeMixin {
     fun includeServerRoomOption(output: Any, gamePackage: String) {
         val value =
             if (gamePackage == "com.corrodinggames.rts") {
-                roomOptionHandshakeValue()
+                val option = appKoin.get<Game>().gameRoom.option
+                io.github.rwpp.packageName + Toml.encodeToString(RoomOption.serializer(), option)
             } else {
                 gamePackage
             }
         (output as OutputNetStream).writeUTF(value)
     }
-
-    private fun roomOptionHandshakeValue(): String {
-        val option = appKoin.get<Game>().gameRoom.option
-        return io.github.rwpp.packageName + Toml.encodeToString(RoomOption.serializer(), option)
-    }
 }
 
 @AsmMixin("com/corrodinggames/rts/gameFramework/network/NetworkEngine")
-object AndroidNetworkPacketMixin {
+object RoomNetworkPacketMixin {
     @AsmInject(
         method = "processSystemPacket(Lcom/corrodinggames/rts/gameFramework/network/Packet;)V",
         target = InjectionPoint.HEAD,
@@ -63,31 +61,27 @@ object AndroidNetworkPacketMixin {
     )
     fun receiveRwppPackets(
         callbackInfo: CallbackInfo,
-        @Suppress("UNUSED_PARAMETER") target: Any,
+        @Suppress("UNUSED_PARAMETER") self: Any,
         nativePacket: Any,
     ) {
-        val packet = nativePacket as com.corrodinggames.rts.gameFramework.network.Packet
-        val packetType = packet.type
-        if (packetType == InternalPacketType.PREREGISTER_INFO.type) {
-            val room = appKoin.get<Game>().gameRoom
-            val option = if (room.isHost) null else readRoomOption(packet)
+        val packet = nativePacket as NativePacket
+        if (packet.type == InternalPacketType.PREREGISTER_INFO.type) {
+            val gameRoom = appKoin.get<Game>().gameRoom
+            val option = if (gameRoom.isHost) null else decodeRoomOption(packet)
             val result =
                 applyPreregisterRoomOption(
-                    packetType = packetType,
-                    isHost = room.isHost,
+                    packetType = packet.type,
+                    isHost = gameRoom.isHost,
                     option = option,
                     expectedProtocolVersion = io.github.rwpp.protocolVersion,
-                ) { serverOption ->
-                    room.option = serverOption
+                ) { option ->
+                    gameRoom.option = option
                 }
             if (result == PreregisterPacketResult.CANCEL_FOR_PROTOCOL_MISMATCH) {
-                room.disconnect()
+                val remoteProtocolVersion = checkNotNull(option).protocolVersion
+                gameRoom.disconnect()
                 UI.showWarning(
-                    "Different protocol version. yours: ${io.github.rwpp.protocolVersion} server's: ${
-                        checkNotNull(
-                            option
-                        ).protocolVersion
-                    }",
+                    "Different protocol version. yours: ${io.github.rwpp.protocolVersion} server's: $remoteProtocolVersion",
                     true,
                 )
                 callbackInfo.cancel()
@@ -97,10 +91,11 @@ object AndroidNetworkPacketMixin {
 
     }
 
-    private fun readRoomOption(packet: com.corrodinggames.rts.gameFramework.network.Packet): RoomOption? {
+    private fun decodeRoomOption(packet: NativePacket): RoomOption? {
         val data = packet.data ?: return null
-        val firstValue = runCatching { DataInputStream(ByteArrayInputStream(data)).use { it.readUTF() } }.getOrNull()
-            ?: return null
+        val firstValue =
+            runCatching { DataInputStream(ByteArrayInputStream(data)).use { it.readUTF() } }.getOrNull()
+                ?: return null
         if (!firstValue.startsWith(io.github.rwpp.packageName)) return null
         return runCatching {
             Toml.decodeFromString(RoomOption.serializer(), firstValue.removePrefix(io.github.rwpp.packageName))
@@ -109,21 +104,19 @@ object AndroidNetworkPacketMixin {
 }
 
 @AsmMixin("com/corrodinggames/rts/gameFramework/network/NetworkEngine")
-object AndroidNetworkEventMixin {
+object RoomWelcomeMixin {
+    private val welcomed = Collections.synchronizedSet(Collections.newSetFromMap(WeakHashMap<Connection, Boolean>()))
+
     @AsmInject(
         method = "sendServerInfo(Lcom/corrodinggames/rts/gameFramework/network/Connection;)V",
-        target = InjectionPoint.HEAD,
+        target = InjectionPoint.RETURN,
         require = 1,
     )
-    fun sendWelcomeMessage(
-        @Suppress("UNUSED_PARAMETER") target: Any,
-        nativeConnection: Any,
-    ) {
-        val player = ((nativeConnection as Connection).player) ?: return
-        if (!cachePlayerSet.add(player)) return
-        if (appKoin.get<Settings>().showWelcomeMessage == true) {
-            appKoin.get<Game>().gameRoom.sendMessageToPlayer(player as Team, "RWPP", welcomeMessage)
-        }
+    fun sendWelcomeMessage(@Suppress("UNUSED_PARAMETER") self: Any, nativeConnection: Any) {
+        val connection = nativeConnection as Connection
+        if (connection.player == null || appKoin.get<Settings>().showWelcomeMessage != true ||
+            !welcomed.add(connection)
+        ) return
+        connection.sendPacketToClient(GamePacket.getChatPacket("RWPP", io.github.rwpp.welcomeMessage, -1))
     }
-
 }

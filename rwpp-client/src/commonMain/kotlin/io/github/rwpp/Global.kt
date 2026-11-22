@@ -18,12 +18,13 @@
 package io.github.rwpp
 
 import io.github.rwpp.api.appKoin
+import io.github.rwpp.generated.ClientBuildConfig
 import org.koin.core.Koin
 
 /**
  * The version of the project.
  */
-const val projectVersion = "v2.0.0"
+const val projectVersion = "v${ClientBuildConfig.VERSION}"
 
 /**
  * The version of the game core.

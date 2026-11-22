@@ -121,7 +121,9 @@ internal object ActionImages {
     }
 
     internal fun renderPending(render: (HudIconRequest) -> ImageBitmap = ::renderNativeHudIcon) {
+        val started = System.nanoTime()
         repeat(4) {
+            if (it > 0 && System.nanoTime() - started >= 2_000_000L) return
             val (request, requestGeneration) = synchronized(lock) {
                 val queue = visiblePending.ifEmpty { pending }
                 val key = queue.keys.firstOrNull() ?: return

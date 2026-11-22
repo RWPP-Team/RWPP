@@ -138,7 +138,7 @@ internal data class MapPreviewRaster(val width: Int, val height: Int, val pixels
     }
 }
 
-internal expect fun decodeMapPreviewImage(bytes: ByteArray): MapPreviewRaster
+internal expect fun decodeMapPreviewImage(bytes: ByteArray, maxSide: Int = 8192): MapPreviewRaster
 internal expect fun encodeMapPreviewPng(image: MapPreviewRaster): ByteArray
 
 private const val DEFAULT_PREVIEW_DIMENSION = 512

@@ -103,3 +103,64 @@ jobs:
           persist-credentials: false
       - name: Publish the same archives to R2 and refresh the registry
         run: python3 .ci/repo/scripts/publish-r2.py
+
+  publish-central:
+    if: github.event_name == 'release' && github.event.action == 'published' && !github.event.release.prerelease && !github.event.release.draft
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    concurrency:
+      group: maven-central-release
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: jetbrains
+          java-version: '25'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build the signed API and client Maven bundle
+        id: bundle
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          test -n "$GPG_PRIVATE_KEY" || { echo "::error::Configure GPG_PRIVATE_KEY"; exit 1; }
+          version="${RELEASE_TAG#v}"
+          [[ "$version" =~ ^[0-9]+(\.[0-9]+)+$ ]]
+          ./gradlew --no-daemon -PandroidCompileSdk=36 bundleForCentral
+          bundle="build/rwpp-$version-central-bundle.zip"
+          python3 .github/scripts/publish-central.py verify rwpp "$RELEASE_TAG" "$bundle"
+          echo "path=$bundle" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Submit one deployment or resume an existing one
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN }}
+          BUNDLE: ${{ steps.bundle.outputs.path }}
+        run: python3 .github/scripts/publish-central.py submit rwpp "$RELEASE_TAG" "$BUNDLE"
+      - name: Save deployment ID for reruns
+        if: ${{ always() && hashFiles('build/new-central-deployment') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: central-deployment-rwpp-${{ steps.bundle.outputs.version }}
+          path: build/central-deployment.json
+      - name: Wait for Maven Central
+        if: ${{ hashFiles('build/central-deployment.json') != '' }}
+        env:
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN }}
+        run: python3 .github/scripts/publish-central.py wait rwpp "$RELEASE_TAG"

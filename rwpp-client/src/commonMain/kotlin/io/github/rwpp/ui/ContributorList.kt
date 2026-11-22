@@ -75,7 +75,7 @@ class ContributorListScreen : Screen {
                     item("contributors") {
                         CreditsSection(
                             "CONTRIBUTORS",
-                            listOf("Minxyzgo", "Dr", "wty-hub", "eam2539")
+                            listOf("Minxyzgo", "Dr", "wty-hub", "yomi2539", "lic549560-ux", "WHO-MO")
                         )
                     }
                     item("thanks") {

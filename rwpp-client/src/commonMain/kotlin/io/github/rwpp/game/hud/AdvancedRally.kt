@@ -87,6 +87,7 @@ internal object AdvancedRally {
             current.points.lastOrNull() != point
         ) {
             draft = current.copy(points = current.points + point)
+            engine.sound.playInterfaceSound(com.corrodinggames.rts.gameFramework.sound.SoundEngine.move, 0.2f)
         }
         return true
     }

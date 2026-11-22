@@ -54,7 +54,17 @@ object DesktopBorderlessFullscreenMixin {
         val fullscreen = requestedAtLaunch || settings.slick2dFullScreen || settings.slick2dBorderless
         settings.slick2dFullScreen = fullscreen
         settings.slick2dBorderless = fullscreen
+        if (fullscreen) settings.slick2dFullScreenResolution = "native"
     }
+
+    @ModifyArg(
+        method = "applyResolution()V",
+        ordinal = 1,
+        index = 2,
+        at = At(InjectionPoint.INVOKE, target = "com.corrodinggames.rts.java.SlickGameContainer.setDisplayMode(IIZ)V"),
+        require = 1,
+    )
+    fun avoidExclusiveFullscreen(@Suppress("UNUSED_PARAMETER") fullscreen: Boolean): Boolean = false
 
     @WrapOperation(
         method = "applyResolution()V",

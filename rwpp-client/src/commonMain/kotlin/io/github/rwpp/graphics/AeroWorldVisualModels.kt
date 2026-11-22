@@ -226,5 +226,6 @@ internal data class AeroDamageNumber(
 internal data class AeroProductionVisual(
     val center: Offset, val radius: Float, val name: String,
     val remainingSeconds: Int?, val count: Int, val progress: Float, val paused: Boolean,
-    val color: Color, val icon: ImageBitmap? = null, val waiting: Boolean = false
+    val color: Color, val icon: ImageBitmap? = null, val waiting: Boolean = false,
+    val pendingProduction: Int = 0,
 )

@@ -15,6 +15,9 @@ import io.github.rwpp.logic.selection.DEFAULT_SMART_SELECTION_EXTRA_BUILDER_TYPE
 import kotlinx.serialization.Serializable
 import org.koin.core.annotation.Single
 
+@Serializable
+enum class UnitMapColorMode { PLAYER, TEAM, RELATION }
+
 @Single
 @Serializable
 data class Settings(
@@ -35,8 +38,6 @@ data class Settings(
     var aeroSelection: Boolean = false,
     /** Unit type IDs treated as builders only by native mixed-combat drag smart-selection. */
     var smartSelectionExtraBuilders: String = DEFAULT_SMART_SELECTION_EXTRA_BUILDER_TYPES,
-    /** Opt in to native repair orders that add long-idle selected builders to group construction. */
-    var builderQueueProtectionEnabled: Boolean = true,
     var aeroUnitGlowHighlight: Boolean = false,
     var aeroDamageAnimation: Boolean = true,
     var aeroDamageNumbers: Boolean = false,
@@ -52,6 +53,7 @@ data class Settings(
     @Volatile var drawUnitShadows: Boolean = true,
     @Volatile var suppressDeathSmoke: Boolean = false,
     @Volatile var terrainEdgeBuilding: Boolean = true,
+    @Volatile var constructionAssistanceEnabled: Boolean = false,
     @Volatile var overflowProductionQueue: Boolean = false,
     @Volatile var showSurvivalSpawnPoints: Boolean = false,
     @Volatile var showSurvivalWaveAtSpawn: Boolean = false,
@@ -92,6 +94,7 @@ data class Settings(
     var hudChatShowTimestamp: Boolean = false,
     /** Use each player's configured team color for unit markers on the Aero minimap. */
     var minimapUsePlayerColors: Boolean = false,
+    @Volatile var unitMapColorMode: UnitMapColorMode = UnitMapColorMode.PLAYER,
     /** Reassign native team-mask colors locally in the renderer; never changes Team state. */
     @Volatile var unitAppearancePaintEnabled: Boolean = false,
     /** Ten comma-separated 1-based team slots or hex colors, ordered by the unit owner's slot. */

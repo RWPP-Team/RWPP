@@ -16,6 +16,7 @@ import com.corrodinggames.rts.game.units.statusEffects.StatusEffectSpecialAction
 import com.corrodinggames.rts.gameFramework.GameEngine
 import com.corrodinggames.rts.gameFramework.gui.BattleInterface
 import com.corrodinggames.rts.gameFramework.gui.InterfaceEngine
+import com.corrodinggames.rts.gameFramework.sound.SoundEngine
 import io.github.rwpp.api.coroutines.GameScope
 import io.github.rwpp.game.nativeaccess.NativeCommandsAccess
 import io.github.rwpp.game.sandbox.sandboxNativeEditorActionsAllowed
@@ -73,7 +74,10 @@ internal fun executeHudAction(action: SpecialAction, units: List<Unit>, remove: 
         val route = hudActionRoute(
             action.actionType, remove,
             queueEntryAvailable = when (action.actionType) {
-                ActionType.none, ActionType.popupQueue -> action.getCountForUnit(primary, false) != -1
+                ActionType.none, ActionType.popupQueue -> {
+                    val owner = (action as? IndirectedAction)?.targetUnit ?: primary
+                    owner.getSpecialAction(action.storedActionId)?.getCountForUnit(owner, false)?.let { it >= 0 } == true
+                }
                 else -> false
             },
             activeActionMatches = ui.activeSpecialAction == action
@@ -84,22 +88,31 @@ internal fun executeHudAction(action: SpecialAction, units: List<Unit>, remove: 
         }
         if (route == HudActionRoute.RemoveQueueAction &&
             OverflowProductionQueue.cancelLast(engine, action, targets)
-        ) return@launch
+        ) {
+            playQueueFeedback(engine, action, remove = true)
+            return@launch
+        }
         if (route == HudActionRoute.QueueAction &&
             OverflowProductionQueue.enqueue(engine, action, targets)
-        ) return@launch
+        ) {
+            playQueueFeedback(engine, action, remove = false)
+            return@launch
+        }
 
         // Native placement remains selectable without funds; the engine validates payment when
         // actually issuing a build. Keep queue/target actions subject to their availability.
-        if (!remove && action.actionType != ActionType.placeBuilding &&
-            !hudActionAvailable(action) { ui.isSpecialActionAvailable(action, false) }
-        ) return@launch
+        val available = remove || hudActionAvailable(action) { ui.isSpecialActionAvailable(action, false) }
+        if (!available && action.actionType != ActionType.placeBuilding) {
+            if (route == HudActionRoute.QueueAction) engine.sound.playInterfaceSound(SoundEngine.interfaceError, 0.8f)
+            return@launch
+        }
 
         when (route) {
             HudActionRoute.QueueAction, HudActionRoute.RemoveQueueAction, HudActionRoute.RemoveTargetedOrder -> {
                 if (route != HudActionRoute.RemoveTargetedOrder) {
                     TargetedSalvo.arm(null)
                     ui.activeSpecialAction = null
+                    playQueueFeedback(engine, action, remove = route == HudActionRoute.RemoveQueueAction)
                 }
                 // The native action bar raises this hint from its own click handling, which the Aero
                 // action bar replaces; without this the player queues into a full cap in silence.
@@ -134,6 +147,9 @@ internal fun executeHudAction(action: SpecialAction, units: List<Unit>, remove: 
                 } else action.performDirectAction(primary)
             }
             HudActionRoute.ActivateAction, HudActionRoute.PlaceBuilding -> {
+                if (route == HudActionRoute.PlaceBuilding) {
+                    engine.sound.playInterfaceSound(if (available) SoundEngine.click else SoundEngine.interfaceError, 0.8f)
+                }
                 TargetedSalvo.arm(action.takeIf { salvo })
                 ui.specialActionSourceUnit = if (route == HudActionRoute.PlaceBuilding) primary else null
                 if (action.actionType == ActionType.patrol) ui.patrolWaypointCount = 0
@@ -155,6 +171,17 @@ internal fun executeHudAction(action: SpecialAction, units: List<Unit>, remove: 
 
             HudActionRoute.Ignore -> kotlin.Unit
         }
+    }
+}
+
+internal fun usesNativeActionFeedback(type: ActionType): Boolean =
+    type == ActionType.placeBuilding || type == ActionType.none || type == ActionType.popupQueue
+
+private fun playQueueFeedback(engine: GameEngine, action: SpecialAction, remove: Boolean) {
+    if (action.canQueueMultiple()) {
+        engine.sound.playInterfaceSound(if (remove) SoundEngine.clickRemove else SoundEngine.clickAdd, 0.5f)
+    } else {
+        engine.sound.playInterfaceSound(SoundEngine.click, 0.8f)
     }
 }
 

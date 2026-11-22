@@ -11,11 +11,11 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import java.io.ByteArrayOutputStream
 
-internal actual fun decodeMapPreviewImage(bytes: ByteArray): MapPreviewRaster {
+internal actual fun decodeMapPreviewImage(bytes: ByteArray, maxSide: Int): MapPreviewRaster {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
     require(
-        bounds.outWidth in 1..8192 && bounds.outHeight in 1..8192 &&
+        bounds.outWidth in 1..maxSide && bounds.outHeight in 1..maxSide &&
                 bounds.outWidth.toLong() * bounds.outHeight <= 8_000_000L
     ) { "Tileset image dimensions exceed the preview limit" }
     val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)

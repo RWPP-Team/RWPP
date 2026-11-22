@@ -18,6 +18,7 @@ import io.github.rwpp.AppContext
 import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.appKoin
 import io.github.rwpp.config.Settings
+import io.github.rwpp.config.UnitMapColorMode
 import io.github.rwpp.widget.v2.AeroSettingDropDown
 import io.github.rwpp.widget.v2.AeroSettingGroup
 import io.github.rwpp.widget.v2.AeroSettingSlider
@@ -45,6 +46,21 @@ internal fun ClientHudSettings(settings: Settings) {
                 onCheckedChange = { settings.showUnitTargetLine = it }
             )
 
+            var unitMapColorMode by remember(settings) { mutableStateOf(settings.unitMapColorMode) }
+            AeroSettingDropDown(
+                label = readI18n("rwpp.settings.unitMapColorMode"),
+                items = listOf(
+                    readI18n("rwpp.settings.unitMapColorMode.player"),
+                    readI18n("rwpp.settings.unitMapColorMode.team"),
+                    readI18n("rwpp.settings.unitMapColorMode.relation"),
+                ),
+                selectedIndex = unitMapColorMode.ordinal,
+                onItemSelected = { index, _ ->
+                    val mode = UnitMapColorMode.entries[index]
+                    unitMapColorMode = mode
+                    settings.unitMapColorMode = mode
+                },
+            )
 
             var mapTextScale by remember(settings) { mutableFloatStateOf(settings.mapTextScale.coerceIn(0.5f, 2f)) }
 
@@ -54,15 +70,21 @@ internal fun ClientHudSettings(settings: Settings) {
                 onCheckedChange = { settings.advancedRallyPoints = it },
             )
             AeroSettingToggle(
-                label = readI18n("rwpp.settings.targetedSalvo"),
-                defaultValue = settings.showTargetedSalvo,
-                subLabel = readI18n("rwpp.settings.targetedSalvo.hint"),
-                onCheckedChange = { settings.showTargetedSalvo = it },
+                readI18n("rwpp.settings.singleUnitMoveAssist"),
+                settings.singleUnitMoveAssist,
+                onCheckedChange = { settings.singleUnitMoveAssist = it },
             )
+
             AeroSettingToggle(
                 readI18n("rwpp.settings.overflowProductionQueue"),
                 settings.overflowProductionQueue,
                 onCheckedChange = { settings.overflowProductionQueue = it },
+            )
+            AeroSettingToggle(
+                label = readI18n("rwpp.settings.constructionAssistance"),
+                defaultValue = settings.constructionAssistanceEnabled,
+                subLabel = readI18n("rwpp.settings.constructionAssistance.hint"),
+                onCheckedChange = { settings.constructionAssistanceEnabled = it },
             )
             AeroSettingToggle(
                 readI18n("rwpp.graphics.terrainEdgeBuilding"),
@@ -81,6 +103,14 @@ internal fun ClientHudSettings(settings: Settings) {
                 defaultValue = settings.mapTextFixedWorldSize,
                 subLabel = readI18n("rwpp.settings.mapTextFixedWorldSize.hint"),
             ) { settings.mapTextFixedWorldSize = it }
+
+            AeroSettingToggle(
+                label = readI18n("rwpp.settings.targetedSalvo"),
+                defaultValue = settings.showTargetedSalvo,
+                subLabel = readI18n("rwpp.settings.targetedSalvo.hint"),
+                onCheckedChange = { settings.showTargetedSalvo = it },
+            )
+
             AeroSettingToggle(
                 label = readI18n("rwpp.settings.factoryEconomy"),
                 defaultValue = settings.showFactoryEconomy,
@@ -248,19 +278,4 @@ internal fun ClientHudSettings(settings: Settings) {
 @Composable
 private fun SmartSelectionSettings(settings: Settings) {
     SmartSelectionExtraBuilderTypesButton(settings)
-
-    var builderAssistanceEnabled by remember { mutableStateOf(settings.builderQueueProtectionEnabled) }
-    AeroSettingToggle(
-        label = readI18n("rwpp.settings.builderAssistance.enabled"),
-        defaultValue = builderAssistanceEnabled,
-        onCheckedChange = {
-            builderAssistanceEnabled = it
-            settings.builderQueueProtectionEnabled = it
-        }
-    )
-    Text(
-        text = readI18n("rwpp.settings.builderAssistance.help"),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
 }

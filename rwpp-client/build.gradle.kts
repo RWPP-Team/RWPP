@@ -17,14 +17,19 @@ plugins {
     alias(libs.plugins.koin.compiler)
     alias(libs.plugins.allopen)
     `maven-publish`
+    signing
 }
 
+description = "RWPP game client and Compose user interface for desktop and Android."
+group = "io.github.rwpp-team"
+
 val scopeTreeVersion = "0.1.1"
+val scopeTreeGroup = "io.github.minxyzgo"
 val scopeTreeCompiler = configurations.create("scopeTreeCompiler") {
     isCanBeResolved = true
     isCanBeConsumed = false
     isTransitive = false
-}.also { dependencies.add(it.name, "io.github.rwpp-team:compose-scope-tree-compiler-plugin:$scopeTreeVersion") }
+}.also { dependencies.add(it.name, "$scopeTreeGroup:compose-scope-tree-compiler-plugin:$scopeTreeVersion") }
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
     inputs.files(scopeTreeCompiler)
@@ -62,9 +67,33 @@ val androidCompileStubs = tasks.register<Zip>("androidCompileStubs") {
     }
 }
 
+val clientVersion = providers.provider { project.version.toString() }
+val clientBuildConfigDir = layout.buildDirectory.dir("generated/client-build-config")
+val generateClientBuildConfig = tasks.register("generateClientBuildConfig") {
+    inputs.property("version", clientVersion)
+    outputs.dir(clientBuildConfigDir)
+    doLast {
+        val version = clientVersion.get()
+        check(version.matches(Regex("[A-Za-z0-9.+_-]+"))) { "Invalid client version: $version" }
+        val config = clientBuildConfigDir.get().file("ClientBuildConfig.kt").asFile
+        config.parentFile.mkdirs()
+        config.writeText(
+            """
+            package io.github.rwpp.generated
+
+            internal object ClientBuildConfig {
+                const val VERSION = "$version"
+            }
+            """.trimIndent() + "\n"
+        )
+    }
+}
+
 
 kotlin {
-    androidTarget()
+    androidTarget {
+        publishLibraryVariants("release")
+    }
     jvm {
         val mainCompilation = compilations.getByName("main")
         val uiRegression = compilations.create("uiRegression") {
@@ -96,6 +125,9 @@ kotlin {
     }
 
     sourceSets {
+        commonMain {
+            kotlin.srcDir(generateClientBuildConfig)
+        }
         commonMain.dependencies {
             api(project(":rwpp-api"))
             compileOnly(libs.rwml.core)
@@ -106,7 +138,7 @@ kotlin {
             api(libs.compose.material3)
             api(libs.compose.components.resources)
             api(libs.compose.ui)
-            api("io.github.rwpp-team:compose-scope-tree-compose-ui:$scopeTreeVersion")
+            api("$scopeTreeGroup:compose-scope-tree-compose-ui:$scopeTreeVersion")
             api(libs.compose.material.icons.core)
             api(libs.koin.annotations)
             api(libs.koin.compose)
@@ -185,16 +217,6 @@ android {
     }
 }
 
-afterEvaluate {
-    publishing {
-        publications.withType<MavenPublication>().configureEach {
-            groupId = "io.github.rwpp"
-            version = rootProject.version.toString()
-        }
-    }
-}
-
-
 // API and client are loaded as independent RWML extensions.
 apply(from = rootProject.file("gradle/extension-archives.gradle.kts"))
 apply(from = rootProject.file("gradle/android-extension-resources.gradle.kts"))
@@ -254,3 +276,4 @@ val networkRuntimeJar = tasks.register<Jar>("networkRuntimeJar") {
 publishing.publications.withType<MavenPublication>().configureEach {
     if (name == "jvm") artifact(networkRuntimeJar)
 }
+apply(from = rootProject.file("gradle/central-publishing.gradle.kts"))

@@ -8,7 +8,6 @@
 plugins {
     kotlin("jvm")
     application
-    `maven-publish`
 }
 
 description = "RWPP native headless server launcher."
@@ -62,15 +61,6 @@ application {
 java {
     toolchain {
         languageVersion.set(JavaLanguageVersion.of(25))
-    }
-}
-
-publishing {
-    publications {
-        create<MavenPublication>("server") {
-            from(components["java"])
-            artifactId = "rwpp-server"
-        }
     }
 }
 

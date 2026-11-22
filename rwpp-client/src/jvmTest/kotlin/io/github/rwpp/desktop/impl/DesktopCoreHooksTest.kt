@@ -10,8 +10,8 @@ package io.github.rwpp.desktop.impl
 import io.github.rwpp.api.mixin.game.NativeEngineLifecycleMixin
 import io.github.rwpp.api.mixin.network.NativeNetworkLifecycleMixin
 import io.github.rwpp.mixin.desktop.GameEngineLogMixin
-import io.github.rwpp.mixin.desktop.MainLauncherMixin
 import io.github.rwpp.mixin.desktop.ScriptThreadAccessMixin
+import io.github.rwpp.mixin.network.RoomWelcomeMixin
 import kim.der.asm.AsmRegistry
 import kim.der.asm.transformer.AsmProcessor
 import kotlin.test.Test
@@ -24,8 +24,8 @@ class DesktopCoreHooksTest {
             listOf(
                 "com/corrodinggames/rts/gameFramework/GameEngine" to listOf(GameEngineLogMixin::class.java),
                 "com/corrodinggames/rts/game/RWGameEngine" to listOf(NativeEngineLifecycleMixin::class.java),
-                "com/corrodinggames/rts/java/MainLauncher" to listOf(MainLauncherMixin::class.java),
-                "com/corrodinggames/rts/gameFramework/network/NetworkEngine" to listOf(NativeNetworkLifecycleMixin::class.java),
+                "com/corrodinggames/rts/gameFramework/network/NetworkEngine" to
+                    listOf(NativeNetworkLifecycleMixin::class.java, RoomWelcomeMixin::class.java),
                 "com/corrodinggames/librocket/scripts/ScriptEngine" to listOf(ScriptThreadAccessMixin::class.java),
             )
         val classLoader = javaClass.classLoader

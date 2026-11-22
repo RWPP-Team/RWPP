@@ -8,6 +8,9 @@
 package io.github.rwpp.api.command
 
 import io.github.rwml.api.i18n.Messages
+import java.text.MessageFormat
+import java.util.Locale
+import java.util.Properties
 
 /**
  * 命令文案。
@@ -23,6 +26,19 @@ object CommandText {
         this.messages = messages
     }
 
-    fun text(key: String, vararg arguments: Any?): String =
-        messages?.text(key, *arguments) ?: Messages.fallback(key, *arguments)
+    private val english by lazy { bundle("en") }
+    private val chinese by lazy { bundle("zh") }
+
+    fun text(key: String, vararg arguments: Any?): String {
+        val host = messages
+        val locale = host?.locale() ?: Locale.getDefault()
+        val text = (if (locale.language == "zh") chinese.getProperty(key) else null) ?: english.getProperty(key)
+        if (text == null) return host?.text(key, *arguments) ?: Messages.fallback(key, *arguments)
+        return if (arguments.isEmpty()) text else MessageFormat(text, locale).format(arguments)
+    }
+
+    private fun bundle(language: String): Properties = Properties().apply {
+        checkNotNull(CommandText::class.java.getResourceAsStream("/io/github/rwpp/api/command/$language.properties"))
+            .bufferedReader(Charsets.UTF_8).use(::load)
+    }
 }

@@ -156,9 +156,44 @@ val releasePackages = tasks.register<Sync>("releasePackages") {
 }
 tasks.assemble { dependsOn(releasePackages) }
 
+tasks.register<Zip>("bundleForCentral") {
+    group = "publishing"
+    description = "Bundle the RWPP API and client Maven publications and their platform variants."
+    val releaseVersion = provider { project.version.toString() }
+    archiveFileName.set(releaseVersion.map { "rwpp-$it-central-bundle.zip" })
+    destinationDirectory.set(layout.buildDirectory)
+    exclude("**/*.asc.*")
+    for (module in listOf("rwpp-api", "rwpp-client")) {
+        dependsOn(":$module:publishAllPublicationsToLocalStagingRepository")
+        val staging = project(":$module").layout.buildDirectory.dir("central-staging")
+        from(staging) {
+            include(releaseVersion.map { version ->
+                listOf("", "-jvm", "-android").map { "io/github/rwpp-team/$module$it/$version/**" }
+            }.get())
+        }
+        doFirst {
+            val version = releaseVersion.get()
+            check(!version.endsWith("SNAPSHOT")) { "Central release bundles cannot contain snapshots." }
+            for (variant in listOf(module, "$module-jvm", "$module-android")) {
+                val directory = staging.get().asFile.resolve("io/github/rwpp-team/$variant/$version")
+                val baseName = "$variant-$version"
+                val binary = if (variant.endsWith("-android")) ".aar" else ".jar"
+                for (suffix in listOf(binary, ".pom", ".module", "-sources.jar", "-javadoc.jar")) {
+                    for (ending in listOf("", ".asc", ".md5", ".sha1")) {
+                        val file = "$baseName$suffix$ending"
+                        check(directory.resolve(file).isFile) { "Missing $file in the Central staging directory." }
+                    }
+                }
+            }
+        }
+    }
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
+}
+
 allprojects {
     group = "io.github.rwpp"
-    version = "2.0.1.1"
+    version = "2.0.2"
 
 //    subprojects {
 //        tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
