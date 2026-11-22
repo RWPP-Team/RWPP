@@ -66,8 +66,7 @@ internal object NativeMoveQueue {
             unit.dead || unit.removed || engine.replayEngine.isPlayingReplay() || !sameQueue(unit, expected)
         ) return@synchronized null
         val buildRange = if (retainHead) {
-            val type = expected.first().unitType ?: return@synchronized null
-            runCatching { unit.getBuildRange(type) }.getOrNull() ?: return@synchronized null
+            runCatching { expected.first().constructionRange(unit) }.getOrNull() ?: return@synchronized null
         } else null
         val orders = prepare(expected, targets, retainHead, buildRange) ?: return@synchronized null
         val controller = engine.commandController
@@ -111,7 +110,8 @@ internal object NativeMoveQueue {
         val head = expected.first()
         val destination = MovePoint(head.targetX, head.targetY)
         if (retainHead) {
-            if (head.type != WaypointType.build || buildRange == null || !buildRange.isFinite() || buildRange <= 0f ||
+            if ((head.type != WaypointType.build && head.unfinishedConstructionTarget() == null) ||
+                buildRange == null || !buildRange.isFinite() || buildRange <= 0f ||
                 targets.last().distanceTo(destination) > buildRange
             ) return null
         } else if (head.type != WaypointType.move ||
@@ -137,8 +137,7 @@ internal object NativeMoveQueue {
     }
 
     private fun canReissue(order: Waypoint): Boolean =
-        (order.type == WaypointType.move || order.type == WaypointType.build) &&
-            order.targetUnit == null && order.targetX.isFinite() && order.targetY.isFinite() &&
+        order.supportsMoveAssist() && order.targetX.isFinite() && order.targetY.isFinite() &&
             !order.automatic && !order.addedByAction &&
             order.repairReclaimRangePadding == -1f && order.maxWaypointDuration == -1f &&
             (if (order.type == WaypointType.build) order.unitType != null else order.unitType == null)

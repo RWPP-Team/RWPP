@@ -1,9 +1,15 @@
 package io.github.rwpp.game.movement
 
+import android.graphics.RectF
 import com.corrodinggames.rts.game.RWGameEngine
+import com.corrodinggames.rts.game.Player
 import com.corrodinggames.rts.game.map.Map as NativeMap
 import com.corrodinggames.rts.game.map.MapLayer
 import com.corrodinggames.rts.game.map.MapTile
+import com.corrodinggames.rts.game.units.OrderableUnit
+import com.corrodinggames.rts.game.units.UnitType
+import com.corrodinggames.rts.game.units.Waypoint
+import com.corrodinggames.rts.game.units.buildings.turrets.Turret
 import com.corrodinggames.rts.game.units.land.Builder
 import com.corrodinggames.rts.gameFramework.GameEngine
 import com.corrodinggames.rts.gameFramework.ReplayEngine
@@ -45,6 +51,80 @@ class QueuedMoveRoutePlannerTest {
             assertTrue(abs(prediction.time - frames) <= 4f,
                 "Native full-update=$frames frames, queued prediction=$prediction targets=$targets")
         }
+    }
+
+    @Test
+    fun shorelineWaypointsPutAnUnmodifiedBuilderInRangeOfTheOriginalBuild() = withNativeEngine { engine ->
+        val grid = threeTileLavaStrip(engine)
+        val start = MovePoint(470f, 1580f)
+        val unit = Builder(true).apply {
+            x = start.x; y = start.y; angle = 0f; buildProgress = 1f
+            field(javaClass, "needsInitialFogUpdate").setBoolean(this, false)
+        }
+        val bank = MovePoint(510f, 1570f)
+        val center = MovePoint(600f, 1580f)
+        val range = unit.getBuildRange(UnitType.turret)
+        val motion = builderMotion().copy(position = start)
+        fun plan(destination: MovePoint) = MoveShoreBuild.plan(grid, motion, bank,
+            MoveBuildApproach(destination, range)) { it.x in 520f..<580f }
+        val targets = assertNotNull(plan(center))
+        assertNull(plan(MovePoint(620f, 1580f)))
+        targets.forEach { unit.queueMoveWaypoint(it.x, it.y) }
+        var frames = 0
+        while (unit.waypointCount > 0 && frames < 600) {
+            engine.simulationTick = frames
+            engine.gameTimeMillis = frames * 1000 / 60
+            unit.update(1f)
+            engine.pathEngine.update(1f)
+            frames++
+        }
+        assertEquals(0, unit.waypointCount)
+        val handoff = MovePoint(unit.x, unit.y)
+        assertTrue(handoff.x < 520f && handoff.distanceTo(center) <= range, "Native handoff=$handoff targets=$targets")
+    }
+
+    @Test
+    fun nativeBuilderResumesWorkOnTheSameTurretAcrossLava() = withNativeEngine { engine ->
+        val grid = threeTileLavaStrip(engine)
+        val start = MovePoint(470f, 1580f)
+        val initialProgress = 0.4f
+        field(GameEngine::class.java, "viewRectF").set(engine, RectF())
+        val ownTeam = Player(0, false)
+        val unit = Builder(true).apply {
+            x = start.x; y = start.y; angle = 0f; buildProgress = 1f; team = ownTeam
+            field(javaClass, "needsInitialFogUpdate").setBoolean(this, false)
+        }
+        val center = MovePoint(600f, 1580f)
+        val site = Turret(true).apply {
+            x = center.x; y = center.y; buildProgress = initialProgress; team = ownTeam
+        }
+        val repair = Waypoint().apply { setRepair(site) }
+        val range = assertNotNull(repair.constructionRange(unit))
+        val bank = MovePoint(510f, 1570f)
+        val targets = assertNotNull(MoveShoreBuild.plan(grid, builderMotion().copy(position = start), bank,
+            MoveBuildApproach(center, range)) { it.x in 520f..<580f })
+        val orders = assertNotNull(NativeMoveQueue.prepare(listOf(repair), targets, retainHead = true, buildRange = range))
+        orders.forEach { unit.allocateWaypoint().copyFrom(it) }
+        var frames = 0
+        while (site.buildProgress == initialProgress && frames < 600) {
+            engine.simulationTick = frames
+            engine.gameTimeMillis = frames * 1000 / 60
+            unit.update(1f)
+            engine.pathEngine.update(1f)
+            frames++
+        }
+        assertTrue(unit.x < 520f && site.buildProgress > initialProgress, "Native repair did not resume on the original turret")
+        assertSame(site, unit.currentWaypoint.targetUnit)
+    }
+
+    private fun threeTileLavaStrip(engine: GameEngine): MoveNavigationGrid {
+        val blocked = BooleanArray(120 * 120) { it / 120 in 26..28 }
+        val costs = engine.pathEngine.costsLand
+        costs.terrainCost = ByteArray(blocked.size) { if (blocked[it]) -1 else 0 }
+        costs.javaClass.getDeclaredMethod("buildIsolatedGroups").apply { isAccessible = true }.invoke(costs)
+        costs.javaClass.getDeclaredMethod("buildAndReplaceClearanceCost", OrderableUnit::class.java)
+            .apply { isAccessible = true }.invoke(costs, null)
+        return MoveNavigationGrid(0f, 0f, 120, 120, 20f, 20f, blocked)
     }
 
     @Test

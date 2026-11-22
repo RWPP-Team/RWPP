@@ -135,10 +135,17 @@ internal object MoveRoutePlanner {
     ): Estimate = simulateQueued(grid, motion, targets, commandDelay, nativePrefix, terrainClearance, firstIssueWait,
         false, buildApproach)
 
+    /** Predict the position at which the original BUILD takes over after the final MOVE. */
+    internal fun estimateShoreBuildHandoff(
+        grid: MoveNavigationGrid, motion: MoveMotion, targets: List<MovePoint>, clearance: Float,
+    ): MovePoint? = simulateQueued(grid, motion, targets, 0f, emptyList(), clearance, 0, false,
+        stepLimit = 600).handoffPosition
+
     private fun simulateQueued(
         grid: MoveNavigationGrid, motion: MoveMotion, targets: List<MovePoint>, delay: Float,
         nativePrefix: List<MovePoint>, clearance: Float, firstIssueWait: Int, nativeBaseline: Boolean,
         buildApproach: MoveBuildApproach? = null,
+        stepLimit: Int = MAX_SIMULATION_TIME,
     ): Estimate {
         if (!motion.valid || targets.isEmpty() || targets.any { !it.finite } || !delay.isFinite() ||
             delay !in 0f..120f || !clearance.isFinite() || clearance < 0f || firstIssueWait !in 0..120 ||
@@ -157,7 +164,7 @@ internal object MoveRoutePlanner {
         var distance = 0f
         var stopped = 0f
         var reverse = 0f
-        for (time in 0 until MAX_SIMULATION_TIME) {
+        for (time in 0 until stepLimit) {
             val active = nativeBaseline || time >= activateAt
             val before = v.position
             val nativeNodes = nativeBaseline || !active
@@ -181,7 +188,8 @@ internal object MoveRoutePlanner {
             } else if (before.distanceTo(targets[targetIndex]) < MOVE_COMPLETION_RADIUS) {
                 if (targetIndex == targets.lastIndex) {
                     // The retained BUILD runs on the frame after the last MOVE is popped, never at an earlier corner.
-                    return Estimate(true, time + if (buildApproach == null) 0f else 1f, distance, stopped, reverse, targets.size)
+                    return Estimate(true, time + if (buildApproach == null) 0f else 1f, distance, stopped, reverse,
+                        targets.size, handoffPosition = before)
                 }
                 targetIndex++
                 nodes = null
@@ -410,6 +418,7 @@ internal object MoveRoutePlanner {
         val targetIndex: Int? = null,
         val collisionFrom: MovePoint? = null,
         val collisionTo: MovePoint? = null,
+        val handoffPosition: MovePoint? = null,
     )
 
     /** A one-step calibration seam for comparison with the actual game controller. */
