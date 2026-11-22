@@ -25,6 +25,7 @@ import io.github.rwpp.api.coroutines.GameMainDispatcher
 import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.api.logging.logger
 import io.github.rwpp.logic.GameVisualSettings
+import io.github.rwpp.mixin.building.NativeBuildingPlanningCommandAccess
 
 /** Local intent only. Each accepted order is sent through the ordinary native command controller. */
 internal object OverflowProductionQueue {
@@ -33,7 +34,12 @@ internal object OverflowProductionQueue {
     private val pending = linkedMapOf<OrderableUnit, ArrayDeque<ActionId>>()
     private var map: NativeMap? = null
     private var team: Team? = null
-    private val inFlight = HashMap<OrderableUnit, CommandControllerCommand>()
+    private class Submission(val factory: OrderableUnit, val action: ActionId, val command: CommandControllerCommand) {
+        var applying: CommandControllerCommand? = null
+        var countBefore = 0
+    }
+
+    private val inFlight = HashMap<Team, Submission>()
     private var updating = false
     private var nextUpdateAt = 0L
     private val updateTask = Runnable {
@@ -114,6 +120,7 @@ internal object OverflowProductionQueue {
         for (owner in owners(action, units)) {
             val queue = pending[owner] ?: continue
             val index = queue.indexOfLast { it == action.storedActionId }
+            if (index == 0 && inFlight[owner.team]?.factory === owner) continue
             if (index < 0) continue
             queue.removeAt(index)
             if (queue.isEmpty()) pending.remove(owner)
@@ -129,8 +136,9 @@ internal object OverflowProductionQueue {
         if (now < nextUpdateAt) return
         nextUpdateAt = now + 100_000_000L
         val controller = engine.commandController
-        inFlight.values.removeAll {
-            it !in controller.localPendingCommands && it !in controller.networkPendingCommands && it !in controller.issuedCommands
+        inFlight.entries.removeAll { (ownerTeam, submission) ->
+            submission.factory.team !== ownerTeam || !canControl(engine, submission.factory) ||
+                !engine.networkEngine.networked && submission.command !in controller.localPendingCommands
         }
         val factories = pending.iterator()
         while (factories.hasNext()) {
@@ -139,34 +147,68 @@ internal object OverflowProductionQueue {
                 factories.remove()
                 continue
             }
-            val queue = requests.iterator()
-            var first = true
-            while (queue.hasNext()) {
-                val action = resolveQueueAction(owner, queue.next())
-                val state = if (action == null) Admission.Blocked else admission(owner, action)
-                if (state == Admission.Blocked) {
-                    queue.remove()
-                    continue
-                }
-                if (first && state == Admission.Ready && action != null && owner !in inFlight) {
-                    try {
-                        val ui = engine.interfaceEngine
-                        val command = ui.playerCommandQueued
-                        command.addUnit(owner)
-                        command.setActionId(action.actionId)
-                        ui.queueExtraActionOrder(action, null, null, command)
-                        inFlight[owner] = command
-                        InterfaceEngine.markUiDirty()
-                    } catch (failure: Exception) {
-                        logger().warn("Could not submit a deferred production order", failure)
-                    }
-                    queue.remove()
-                }
-                first = false
+            // A normal outgoing command does not debit the shared balance until native execution.
+            if (owner.team in inFlight) continue
+            var action = requests.firstOrNull()?.let { resolveQueueAction(owner, it) }
+            while (action == null && requests.isNotEmpty()) {
+                requests.removeFirst()
+                action = requests.firstOrNull()?.let { resolveQueueAction(owner, it) }
             }
-            if (requests.isEmpty()) factories.remove()
+            if (requests.isEmpty()) {
+                factories.remove()
+            } else if (action != null && admission(owner, action) == Admission.Ready) {
+                try {
+                    val ui = engine.interfaceEngine
+                    val command = ui.playerCommandQueued
+                    command.addUnit(owner)
+                    command.setActionId(action.actionId)
+                    inFlight[owner.team] = Submission(owner, requests.first(), command)
+                    ui.queueExtraActionOrder(action, null, null, command)
+                } catch (failure: Exception) {
+                    logger().warn("Could not submit a deferred production order", failure)
+                }
+            }
         }
         if (pending.isEmpty()) clear()
+    }
+
+    fun beforeNativeApplication(command: CommandControllerCommand) {
+        if (inFlight.isEmpty() || command.isReplayCommand || command.removeFromQueue || command.hasSystemAction ||
+            command.waypoint != null || command.targetPoint != null || command.targetUnit != null ||
+            command.team !== team || command.player?.let { it !== team } == true || command.unitCount != 1
+        ) return
+        val engine = GameEngine.getInstance() ?: return
+        if (engine.map !== map || engine.playerTeam !== team) return
+        val submission = inFlight.values.firstOrNull {
+            it.command === command ||
+                engine.networkEngine.networked && command.actionId == it.command.actionId &&
+                command.queueOrder == it.command.queueOrder &&
+                matchesFactory(command, it.factory)
+        } ?: return
+        submission.countBefore = queuedCount(submission) ?: return
+        submission.applying = command
+    }
+
+    fun afterNativeApplication(command: CommandControllerCommand) {
+        val entry = inFlight.entries.firstOrNull { it.value.applying === command } ?: return
+        val submission = entry.value
+        inFlight.remove(entry.key)
+        val count = queuedCount(submission) ?: return
+        if (count <= submission.countBefore) return
+        val requests = pending[submission.factory] ?: return
+        if (requests.firstOrNull() != submission.action) return
+        requests.removeFirst()
+        if (requests.isEmpty()) pending.remove(submission.factory)
+        InterfaceEngine.markUiDirty()
+    }
+
+    private fun queuedCount(submission: Submission): Int? = runCatching {
+        (submission.factory as FactoryInterface).getQueuedCountOf(submission.action, false)
+    }.getOrNull()
+
+    private fun matchesFactory(command: CommandControllerCommand, factory: OrderableUnit): Boolean {
+        val access = command as? NativeBuildingPlanningCommandAccess ?: return false
+        return factory in access.rwppPlanningCommandUnits() || factory.id in access.rwppPlanningPendingUnitIds()
     }
 
     private fun clear() {

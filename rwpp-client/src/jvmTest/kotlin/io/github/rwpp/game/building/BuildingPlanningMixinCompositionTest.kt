@@ -3,6 +3,8 @@ package io.github.rwpp.game.building
 import io.github.rwpp.mixin.building.BuildingPlanningDragSelectionMixin
 import io.github.rwpp.mixin.building.BuildingPlanningSuppressCapturedMoveMixin
 import io.github.rwpp.mixin.hud.NativeSmartSelectionBuilderTypesMixin
+import io.github.rwpp.mixin.hud.OverflowProductionCommandMixin
+import io.github.rwpp.mixin.movement.SingleUnitMoveCommandMixin
 import io.github.rwpp.mixin.orders.AeroNativeOrderClickMixin
 import io.github.rwpp.mixin.orders.AeroNativeOrderEffectCaptureMixin
 import kim.der.asm.AsmRegistry
@@ -14,6 +16,22 @@ import kotlin.test.Test
 import kotlin.test.assertTrue
 
 class BuildingPlanningMixinCompositionTest {
+    @Test
+    fun productionReceiptsAndMoveAssistanceObserveTheSameNativeCommand() {
+        assertTransformContainsHooks(
+            target = "com/corrodinggames/rts/gameFramework/CommandControllerCommand",
+            mixins = listOf(
+                OverflowProductionCommandMixin::class.java,
+                SingleUnitMoveCommandMixin::class.java,
+            ),
+            expectedOwnersAndNames = listOf(
+                "OverflowProductionCommandMixin" to "beforeIssue",
+                "OverflowProductionCommandMixin" to "afterIssue",
+                "SingleUnitMoveCommandMixin" to "afterNativeApplication",
+            ),
+        )
+    }
+
     @Test
     fun interfaceEngineOrderCaptureAndPlanningCancellationComposeWithoutMovingNativePatrolBody() {
         assertTransformContainsHooks(

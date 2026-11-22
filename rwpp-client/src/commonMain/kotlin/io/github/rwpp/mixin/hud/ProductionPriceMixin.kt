@@ -2,6 +2,8 @@ package io.github.rwpp.mixin.hud
 
 import com.corrodinggames.rts.game.units.Unit
 import com.corrodinggames.rts.game.units.custom.price.CustomPrice
+import com.corrodinggames.rts.gameFramework.CommandControllerCommand
+import io.github.rwpp.game.hud.OverflowProductionQueue
 import io.github.rwpp.game.hud.ProductionPriceProbe
 import kim.der.asm.api.annotation.*
 
@@ -15,4 +17,13 @@ object ProductionPriceMixin {
     )
     fun checkResourceAmounts(price: CustomPrice, owner: Unit, useLagHiding: Boolean, original: Operation<Boolean>): Boolean =
         ProductionPriceProbe.allows(price, owner) ?: original.call(price, owner, useLagHiding)
+}
+
+@AsmMixin("com/corrodinggames/rts/gameFramework/CommandControllerCommand")
+object OverflowProductionCommandMixin {
+    @AsmInject(method = "issueCommand()V", target = InjectionPoint.HEAD, require = 1)
+    fun beforeIssue(target: Any) = OverflowProductionQueue.beforeNativeApplication(target as CommandControllerCommand)
+
+    @AsmInject(method = "issueCommand()V", target = InjectionPoint.TAIL, require = 1)
+    fun afterIssue(target: Any) = OverflowProductionQueue.afterNativeApplication(target as CommandControllerCommand)
 }
