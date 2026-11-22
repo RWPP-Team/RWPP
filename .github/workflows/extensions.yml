@@ -12,6 +12,10 @@ on:
       release_tag:
         description: Published release tag whose packages should be rebuilt and replaced
         type: string
+      skip_central:
+        description: Rebuild release packages without publishing to Maven Central
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -127,7 +131,7 @@ jobs:
 
   publish-central:
     if: >-
-      !cancelled() && (
+      !cancelled() && !inputs.skip_central && (
         (github.event_name == 'release' && needs.publish.result == 'success' &&
          !github.event.release.prerelease && !github.event.release.draft) ||
         (github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.central_tag == '' &&

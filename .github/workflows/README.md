@@ -33,5 +33,5 @@ job and uses the tagged source. If Central does not return a deployment ID after
 the Portal before retrying. The pre-CI 2.0.1.1 deployment is skipped.
 
 To rebuild and replace the packages of a published stable release, run the workflow from the
-default branch with `release_tag`. This runs the package, GitHub, R2 and Central jobs in order.
-Leave `central_tag` blank for this operation.
+default branch with `release_tag` and leave `central_tag` blank. Enable `skip_central` to
+replace the GitHub Release and R2 packages without submitting a Maven Central deployment.
