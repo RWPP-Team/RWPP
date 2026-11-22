@@ -1,8 +1,9 @@
 # Extension builds
 
-Each push builds both RWML extension packs and all four platform-specific API and client JARs.
-The workflow uploads those six files and their checksums as a run artifact. Publishing a GitHub
-release builds its tag and attaches the same files to that release. The `publish` job then
+Pull requests and manual checks build both RWML extension packs and all four platform-specific API
+and client JARs. The workflow uploads those six files and their checksums as a run artifact.
+Publishing a GitHub Release starts one workflow run. It builds the release tag and attaches the same
+files to that release. Branch and tag pushes do not start additional runs. The `publish` job then
 uploads those four JARs to Cloudflare R2 and rewrites `extensions/registry.json` from their
 digests, so the release assets, the R2 objects and the runtime catalog always describe one
 build. No local upload or manual download is needed.
@@ -26,5 +27,7 @@ Gradle project version. It signs a single bundle containing `io.github.rwpp-team
 Portal user token credentials and an armored private key. Set `GPG_PASSPHRASE` if the key requires it.
 
 The workflow stores its deployment ID as an Actions artifact. A rerun resumes that deployment
-or skips coordinates already available in Maven Central. If Central does not return a deployment
-ID after submission, check the Portal before retrying. The pre-CI 2.0.1.1 deployment is skipped.
+or skips coordinates already available in Maven Central. You can also run the workflow from the
+default branch with `central_tag` set to a published stable release tag. This runs only the Central
+job and uses the tagged source. If Central does not return a deployment ID after submission, check
+the Portal before retrying. The pre-CI 2.0.1.1 deployment is skipped.

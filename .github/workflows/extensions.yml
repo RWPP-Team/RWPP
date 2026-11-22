@@ -1,23 +1,30 @@
 name: Build extension distributions
 
 on:
-  push:
+  pull_request:
   release:
     types: [ published ]
   workflow_dispatch:
+    inputs:
+      central_tag:
+        description: Stable release tag to retry on Maven Central (blank to verify the packs)
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   build:
+    if: github.event_name != 'workflow_dispatch' || inputs.central_tag == ''
     runs-on: ubuntu-24.04
     steps:
       - name: Check out RWPP
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         with:
           distribution: jetbrains
           java-version: '25'
@@ -105,7 +112,13 @@ jobs:
         run: python3 .ci/repo/scripts/publish-r2.py
 
   publish-central:
-    if: github.event_name == 'release' && github.event.action == 'published' && !github.event.release.prerelease && !github.event.release.draft
+    if: >-
+      !cancelled() && (
+        (github.event_name == 'release' && needs.build.result == 'success' &&
+         !github.event.release.prerelease && !github.event.release.draft) ||
+        (github.event_name == 'workflow_dispatch' && inputs.central_tag != '' &&
+         github.ref_name == github.event.repository.default_branch)
+      )
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -116,13 +129,38 @@ jobs:
       contents: read
       actions: read
     env:
-      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      RELEASE_TAG: ${{ inputs.central_tag || github.event.release.tag_name }}
     steps:
+      - name: Check stable release and publishing credentials
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+(\.[0-9]+)+$ ]]; then
+            echo '::error::Provide a stable release tag such as v2.0.2'
+            exit 1
+          fi
+          gh release view "$RELEASE_TAG" --json isDraft,isPrerelease \
+            --jq 'if .isDraft or .isPrerelease then error("A published, stable GitHub Release is required") else empty end'
+          missing=0
+          for name in GPG_PRIVATE_KEY CENTRAL_USERNAME CENTRAL_TOKEN; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Configure the $name repository secret"
+              missing=1
+            fi
+          done
+          exit "$missing"
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref }}
+          ref: refs/tags/${{ env.RELEASE_TAG }}
           persist-credentials: false
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         with:
           distribution: jetbrains
           java-version: '25'
@@ -137,9 +175,7 @@ jobs:
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           set -euo pipefail
-          test -n "$GPG_PRIVATE_KEY" || { echo "::error::Configure GPG_PRIVATE_KEY"; exit 1; }
           version="${RELEASE_TAG#v}"
-          [[ "$version" =~ ^[0-9]+(\.[0-9]+)+$ ]]
           ./gradlew --no-daemon -PandroidCompileSdk=36 bundleForCentral
           bundle="build/rwpp-$version-central-bundle.zip"
           python3 .github/scripts/publish-central.py verify rwpp "$RELEASE_TAG" "$bundle"
