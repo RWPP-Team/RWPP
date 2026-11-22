@@ -184,7 +184,10 @@ internal object NativeMoveTerrain {
     }.getOrNull()
 
     /** Returns an ordinary path to this exact MOVE destination, using the verified solver tail when available. */
-    fun nativeRoute(unit: OrderableUnit, goal: MovePoint, continuation: NativeMoveContinuation? = null): List<MovePoint>? = runCatching {
+    fun nativeRoute(
+        unit: OrderableUnit, goal: MovePoint, continuation: NativeMoveContinuation? = null,
+        allowBuildFallback: Boolean = false,
+    ): List<MovePoint>? = runCatching {
         val access = routeAccess(unit, goal) ?: return@runCatching null
         if (access.rwppMovePendingPath() != null) return@runCatching null
         val count = access.rwppMovePathCount()
@@ -212,7 +215,7 @@ internal object NativeMoveTerrain {
             // The BUILD must resume inside its native range even when MOVE finishes about 7px early.
             // Keep the native reachable approach; never append the blocked building centre as a MOVE.
             val end = result.indexOfFirst { it.distanceTo(goal) <= (range - 10f).coerceAtLeast(1f) }
-            return@runCatching if (end >= 0) result.take(end + 1) else null
+            return@runCatching if (end >= 0) result.take(end + 1) else result.takeIf { allowBuildFallback }
         }
         // A nearest-reachable fallback is not evidence of a path to the requested goal.
         if (!sameTarget(last.x, last.y, goal)) return@runCatching null
@@ -220,20 +223,35 @@ internal object NativeMoveTerrain {
         result
     }.getOrNull()
 
+    /** A bounded snapshot beside a resolved native approach. Never reveal hidden building costs. */
+    fun planShoreBuild(
+        engine: GameEngine, unit: OrderableUnit, motion: MoveMotion, bank: MovePoint, build: MoveBuildApproach,
+    ): List<MovePoint>? {
+        val map = engine.map ?: return null
+        val span = max(map.tileWidth, map.tileHeight)
+        if (span <= 0 || bank.distanceTo(build.center) !in build.range..build.range + span ||
+            motion.position.distanceTo(bank) > 8f * span) return null
+        val terrain = engine.pathEngine?.getCosts(MovementType.LAND)?.terrainCost ?: return null
+        val grid = capture(engine, unit, build.center, listOf(bank)) ?: return null
+        return MoveShoreBuild.plan(grid, motion, bank, build) { point ->
+            val x = floor(point.x / map.tileWidth).toInt()
+            val y = floor(point.y / map.tileHeight).toInt()
+            x in 0 until map.mapWidthInTiles && y in 0 until map.mapHeightInTiles &&
+                terrain[x * map.mapHeightInTiles + y].toInt() == -1
+        }
+    }
+
     private fun routeAccess(unit: OrderableUnit, goal: MovePoint): NativeMovePathAccess? {
         if (!goal.finite || unit.flowFieldFollower != null || unit.waypointCount < 1) return null
         val waypoint = unit.currentWaypoint ?: return null
-        if (waypoint.type !in listOf(WaypointType.move, WaypointType.build) || waypoint.targetUnit != null ||
+        if (!waypoint.supportsMoveAssist() ||
             !sameTarget(waypoint.targetX, waypoint.targetY, goal)) return null
         val access = unit as? NativeMovePathAccess ?: return null
         return access.takeIf { sameTarget(it.rwppMovePathGoalX(), it.rwppMovePathGoalY(), goal) }
     }
 
-    private fun approachBuildRange(unit: OrderableUnit): Float? {
-        val order = unit.currentWaypoint?.takeIf { it.type == WaypointType.build } ?: return null
-        val type = order.unitType ?: return null
-        return unit.getBuildRange(type).takeIf { it.isFinite() && it > 10f }
-    }
+    private fun approachBuildRange(unit: OrderableUnit): Float? =
+        unit.currentWaypoint?.constructionRange(unit)?.takeIf { it.isFinite() && it > 10f }
 
     private fun sameTarget(x: Float, y: Float, goal: MovePoint): Boolean =
         x.isFinite() && y.isFinite() && abs(x - goal.x) <= TARGET_EPSILON && abs(y - goal.y) <= TARGET_EPSILON
