@@ -199,11 +199,17 @@ class SettingsScreen(
 
                         Spacer(modifier = Modifier.width(if (compact) 8.dp else 16.dp))
                         AeroButton(
-                            text = readI18n("rwpp.common.exitAndSave"),
+                            text = readI18n("rwpp.edit.discardAndReturn"),
                             isDanger = true,
+                            onClick = ::discardAndReturn,
+                            clickSound = Sounds.closePopup,
+                            modifier = Modifier.width(160.dp),
+                        )
+                        AeroButton(
+                            text = readI18n("rwpp.common.exitAndSave"),
                             onClick = ::saveAndReturn,
                             clickSound = Sounds.closePopup,
-                            modifier = Modifier.width(120.dp)
+                            modifier = Modifier.width(130.dp).padding(start = 8.dp),
                         )
                     }
 
@@ -274,120 +280,6 @@ class SettingsScreen(
                                                 style = MaterialTheme.typography.bodySmall,
                                             )
                                         }
-                                        if (appContext.isDesktop()) {
-                                            CommunityDlss5Settings(settings)
-                                            AeroSettingGroup(
-                                                title = "SCREEN-SPACE LIGHTING",
-                                                tag = "SSR / RT",
-                                            ) {
-                                                Text(
-                                                    readI18n("rwpp.settings.enhancedWorldLightingHint"),
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                )
-                                                AeroSettingToggle(
-                                                    label = readI18n("rwpp.settings.waterWetGroundReflections"),
-                                                    defaultValue = settings.worldScreenSpaceReflections,
-                                                    subLabel = readI18n("rwpp.settings.worldImageReflectionsHint"),
-                                                    onCheckedChange = { settings.worldScreenSpaceReflections = it },
-                                                )
-                                                AeroSettingToggle(
-                                                    label = readI18n("rwpp.settings.screenSpaceRayTracing"),
-                                                    defaultValue = settings.worldScreenSpaceRayTracing,
-                                                    subLabel = readI18n("rwpp.settings.screenSpaceRayTracingHint"),
-                                                    onCheckedChange = { settings.worldScreenSpaceRayTracing = it },
-                                                )
-                                                var rayTraceSteps by remember {
-                                                    mutableIntStateOf(
-                                                        settings.worldRayTraceSteps.coerceIn(
-                                                            2,
-                                                            8
-                                                        )
-                                                    )
-                                                }
-                                                AeroSettingSlider(
-                                                    label = readI18n("rwpp.settings.reflectionRaySteps"),
-                                                    value = rayTraceSteps / 8f,
-                                                    onValueChange = {
-                                                        rayTraceSteps = ((it * 4f).roundToInt() * 2).coerceIn(2, 8)
-                                                        settings.worldRayTraceSteps = rayTraceSteps
-                                                    },
-                                                    valueRange = 0.25f..1f,
-                                                    valueFormat = { "${((it * 4f).roundToInt() * 2).coerceIn(2, 8)}" },
-                                                )
-                                                Text(
-                                                    readI18n("rwpp.settings.worldLightingDescription"),
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                )
-                                                AeroSettingToggle(
-                                                    label = readI18n("rwpp.settings.groundWetSurfaceHighlights"),
-                                                    defaultValue = settings.worldSurfaceHighlights,
-                                                    subLabel = readI18n("rwpp.settings.originalSpriteShadingHint"),
-                                                    onCheckedChange = { settings.worldSurfaceHighlights = it },
-                                                )
-                                                AeroSettingToggle(
-                                                    label = readI18n("rwpp.settings.sceneHighlightBloom"),
-                                                    defaultValue = settings.worldDynamicBloom,
-                                                    onCheckedChange = { settings.worldDynamicBloom = it },
-                                                )
-                                                var wetStrength by remember {
-                                                    mutableFloatStateOf(
-                                                        settings.worldWetGroundStrength.coerceIn(
-                                                            0f,
-                                                            2f
-                                                        )
-                                                    )
-                                                }
-                                                AeroSettingSlider(
-                                                    label = readI18n("rwpp.settings.wetGroundReflectionStrength"),
-                                                    value = wetStrength,
-                                                    onValueChange = {
-                                                        wetStrength =
-                                                            it.coerceIn(0f, 2f); settings.worldWetGroundStrength =
-                                                        wetStrength
-                                                    },
-                                                    valueRange = 0f..2f,
-                                                    valueFormat = { "${(it * 100f).roundToInt()}%" },
-                                                )
-                                                var lightingStrength by remember {
-                                                    mutableFloatStateOf(
-                                                        settings.worldLightingStrength.coerceIn(
-                                                            0f,
-                                                            3f
-                                                        )
-                                                    )
-                                                }
-                                                var waveStrength by remember {
-                                                    mutableFloatStateOf(
-                                                        settings.worldWaterWaveStrength.coerceIn(
-                                                            0f,
-                                                            1.5f
-                                                        )
-                                                    )
-                                                }
-                                                AeroSettingSlider(
-                                                    label = readI18n("rwpp.settings.waterWaveStrength"),
-                                                    value = waveStrength,
-                                                    onValueChange = {
-                                                        waveStrength = it.coerceIn(0f, 1.5f)
-                                                        settings.worldWaterWaveStrength = waveStrength
-                                                    },
-                                                    valueRange = 0f..1.5f,
-                                                    valueFormat = { "${(it * 100f).roundToInt()}%" },
-                                                )
-                                                AeroSettingSlider(
-                                                    label = readI18n("rwpp.settings.sunlightHighlightIntensity"),
-                                                    value = lightingStrength,
-                                                    onValueChange = {
-                                                        lightingStrength = it.coerceIn(0f, 3f)
-                                                        settings.worldLightingStrength = lightingStrength
-                                                    },
-                                                    valueRange = 0f..3f,
-                                                    valueFormat = { "${(it * 100f).roundToInt()}%" },
-                                                )
-                                            }
-                                        }
                                         SettingsSwitchRW("showUnitWaypoints")
                                         SettingsSwitchRW("showHp", labelKey = "alwayUnitHealth")
                                         SettingsSwitchRW("showUnitIcons", labelKey = "unitIcons")
@@ -396,9 +288,31 @@ class SettingsScreen(
                                         SettingsSwitchRW("renderClouds")
                                         SettingsSwitchRW("shaderEffects")
 
+                                        val effectLimitValues = remember { listOf("Zero", "Keep", "Unlimited") }
+                                        val effectLimitLabels = listOf(
+                                            readI18n("rwpp.settings.effectLimit.zero"),
+                                            readI18n("rwpp.settings.effectLimit.keep"),
+                                            readI18n("rwpp.settings.effectLimit.unlimited"),
+                                        )
+                                        var effectLimitIndex by remember {
+                                            mutableIntStateOf(
+                                                effectLimitValues.indexOf(
+                                                    settings.effectLimitForAllEffects
+                                                ).coerceAtLeast(0)
+                                            )
+                                        }
+                                        AeroSettingDropDown(
+                                            label = readI18n("rwpp.settings.effectLimitForAllEffects"),
+                                            items = effectLimitLabels,
+                                            selectedIndex = effectLimitIndex,
+                                            onItemSelected = { idx, _ ->
+                                                effectLimitIndex = idx
+                                                settings.effectLimitForAllEffects = effectLimitValues[idx]
+                                            }
+                                        )
                                         if (appContext.isDesktop()) {
                                             AeroSettingToggle(
-                                                label = readI18n("menus.settings.option.immersiveFullScreen"),
+                                                label = readI18n("rwpp.settings.borderlessFullscreen"),
                                                 defaultValue = configIO.getGameConfig("slick2dFullScreen"),
                                                 subLabel = readI18n("rwpp.settings.immersiveFullScreenHint"),
                                                 onCheckedChange = {
@@ -409,14 +323,134 @@ class SettingsScreen(
                                                     // runtime field in step so a stale value cannot
                                                     // override the switch before the next start.
                                                     configIO.setGameConfig("slick2dBorderless", it)
-                                                    // Persist with the other settings only after Save;
-                                                    // discarding must also undo this startup preference.
+                                                    // The native display mode is chosen at startup, so
+                                                    // persist immediately instead of relying on the
+                                                    // exit-time save.
+                                                    runCatching {
+                                                        com.corrodinggames.rts.gameFramework.GameEngine
+                                                            .getInstance().settings.save()
+                                                    }
                                                 }
                                             )
+                                        }
+                                        AeroSettingGroup(
+                                            title = "SCREEN-SPACE LIGHTING",
+                                            tag = "SSR / RT",
+                                        ) {
+                                            Text(
+                                                readI18n("rwpp.settings.enhancedWorldLightingHint"),
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                style = MaterialTheme.typography.bodySmall,
+                                            )
+                                            AeroSettingToggle(
+                                                label = readI18n("rwpp.settings.waterWetGroundReflections"),
+                                                defaultValue = settings.worldScreenSpaceReflections,
+                                                subLabel = readI18n("rwpp.settings.worldImageReflectionsHint"),
+                                                onCheckedChange = { settings.worldScreenSpaceReflections = it },
+                                            )
+                                            AeroSettingToggle(
+                                                label = readI18n("rwpp.settings.screenSpaceRayTracing"),
+                                                defaultValue = settings.worldScreenSpaceRayTracing,
+                                                subLabel = readI18n("rwpp.settings.screenSpaceRayTracingHint"),
+                                                onCheckedChange = { settings.worldScreenSpaceRayTracing = it },
+                                            )
+                                            var rayTraceSteps by remember {
+                                                mutableIntStateOf(
+                                                    settings.worldRayTraceSteps.coerceIn(
+                                                        2,
+                                                        8
+                                                    )
+                                                )
+                                            }
+                                            AeroSettingSlider(
+                                                label = readI18n("rwpp.settings.reflectionRaySteps"),
+                                                value = rayTraceSteps / 8f,
+                                                onValueChange = {
+                                                    rayTraceSteps = ((it * 4f).roundToInt() * 2).coerceIn(2, 8)
+                                                    settings.worldRayTraceSteps = rayTraceSteps
+                                                },
+                                                valueRange = 0.25f..1f,
+                                                valueFormat = { "${((it * 4f).roundToInt() * 2).coerceIn(2, 8)}" },
+                                            )
+                                            Text(
+                                                readI18n("rwpp.settings.worldLightingDescription"),
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                style = MaterialTheme.typography.bodySmall,
+                                            )
+                                            AeroSettingToggle(
+                                                label = readI18n("rwpp.settings.groundWetSurfaceHighlights"),
+                                                defaultValue = settings.worldSurfaceHighlights,
+                                                subLabel = readI18n("rwpp.settings.originalSpriteShadingHint"),
+                                                onCheckedChange = { settings.worldSurfaceHighlights = it },
+                                            )
+                                            AeroSettingToggle(
+                                                label = readI18n("rwpp.settings.sceneHighlightBloom"),
+                                                defaultValue = settings.worldDynamicBloom,
+                                                onCheckedChange = { settings.worldDynamicBloom = it },
+                                            )
+                                            var wetStrength by remember {
+                                                mutableFloatStateOf(
+                                                    settings.worldWetGroundStrength.coerceIn(
+                                                        0f,
+                                                        2f
+                                                    )
+                                                )
+                                            }
+                                            AeroSettingSlider(
+                                                label = readI18n("rwpp.settings.wetGroundReflectionStrength"),
+                                                value = wetStrength,
+                                                onValueChange = {
+                                                    wetStrength =
+                                                        it.coerceIn(0f, 2f); settings.worldWetGroundStrength =
+                                                    wetStrength
+                                                },
+                                                valueRange = 0f..2f,
+                                                valueFormat = { "${(it * 100f).roundToInt()}%" },
+                                            )
+                                            var lightingStrength by remember {
+                                                mutableFloatStateOf(
+                                                    settings.worldLightingStrength.coerceIn(
+                                                        0f,
+                                                        3f
+                                                    )
+                                                )
+                                            }
+                                            var waveStrength by remember {
+                                                mutableFloatStateOf(
+                                                    settings.worldWaterWaveStrength.coerceIn(
+                                                        0f,
+                                                        1.5f
+                                                    )
+                                                )
+                                            }
+                                            AeroSettingSlider(
+                                                label = readI18n("rwpp.settings.waterWaveStrength"),
+                                                value = waveStrength,
+                                                onValueChange = {
+                                                    waveStrength = it.coerceIn(0f, 1.5f)
+                                                    settings.worldWaterWaveStrength = waveStrength
+                                                },
+                                                valueRange = 0f..1.5f,
+                                                valueFormat = { "${(it * 100f).roundToInt()}%" },
+                                            )
+                                            AeroSettingSlider(
+                                                label = readI18n("rwpp.settings.sunlightHighlightIntensity"),
+                                                value = lightingStrength,
+                                                onValueChange = {
+                                                    lightingStrength = it.coerceIn(0f, 3f)
+                                                    settings.worldLightingStrength = lightingStrength
+                                                },
+                                                valueRange = 0f..3f,
+                                                valueFormat = { "${(it * 100f).roundToInt()}%" },
+                                            )
+                                        }
+                                        if (appContext.isDesktop()) {
+                                            CommunityDlss5Settings(settings)
                                         }
                                     }
 
                                     "gameplay" -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        // gameplay 下只允许放入原生设置
                                         AeroSettingGroup(
                                             title = "GAMEPLAY",
                                             tag = "MECHANICS"
@@ -426,91 +460,7 @@ class SettingsScreen(
                                             SettingsSwitchRW("showWarLogOnScreen")
                                             SettingsSwitchRW("smartSelection_v2", labelKey = "smartSelection")
                                             SettingsSwitchRW("quickRally")
-                                            AeroSettingToggle(
-                                                readI18n("rwpp.settings.advancedRallyPoints"),
-                                                settings.advancedRallyPoints,
-                                                onCheckedChange = { settings.advancedRallyPoints = it },
-                                            )
                                             SettingsSwitchRW("doubleClickToAttackMove")
-                                            AeroSettingToggle(
-                                                readI18n("rwpp.settings.overflowProductionQueue"),
-                                                settings.overflowProductionQueue,
-                                                onCheckedChange = { settings.overflowProductionQueue = it },
-                                            )
-                                            AeroSettingToggle(
-                                                readI18n("rwpp.graphics.terrainEdgeBuilding"),
-                                                settings.terrainEdgeBuilding,
-                                                onCheckedChange = { settings.terrainEdgeBuilding = it },
-                                            )
-                                            AeroSettingToggle(
-                                                readI18n("rwpp.settings.singleUnitMoveAssist"),
-                                                settings.singleUnitMoveAssist,
-                                                onCheckedChange = { settings.singleUnitMoveAssist = it },
-                                            )
-
-                                            AeroSettingToggle(
-                                                label = readI18n("menus.settings.option.forceEnglish"),
-                                                defaultValue = Rwml.get().ui().messages().language() == "en",
-                                                onCheckedChange = {
-                                                    settings.forceEnglish = it
-                                                    configIO.setGameConfig("forceEnglish", it)
-                                                    Rwml.get().ui().messages().language(if (it) "en" else "system")
-                                                }
-                                            )
-
-                                            AeroSettingToggle(
-                                                label = readI18n("rwpp.settings.enhancedReinforceTroops"),
-                                                defaultValue = settings.enhancedReinforceTroops,
-                                                onCheckedChange = { settings.enhancedReinforceTroops = it }
-                                            )
-
-                                            AeroSettingToggle(
-                                                label = readI18n("rwpp.settings.showUnitTargetLine"),
-                                                defaultValue = settings.showUnitTargetLine,
-                                                onCheckedChange = { settings.showUnitTargetLine = it }
-                                            )
-                                            AeroSettingToggle(
-                                                label = readI18n("rwpp.settings.factoryEconomy"),
-                                                defaultValue = settings.showFactoryEconomy,
-                                                subLabel = readI18n("rwpp.settings.factoryEconomy.hint"),
-                                                onCheckedChange = { settings.showFactoryEconomy = it }
-                                            )
-
-                                            val effectLimitValues = remember { listOf("Zero", "Keep", "Unlimited") }
-                                            val effectLimitLabels = listOf(
-                                                readI18n("rwpp.settings.effectLimit.zero"),
-                                                readI18n("rwpp.settings.effectLimit.keep"),
-                                                readI18n("rwpp.settings.effectLimit.unlimited"),
-                                            )
-                                            var effectLimitIndex by remember {
-                                                mutableIntStateOf(
-                                                    effectLimitValues.indexOf(
-                                                        settings.effectLimitForAllEffects
-                                                    ).coerceAtLeast(0)
-                                                )
-                                            }
-                                            AeroSettingDropDown(
-                                                label = readI18n("rwpp.settings.effectLimitForAllEffects"),
-                                                items = effectLimitLabels,
-                                                selectedIndex = effectLimitIndex,
-                                                onItemSelected = { idx, _ ->
-                                                    effectLimitIndex = idx
-                                                    settings.effectLimitForAllEffects = effectLimitValues[idx]
-                                                }
-                                            )
-
-                                            if (appContext.isAndroid()) {
-                                                AeroSettingToggle(
-                                                    label = readI18n("rwpp.settings.enableVolumeKeyMapping"),
-                                                    defaultValue = settings.enableVolumeKeyMapping,
-                                                    onCheckedChange = { settings.enableVolumeKeyMapping = it }
-                                                )
-                                                AeroSettingToggle(
-                                                    label = readI18n("rwpp.settings.mouseMoveView"),
-                                                    defaultValue = settings.mouseMoveView,
-                                                    onCheckedChange = { settings.mouseMoveView = it }
-                                                )
-                                            }
 
                                             var teamCapSingle by remember {
                                                 mutableStateOf(
@@ -555,14 +505,6 @@ class SettingsScreen(
                                                     )
                                                 }
                                             )
-
-                                        }
-
-                                        AeroSettingGroup(
-                                            title = "SMART SELECTION",
-                                            tag = "OPTIONAL"
-                                        ) {
-                                            SmartSelectionSettings(settings)
                                         }
 
                                         AeroSettingGroup(
@@ -670,6 +612,15 @@ class SettingsScreen(
                                             defaultValue = settings.showWelcomeMessage ?: false,
                                             onCheckedChange = { settings.showWelcomeMessage = it }
                                         )
+                                        AeroSettingToggle(
+                                            label = readI18n("menus.settings.option.forceEnglish"),
+                                            defaultValue = Rwml.get().ui().messages().language() == "en",
+                                            onCheckedChange = {
+                                                settings.forceEnglish = it
+                                                configIO.setGameConfig("forceEnglish", it)
+                                                Rwml.get().ui().messages().language(if (it) "en" else "system")
+                                            }
+                                        )
                                         ClientHudSettings(settings)
                                     }
 
@@ -691,6 +642,24 @@ class SettingsScreen(
                                                 defaultValue = settings.enableAnimations,
                                                 onCheckedChange = { settings.enableAnimations = it }
                                             )
+                                            AeroSettingToggle(
+                                                readI18n("rwpp.hud.editor.settings.animations"),
+                                                settings.hudAnimations
+                                            ) { settings.hudAnimations = it }
+                                            if (koinInject<AppContext>().isDesktop()) {
+                                                val rates = remember { listOf(30, 60, 90, 120, 144, 240, 300) }
+                                                var selectedRate by remember {
+                                                    mutableIntStateOf(
+                                                        rates.indexOf(settings.hudRefreshRate).coerceAtLeast(0)
+                                                    )
+                                                }
+                                                AeroSettingDropDown(
+                                                    label = readI18n("rwpp.settings.hudRefreshRate"),
+                                                    items = rates.map { readI18n("rwpp.settings.hudRefreshRate.value", it) },
+                                                    selectedIndex = selectedRate,
+                                                    onItemSelected = { index, _ -> selectedRate = index; settings.hudRefreshRate = rates[index] },
+                                                )
+                                            }
                                             AeroSettingToggle(
                                                 label = readI18n("rwpp.settings.boldText"),
                                                 defaultValue = settings.boldText,
@@ -745,12 +714,6 @@ class SettingsScreen(
                             }
                         }
                     }
-                    AeroButton(
-                        text = readI18n("rwpp.edit.discardAndReturn"),
-                        onClick = ::discardAndReturn,
-                        clickSound = Sounds.closePopup,
-                        modifier = Modifier.align(Alignment.End).padding(top = 8.dp),
-                    )
                 }
             }
         }
@@ -795,22 +758,3 @@ private fun SettingsSliderRW(
     )
 }
 
-@Composable
-private fun SmartSelectionSettings(settings: Settings) {
-    SmartSelectionExtraBuilderTypesButton(settings)
-
-    var builderAssistanceEnabled by remember { mutableStateOf(settings.builderQueueProtectionEnabled) }
-    AeroSettingToggle(
-        label = readI18n("rwpp.settings.builderAssistance.enabled"),
-        defaultValue = builderAssistanceEnabled,
-        onCheckedChange = {
-            builderAssistanceEnabled = it
-            settings.builderQueueProtectionEnabled = it
-        }
-    )
-    Text(
-        text = readI18n("rwpp.settings.builderAssistance.help"),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-}

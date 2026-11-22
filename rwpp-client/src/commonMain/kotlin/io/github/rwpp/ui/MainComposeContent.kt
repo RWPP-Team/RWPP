@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -58,7 +59,7 @@ private object LoadingOverlayPresentation {
     }
 }
 
-private var loadingOverlayGeneration by mutableStateOf(0L)
+private var loadingOverlayGeneration by mutableLongStateOf(0L)
 
 /** Begins a generation-tagged draw acknowledgement for the active loading overlay. */
 internal fun beginLoadingOverlayPresentation(): Long = LoadingOverlayPresentation.begin().also {
@@ -89,18 +90,34 @@ fun showSendMessageDialog() {
 internal expect fun PlatformBackgroundLayer(path: String)
 
 /**
- * The wallpaper is composited above the native game surface. This layer reads the navigator
- * state itself, so a missed parent recomposition cannot leave the image over a running game.
+ * The wallpaper is composited above the native game surface. Native maps can be displayed
+ * before the navigation stack receives its GameScreen.
  */
 @Composable
 private fun WallpaperLayer(path: String) {
-    if (rememberNavigatorHoldsGameScreen()) return
-    PlatformBackgroundLayer(path)
+    if (rememberWallpaperHidden()) return
+    Box(Modifier.fillMaxSize().drawWithContent {
+        // The desktop scene can retain menu content across a navigation update. Check again
+        // when drawing so a retained wallpaper node cannot paint over the native world.
+        if (!UI.nativeWorldOwnsSurface && !navigatorHoldsGameScreen()) drawContent()
+    }) {
+        PlatformBackgroundLayer(path)
+    }
+}
+
+@Composable
+internal fun rememberWallpaperHidden(): Boolean =
+    UI.nativeWorldOwnsSurface || rememberNavigatorHoldsGameScreen()
+
+internal fun nativeMapOwnsSurface(loopActive: Boolean, mapLoaded: Boolean, path: String?): Boolean {
+    if (!loopActive || !mapLoaded || path.isNullOrBlank()) return false
+    val normalized = path.replace('\\', '/').trimStart('/').removePrefix("assets/")
+    return !normalized.startsWith("maps/menu_background/", ignoreCase = true)
 }
 
 /** Main RWPP screen and the in-game overlays, shared by both host surfaces. */
 @Composable
-fun MainComposeContent(showBackground: Boolean = true, safeInsets: Boolean = false) {
+fun MainComposeContent(showBackground: Boolean = true, safeInsets: Boolean = false) = RwppScopeTrees.Content {
     val foregroundInsets =
         if (safeInsets) {
             Modifier.windowInsetsPadding(WindowInsets.safeDrawing)
@@ -110,7 +127,7 @@ fun MainComposeContent(showBackground: Boolean = true, safeInsets: Boolean = fal
     Box(modifier = Modifier.fillMaxSize()) {
         // The background layer is part of the window, which is composited above the native
         // game surface; drawing it during gameplay would hide the running game.
-        if (showBackground && !rememberNavigatorHoldsGameScreen()) {
+        if (showBackground) {
             WallpaperLayer(UI.backgroundImagePath)
         }
         Box(modifier = Modifier.fillMaxSize().then(foregroundInsets), contentAlignment = Alignment.Center) {

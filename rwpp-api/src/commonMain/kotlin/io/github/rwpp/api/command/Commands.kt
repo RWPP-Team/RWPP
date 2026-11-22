@@ -7,6 +7,9 @@
 
 package io.github.rwpp.api.command
 
+import io.github.rwpp.api.logging.logger
+import kotlinx.coroutines.CancellationException
+
 @DslMarker
 annotation class CommandDsl
 
@@ -150,13 +153,19 @@ class Commands private constructor(registerHelp: Boolean) {
 
     fun execute(line: String, sender: CommandSender): Boolean = try {
         dispatch(tokenize(line), sender)
-    } catch (error: CommandException) {
-        sender.reply(error.message ?: CommandText.text("veil.commands.8fdf5eda"))
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: IllegalArgumentException) {
+        sender.reply(error.message?.takeUnless(String::isBlank) ?: CommandText.text("veil.commands.8fdf5eda"))
+        false
+    } catch (error: Exception) {
+        logger().warn("Command handler failed", error)
+        sender.reply(CommandText.text("veil.commands.8fdf5eda"))
         false
     }
 
     private fun dispatch(tokens: List<String>, sender: CommandSender): Boolean {
-        if (tokens.isEmpty()) return true
+        if (tokens.isEmpty()) throw CommandException(CommandText.text("rwpp.commands.missingName"))
         val command =
             entries[tokens.first()] ?: throw CommandException(
                 CommandText.text(

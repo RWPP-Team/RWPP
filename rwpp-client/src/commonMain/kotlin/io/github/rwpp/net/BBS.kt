@@ -8,9 +8,11 @@
 package io.github.rwpp.net
 
 import com.eclipsesource.json.Json
+import com.eclipsesource.json.JsonObject
 import io.github.rwpp.api.net.Net
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MultipartBody
 import okhttp3.Request
 import java.io.IOException
@@ -32,28 +34,29 @@ fun Net.searchBBS(
     keyword: String,
     type: ResourceType,
     callback: (Result<Array<NetResourceInfo>>) -> Unit,
-) {
+): Call {
     val request = Request.Builder()
         .url(protocol.url)
         .post(protocol.requestBodyProvider(page, keyword, type))
         .build()
 
-    client.newCall(request).enqueue(object : Callback {
+    val call = client.newCall(request)
+    call.enqueue(object : Callback {
         override fun onFailure(call: Call, e: IOException) {
             callback(Result.failure(e))
         }
 
         override fun onResponse(call: Call, response: okhttp3.Response) {
-            val result = if (response.isSuccessful) {
-                protocol.resultParser(response)?.let {
-                    Result.success(it)
-                } ?: Result.failure(IOException("Unknown response body"))
-            } else {
-                Result.failure(IOException("HTTP error code: ${response.code}"))
+            val result = runCatching {
+                response.use {
+                    if (!it.isSuccessful) throw IOException("HTTP ${it.code}")
+                    protocol.resultParser(it) ?: throw IOException("Invalid resource response")
+                }
             }
             callback(result)
         }
     })
+    return call
 }
 
 /** RWPP product search protocol for the RTSBox resource forum. */
@@ -71,25 +74,7 @@ val RTSBoxProtocol = BBSProtocol(
             .build()
     },
     { response ->
-        runCatching {
-            val jsonBody = Json.parse(response.body?.string()).asObject()
-            var id = 0
-            buildList {
-                for (data in jsonBody.get("data").asArray()) {
-                    val info = data.asObject()
-                    val title = String(info.getString("title", "???").toByteArray(), Charsets.UTF_8)
-                    add(
-                        NetResourceInfo(
-                            title + id,
-                            title,
-                            bbsUrl = info.getString("bbsurl", "???"),
-                            imageUrl = info.getString("img", null),
-                        ),
-                    )
-                    id++
-                }
-            }.toTypedArray()
-        }.getOrNull()
+        parseRtsBoxSearch(response.body.string())
     },
 )
 
@@ -113,8 +98,9 @@ val RTSBoxDownloadWeeklyProtocol = BBSProtocol(
             buildList {
                 for (data in jsonBody.asArray()) {
                     val info = data.asObject()
-                    val title = String(info.getString("title", "???").toByteArray(), Charsets.UTF_8)
+                    val title = info.nonBlank("title") ?: continue
                     val postID = info.getInt("postID", -1)
+                    if (postID <= 0) continue
                     add(
                         NetResourceInfo(
                             postID.toString(),
@@ -122,6 +108,7 @@ val RTSBoxDownloadWeeklyProtocol = BBSProtocol(
                             bbsUrl = "https://www.rtsbox.cn/$postID.html",
                             imageUrl = info.getString("img_url", null),
                             downloadNum = info.getInt("download_num", -1),
+                            downloadUrl = info.rtsBoxDownloadUrl(),
                         ),
                     )
                 }
@@ -129,3 +116,33 @@ val RTSBoxDownloadWeeklyProtocol = BBSProtocol(
         }.getOrNull()
     },
 )
+
+internal fun parseRtsBoxSearch(body: String): Array<NetResourceInfo>? = runCatching {
+    val result = Json.parse(body).asObject()
+    when (result.getInt("code", 200)) {
+        404 -> emptyArray()
+        200 -> result.get("data").asArray().mapNotNull { value ->
+            if (!value.isObject) return@mapNotNull null
+            val item = value.asObject()
+            val title = item.nonBlank("title") ?: return@mapNotNull null
+            val page = item.nonBlank("bbsurl")?.toHttpUrlOrNull()?.toString()
+            val download = item.rtsBoxDownloadUrl()
+            NetResourceInfo(page ?: download ?: title, title, bbsUrl = page, downloadUrl = download,
+                imageUrl = item.nonBlank("img"))
+        }.distinctBy(NetResourceInfo::id).toTypedArray()
+        else -> null
+    }
+}.getOrNull()
+
+private fun JsonObject.nonBlank(key: String): String? = get(key)?.takeIf { it.isString }
+    ?.asString()?.trim()?.takeIf(String::isNotEmpty)
+
+private fun JsonObject.rtsBoxDownloadUrl(): String? =
+    sequenceOf(nonBlank("downurl"), nonBlank("durl"), nonBlank("file_url")).mapNotNull { value ->
+        val url = value?.toHttpUrlOrNull() ?: return@mapNotNull null
+        when {
+            url.isHttps -> url.toString()
+            url.host == "cdn.rtsbox.cn" -> url.newBuilder().scheme("https").build().toString()
+            else -> null
+        }
+    }.firstOrNull()

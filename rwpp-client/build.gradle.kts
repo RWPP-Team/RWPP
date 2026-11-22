@@ -17,15 +17,28 @@ plugins {
     alias(libs.plugins.koin.compiler)
     alias(libs.plugins.allopen)
     `maven-publish`
+    signing
 }
 
-val scopeTreeVersion = providers.gradleProperty("scopeTreeVersion").orNull
-val scopeTreeCompiler = scopeTreeVersion?.let { version ->
-    configurations.create("scopeTreeCompiler") {
-        isCanBeResolved = true
-        isCanBeConsumed = false
-        isTransitive = false
-    }.also { dependencies.add(it.name, "io.github.rwpp-team:compose-scope-tree-compiler-plugin:$version") }
+description = "RWPP game client and Compose user interface for desktop and Android."
+group = "io.github.rwpp-team"
+
+val scopeTreeVersion = "0.1.1"
+val scopeTreeGroup = "io.github.minxyzgo"
+val scopeTreeCompiler = configurations.create("scopeTreeCompiler") {
+    isCanBeResolved = true
+    isCanBeConsumed = false
+    isTransitive = false
+}.also { dependencies.add(it.name, "$scopeTreeGroup:compose-scope-tree-compiler-plugin:$scopeTreeVersion") }
+
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    inputs.files(scopeTreeCompiler)
+    compilerOptions.freeCompilerArgs.add(
+        "-Xcompiler-plugin-order=dev.composescopetree.compiler>androidx.compose.compiler.plugins.kotlin"
+    )
+    compilerOptions.freeCompilerArgs.add(
+        providers.provider { "-Xplugin=${scopeTreeCompiler.singleFile.absolutePath}" }
+    )
 }
 
 // Export metadata deliberately; ordinary builds consume the checked-in platform snapshots.
@@ -54,22 +67,35 @@ val androidCompileStubs = tasks.register<Zip>("androidCompileStubs") {
     }
 }
 
+val clientVersion = providers.provider { project.version.toString() }
+val clientBuildConfigDir = layout.buildDirectory.dir("generated/client-build-config")
+val generateClientBuildConfig = tasks.register("generateClientBuildConfig") {
+    inputs.property("version", clientVersion)
+    outputs.dir(clientBuildConfigDir)
+    doLast {
+        val version = clientVersion.get()
+        check(version.matches(Regex("[A-Za-z0-9.+_-]+"))) { "Invalid client version: $version" }
+        val config = clientBuildConfigDir.get().file("ClientBuildConfig.kt").asFile
+        config.parentFile.mkdirs()
+        config.writeText(
+            """
+            package io.github.rwpp.generated
+
+            internal object ClientBuildConfig {
+                const val VERSION = "$version"
+            }
+            """.trimIndent() + "\n"
+        )
+    }
+}
+
 
 kotlin {
-    androidTarget()
+    androidTarget {
+        publishLibraryVariants("release")
+    }
     jvm {
         val mainCompilation = compilations.getByName("main")
-        if (scopeTreeCompiler != null) {
-            mainCompilation.compileTaskProvider.configure {
-                inputs.files(scopeTreeCompiler)
-                compilerOptions.freeCompilerArgs.add(
-                    "-Xcompiler-plugin-order=dev.composescopetree.compiler>androidx.compose.compiler.plugins.kotlin"
-                )
-                compilerOptions.freeCompilerArgs.add(
-                    providers.provider { "-Xplugin=${scopeTreeCompiler.singleFile.absolutePath}" }
-                )
-            }
-        }
         val uiRegression = compilations.create("uiRegression") {
             associateWith(mainCompilation)
             defaultSourceSet.kotlin.srcDir("src/uiRegression/kotlin")
@@ -99,6 +125,9 @@ kotlin {
     }
 
     sourceSets {
+        commonMain {
+            kotlin.srcDir(generateClientBuildConfig)
+        }
         commonMain.dependencies {
             api(project(":rwpp-api"))
             compileOnly(libs.rwml.core)
@@ -109,6 +138,7 @@ kotlin {
             api(libs.compose.material3)
             api(libs.compose.components.resources)
             api(libs.compose.ui)
+            api("$scopeTreeGroup:compose-scope-tree-compose-ui:$scopeTreeVersion")
             api(libs.compose.material.icons.core)
             api(libs.koin.annotations)
             api(libs.koin.compose)
@@ -140,10 +170,9 @@ kotlin {
         }
 
         jvmMain {
-            kotlin.srcDir(if (scopeTreeVersion != null) "src/scopeTreeProbe/kotlin" else "src/withoutScopeTreeProbe/kotlin")
+            kotlin.srcDir("src/scopeTreeProbe/kotlin")
         }
         jvmMain.dependencies {
-            scopeTreeVersion?.let { implementation("io.github.rwpp-team:compose-scope-tree-compose-ui:$it") }
             compileOnly(files("$rootDir/lib/slick.jar", "$rootDir/lib/lwjgl.jar"))
             api(libs.compose.desktop.common)
             // Compile against Android signatures without shadowing the JDK with the bundled
@@ -187,16 +216,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 }
-
-afterEvaluate {
-    publishing {
-        publications.withType<MavenPublication>().configureEach {
-            groupId = "io.github.rwpp"
-            version = rootProject.version.toString()
-        }
-    }
-}
-
 
 // API and client are loaded as independent RWML extensions.
 apply(from = rootProject.file("gradle/extension-archives.gradle.kts"))
@@ -257,3 +276,4 @@ val networkRuntimeJar = tasks.register<Jar>("networkRuntimeJar") {
 publishing.publications.withType<MavenPublication>().configureEach {
     if (name == "jvm") artifact(networkRuntimeJar)
 }
+apply(from = rootProject.file("gradle/central-publishing.gradle.kts"))

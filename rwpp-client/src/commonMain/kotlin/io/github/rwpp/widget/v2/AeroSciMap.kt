@@ -8,6 +8,7 @@
 package io.github.rwpp.widget.v2
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -27,14 +28,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size as DrawSize
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -43,10 +54,16 @@ import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.size.Size
+import com.corrodinggames.rts.game.Team
 import io.github.rwpp.api.game.map.GameMap
 import io.github.rwpp.api.i18n.readI18n
+import io.github.rwpp.game.map.MapPreviewGenerationService
+import io.github.rwpp.game.team
+import io.github.rwpp.screen.LocalScreenNavigator
 import io.github.rwpp.sound.Sounds
+import io.github.rwpp.ui.BattleRoomScreen
 import io.github.rwpp.ui.UI
+import io.github.rwpp.ui.color.getTeamColor
 
 @Composable
 fun AeroMapPreview(
@@ -104,49 +121,68 @@ fun AeroZoomableImage(
     model: Any?,
     modifier: Modifier = Modifier,
     minScale: Float = 1f,
-    maxScale: Float = 6f
+    maxScale: Float = 6f,
+    wheelZoom: Boolean = false,
 ) {
-    var scale by remember { mutableFloatStateOf(1f) }
-    var offset by remember { mutableStateOf(Offset.Zero) }
+    var scale by remember(model) { mutableFloatStateOf(minScale) }
+    var offset by remember(model) { mutableStateOf(Offset.Zero) }
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
+    var imageSize by remember(model) { mutableStateOf(DrawSize.Zero) }
+    val fitted = fitPreviewImage(containerSize, imageSize)
+    val positions by produceState(emptyList(), model) {
+        value = emptyList()
+        if (model is GameMap) value = MapPreviewGenerationService().spawnPositions(model)
+    }
 
     fun clampOffset(newOffset: Offset, currentScale: Float): Offset {
-        val maxOffsetX = (containerSize.width * (currentScale - 1f)) / 2f
-        val maxOffsetY = (containerSize.height * (currentScale - 1f)) / 2f
+        val maxOffsetX = ((fitted.width * currentScale - containerSize.width) / 2f).coerceAtLeast(0f)
+        val maxOffsetY = ((fitted.height * currentScale - containerSize.height) / 2f).coerceAtLeast(0f)
         return Offset(
             x = newOffset.x.coerceIn(-maxOffsetX, maxOffsetX),
             y = newOffset.y.coerceIn(-maxOffsetY, maxOffsetY)
         )
     }
 
+    fun zoomAt(centroid: Offset, pan: Offset, zoom: Float) {
+        val target = (scale * zoom).coerceIn(minScale, maxScale)
+        val center = Offset(containerSize.width / 2f, containerSize.height / 2f)
+        offset = clampOffset(offset + pan + (centroid - center - offset) * (1f - target / scale), target)
+        scale = target
+    }
+
     Box(
         modifier = modifier
             .clipToBounds()
             .onSizeChanged { containerSize = it }
-            .pointerInput(Unit) {
+            .pointerInput(model, minScale, maxScale, fitted, containerSize) {
                 detectTapGestures(
-                    onDoubleTap = {
-                        if (scale > 1f) {
-                            scale = 1f
+                    onDoubleTap = { point ->
+                        if (scale > minScale) {
+                            scale = minScale
                             offset = Offset.Zero
                         } else {
-                            scale = 3f
-                            offset = clampOffset(Offset.Zero, 3f)
+                            zoomAt(point, Offset.Zero, 3f)
                         }
                     }
                 )
             }
-            .pointerInput(Unit) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    val targetScale = (scale * zoom).coerceIn(minScale, maxScale)
-                    offset = if (targetScale > 1f) {
-                        clampOffset(offset + pan, targetScale)
-                    } else {
-                        Offset.Zero
+            .pointerInput(model, minScale, maxScale, fitted, containerSize) {
+                detectTransformGestures { centroid, pan, zoom, _ -> zoomAt(centroid, pan, zoom) }
+            }
+            .then(if (!wheelZoom) Modifier else Modifier.pointerInput(model, minScale, maxScale, fitted, containerSize) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        if (event.type != PointerEventType.Scroll) continue
+                        val pointer = event.changes.firstOrNull() ?: continue
+                        val delta = pointer.scrollDelta.y
+                        if (pointer.isConsumed || delta == 0f) continue
+                        val targetScale = if (delta < 0f) 1.25f else 0.8f
+                        zoomAt(pointer.position, Offset.Zero, targetScale)
+                        pointer.consume()
                     }
-                    scale = targetScale
                 }
-            },
+            }),
         contentAlignment = Alignment.Center
     ) {
         AsyncImage(
@@ -158,6 +194,9 @@ fun AeroZoomableImage(
             contentDescription = null,
             filterQuality = FilterQuality.High, // 缩放采样插值算法
             contentScale = ContentScale.Fit,
+            onSuccess = { state ->
+                imageSize = DrawSize(state.result.image.width.toFloat(), state.result.image.height.toFloat())
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
@@ -167,6 +206,57 @@ fun AeroZoomableImage(
                     translationY = offset.y
                 }
         )
+
+        val navigator = UI.liveNavigator
+        if (positions.isNotEmpty() && navigator?.current is BattleRoomScreen && fitted.width > 0f && fitted.height > 0f) {
+            val textMeasurer = rememberTextMeasurer(cacheSize = positions.size * 2)
+            val markerTextStyle = TextStyle(
+                color = Color.White,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                fontSize = if (wheelZoom) 12.sp else 10.sp,
+            )
+            Canvas(Modifier.matchParentSize()) {
+                val zoomedWidth = fitted.width * scale
+                val zoomedHeight = fitted.height * scale
+                val topLeft = center + offset - Offset(zoomedWidth / 2f, zoomedHeight / 2f)
+                for ((slot, xFraction, yFraction) in positions) {
+                    val point = topLeft + Offset(xFraction * zoomedWidth, yFraction * zoomedHeight)
+                    val label = textMeasurer.measure((slot + 1).toString(), markerTextStyle)
+                    val radius = maxOf((if (wheelZoom) 11.dp else 8.dp).toPx(), label.size.width / 2f + 3.dp.toPx())
+                    drawCircle(Color(0xE6101822), radius, point)
+                    drawCircle(getTeamColor(slot), radius, point, style = Stroke(1.5.dp.toPx()))
+                    drawText(label, topLeft = point - Offset(label.size.width / 2f, label.size.height / 2f))
+                    if (scale >= 3f || maxScale >= 8f) {
+                        (navigator.current as? BattleRoomScreen)?.update // 观察是否更新
+                        val player = Team.getTeam(slot) ?: continue
+
+                        val annotatedText = buildAnnotatedString {
+                            withStyle(
+                                SpanStyle(color = getTeamColor(player.team))
+                            ) {
+                                append("[${player.teamLetter}]")
+                            }
+
+                            append(" ${player.name}")
+                        }
+
+                        val nameLayout = textMeasurer.measure(
+                            text = annotatedText,
+                            style = markerTextStyle
+                        )
+
+                        drawText(
+                            textLayoutResult = nameLayout,
+                            topLeft = Offset(
+                                point.x - nameLayout.size.width / 2f,
+                                point.y + radius + 4.dp.toPx()
+                            )
+                        )
+                    }
+                }
+            }
+        }
 
         // 状态面板 (显示当前放大倍率 & 一键重置)
         Row(
@@ -194,7 +284,7 @@ fun AeroZoomableImage(
                 color = MaterialTheme.colorScheme.primary
             )
 
-            if (scale > 1.05f) {
+            if (scale > minScale + 0.05f) {
                 Text(
                     text = "[${readI18n("rwpp.common.reset").uppercase()}]",
                     fontSize = 9.sp,
@@ -202,13 +292,19 @@ fun AeroZoomableImage(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.clickable {
-                        scale = 1f
+                        scale = minScale
                         offset = Offset.Zero
                     }
                 )
             }
         }
     }
+}
+
+internal fun fitPreviewImage(container: IntSize, image: DrawSize): DrawSize {
+    if (container.width <= 0 || container.height <= 0 || image.width <= 0f || image.height <= 0f) return DrawSize.Zero
+    val fit = minOf(container.width / image.width, container.height / image.height)
+    return DrawSize(image.width * fit, image.height * fit)
 }
 
 @Composable
@@ -270,6 +366,7 @@ fun MapInspectorDialog(
                     AeroZoomableImage(
                         model = map,
                         maxScale = 8f,
+                        wheelZoom = true,
                         modifier = Modifier.fillMaxSize()
                     )
                 }

@@ -7,6 +7,7 @@
 
 package io.github.rwpp.ui
 
+import com.corrodinggames.rts.gameFramework.GameEngine
 import com.corrodinggames.rts.java.SlickMainGame
 import io.github.rwpp.api.game.Game
 import io.github.rwpp.api.logging.logger
@@ -14,8 +15,10 @@ import io.github.rwpp.appKoin
 import io.github.rwpp.desktop.OffscreenComposeRenderer
 import io.github.rwpp.widget.isLoading
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.suspendCancellableCoroutine
 import org.lwjgl.opengl.Display
 import org.newdawn.slick.GameContainer
+import java.util.concurrent.ConcurrentLinkedQueue
 import javax.swing.SwingUtilities
 
 /** Compose owns its scene on AWT; each operation borrows Slick's current Display context. */
@@ -39,6 +42,7 @@ internal object DesktopComposeRuntime {
     private var nativeDocumentsCleanupAttempted = false
     private val framePacer = UiFramePacer()
     private val settings by lazy { appKoin.get<io.github.rwpp.config.Settings>() }
+    private val modReloads = ConcurrentLinkedQueue<() -> Unit>()
 
     /** Screen changes must repaint the offscreen texture, otherwise the menu wallpaper lingers. */
     @Volatile
@@ -46,6 +50,22 @@ internal object DesktopComposeRuntime {
 
     fun requestFrame() {
         framePacer.request()
+    }
+
+    suspend fun <T> runModReload(action: () -> T): T = suspendCancellableCoroutine { result ->
+        val reload = { if (result.isActive) result.resumeWith(runCatching(action)) }
+        modReloads.add(reload)
+        result.invokeOnCancellation { modReloads.remove(reload) }
+    }
+
+    /** A native reload occupies the Slick thread. Present progress without pumping game tasks. */
+    fun presentModProgress() {
+        val scene = renderer ?: return
+        val bridge = contextBridge ?: return
+        if (!Display.isCurrent()) return
+        bridge.call { scene.render() }
+        scene.drawToScreen()
+        Display.swapBuffers()
     }
 
     private val engineField by lazy {
@@ -122,17 +142,29 @@ internal object DesktopComposeRuntime {
             }
         }
         val bridge = contextBridge ?: return
+        // Native updates hold gameUpdateLock, which AWT must acquire to present progress.
+        while (true) (modReloads.poll() ?: break).invoke()
         // Runs on the Slick thread that owns the LWJGL window, outside the AWT GL bridge.
         // The HUD frame pacer can skip a Compose frame, so this state must not be gated by it.
+        val engine = GameEngine.getInstance()
+        val nativeWorld = engine?.let {
+            nativeMapOwnsSurface(it.gameLoopActive, it.map?.mapLoaded == true, it.currentMapPath)
+        } ?: false
+        val wallpaperChanged = UI.nativeWorldOwnsSurface != nativeWorld
+        if (wallpaperChanged) UI.nativeWorldOwnsSurface = nativeWorld
         val gameplay = scene.syncSystemShortcutGate()
-        if (gameplay != lastGameplayOwnership) {
+        val gameplayChanged = gameplay != lastGameplayOwnership
+        if (gameplayChanged) {
             lastGameplayOwnership = gameplay
             framePacer.request()
         }
-        if (framePacer.shouldRender(System.nanoTime(), settings.hudRefreshRate)) {
-            bridge.call { DesktopScopeTreeMetrics.render(scene) }
+        if (wallpaperChanged || framePacer.shouldRender(System.nanoTime(), settings.hudRefreshRate)) {
+            bridge.call {
+                if (wallpaperChanged || gameplayChanged) scene.forceFrame()
+                DesktopScopeTreeMetrics.render(scene)
+            }
         }
-        com.corrodinggames.rts.gameFramework.GameEngine.getInstance()?.let { DesktopWorldCanvases.draw(it) }
+        engine?.let { DesktopWorldCanvases.draw(it) }
         // This method only composites an existing GL texture. Keep it on Slick's
         // current context instead of transferring that context to AWT every game frame.
         scene.drawToScreen()

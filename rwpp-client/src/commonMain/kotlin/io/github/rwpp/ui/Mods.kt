@@ -23,7 +23,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
-import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,15 +40,15 @@ import com.corrodinggames.rts.gameFramework.GameEngine
 import com.corrodinggames.rts.gameFramework.mod.Mod
 import io.github.rwpp.AppContext
 import io.github.rwpp.LocalWindowManager
-import io.github.rwpp.api.coroutines.GameMainDispatcher
 import io.github.rwpp.api.game.Game
 import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.appKoin
-import io.github.rwpp.game.reloadModDataOnGameThread
-import io.github.rwpp.game.reloadMods
+import io.github.rwpp.game.applyModSelection
+import io.github.rwpp.game.importRwmod
+import io.github.rwpp.game.scanMods
+import io.github.rwpp.game.ModMemoryLoadFailure
 import io.github.rwpp.generated.Res
 import io.github.rwpp.generated.error_missingmap
-import io.github.rwpp.modDir
 import io.github.rwpp.screen.LocalScreenNavigator
 import io.github.rwpp.screen.Screen
 import io.github.rwpp.sound.Sounds
@@ -57,12 +56,12 @@ import io.github.rwpp.widget.*
 import io.github.rwpp.widget.v2.*
 import io.github.rwpp.widget.v2.scrollbar.LazyColumnScrollbar
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.compose.resources.painterResource
 import org.koin.compose.koinInject
 import org.koin.core.annotation.Single
-import java.io.File
 
 @Single
 class ModsScreen : Screen {
@@ -73,34 +72,45 @@ class ModsScreen : Screen {
         val android = koinInject<AppContext>().isAndroid()
         val compact = android || LocalWindowManager.current == WindowManager.Small
 
-        var deletedMod by remember { mutableStateOf(false) }
-        val mods = remember {
-            SnapshotStateList<Mod>().apply {
-                addAll(GameEngine.getInstance().modManager.refreshModList().filterIsInstance<Mod>())
-            }
-        }
+        var mods by remember { mutableStateOf(emptyList<Mod>()) }
         var filter by remember { mutableStateOf("") }
-        val filteredMods = remember(mods.size, filter) {
-            mods.filter { (it.getTitle() ?: it.name.orEmpty()).contains(filter, ignoreCase = true) }
-        }
 
         val scope = rememberCoroutineScope()
         var reloadActive by remember { mutableStateOf(false) }
         var updated by remember { mutableStateOf(false) }
         var enabledChanged by remember { mutableStateOf(false) }
 
-        val enabledMods = remember(enabledChanged, filteredMods.size, updated) {
+        val filteredMods = remember(mods, filter, updated) {
+            mods.filter { (it.getTitle() ?: it.name.orEmpty()).contains(filter, ignoreCase = true) }
+        }
+
+        val enabledMods = remember(enabledChanged, filteredMods, updated) {
             filteredMods.filter { it.isEnabled }
         }
 
-        val disabledMods = remember(enabledChanged, filteredMods.size, updated) {
+        val disabledMods = remember(enabledChanged, filteredMods, updated) {
             filteredMods.filter { !it.isEnabled }
         }
 
-        fun launchModReload(action: suspend () -> Unit) {
+        LaunchedEffect(Unit) {
+            try {
+                mods = scanMods()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                UI.showWarning(failure.message ?: readI18n("rwpp.common.unknownError"))
+            }
+        }
+
+        fun showMods(refreshed: List<Mod>) {
+            mods = refreshed
+            updated = !updated
+        }
+
+        fun launchModReload(message: String = readI18n("rwpp.mod.reloading"), action: suspend () -> Unit) {
             if (reloadActive) return
             reloadActive = true
-            loadingMessage = readI18n("rwpp.mod.reloading")
+            loadingMessage = message
             loadingOverlayKeepsContent = true
             val presentationGeneration = beginLoadingOverlayPresentation()
             isLoading = true
@@ -112,7 +122,13 @@ class ModsScreen : Screen {
                     awaitLoadingOverlayDrawn(presentationGeneration)
                     withFrameNanos { }
                     action()
-                } catch (failure: Throwable) {
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    if (failure is ModMemoryLoadFailure) {
+                        game.invalidateMapCatalog()
+                        showMods(scanMods())
+                    }
                     UI.showWarning(failure.message ?: readI18n("rwpp.common.unknownError"))
                 } finally {
                     loadingMessage = ""
@@ -125,14 +141,8 @@ class ModsScreen : Screen {
         }
 
         fun reload() = launchModReload {
-            val refreshed = withContext(GameMainDispatcher) {
-                reloadMods()
-                game.invalidateMapCatalog()
-                GameEngine.getInstance().modManager.refreshModList().filterIsInstance<Mod>()
-            }
-            mods.clear()
-            mods.addAll(refreshed)
-            updated = !updated
+            showMods(applyModSelection(reloadData = !GameEngine.getInstance().networkEngine.networked))
+            game.invalidateMapCatalog()
         }
 
         val header: @Composable () -> Unit = {
@@ -206,17 +216,16 @@ class ModsScreen : Screen {
                     text = readI18n("rwpp.mod.inputFile"),
                     modifier = Modifier.weight(1f),
                     onClick = {
-                        appKoin.get<AppContext>().openFileChooser { file ->
+                        val context = appKoin.get<AppContext>()
+                        context.openFileChooser { file ->
                             scope.launch {
-                                runCatching {
-                                    require(file.extension.equals("rwmod", true)) { readI18n("rwpp.mod.loadInfo") }
-                                    withContext(Dispatchers.IO) {
-                                        val target = File(modDir, file.name)
-                                        check(target.parentFile.isDirectory || target.parentFile.mkdirs()) { "Cannot create mod directory" }
-                                        file.copyTo(target)
+                                launchModReload(readI18n("rwpp.mod.importing", file.name)) {
+                                    try {
+                                        showMods(importRwmod(file))
+                                    } finally {
+                                        withContext(Dispatchers.IO) { context.releasePickerFile(file) }
                                     }
-                                    reload()
-                                }.onFailure { UI.showWarning(it.message ?: readI18n("rwpp.common.unknownError")) }
+                                }
                             }
                         }
                     }
@@ -228,14 +237,8 @@ class ModsScreen : Screen {
                     modifier = Modifier.weight(1f),
                     onClick = {
                         launchModReload {
-                            withContext(GameMainDispatcher) {
-                                val engine = GameEngine.getInstance()
-                                engine.modManager.saveSelection()
-                                check(engine.settings.save()) { "Could not save mod selection" }
-                                if (!engine.networkEngine.networked) {
-                                    reloadModDataOnGameThread(engine)
-                                }
-                            }
+                            applyModSelection(reloadData = !GameEngine.getInstance().networkEngine.networked)
+                            game.invalidateMapCatalog()
                             navigator.pop()
                         }
                     }
@@ -249,7 +252,7 @@ class ModsScreen : Screen {
 
         fun delete(mod: Mod) {
             if (mod.canBeDeleted() && mod.deleteMod()) {
-                mods.remove(mod); deletedMod = true
+                mods = mods - mod
             } else UI.showWarning(readI18n("rwpp.mod.removeInfo"))
         }
         AeroScaledContainer {

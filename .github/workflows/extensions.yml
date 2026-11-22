@@ -1,46 +1,71 @@
 name: Build extension distributions
 
 on:
-  push:
+  pull_request:
   release:
     types: [ published ]
   workflow_dispatch:
+    inputs:
+      central_tag:
+        description: Stable release tag to retry on Maven Central (blank to verify the packs)
+        type: string
+      release_tag:
+        description: Published release tag whose packages should be rebuilt and replaced
+        type: string
+      skip_central:
+        description: Rebuild release packages without publishing to Maven Central
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
   build:
+    if: github.event_name != 'workflow_dispatch' || inputs.central_tag == ''
     runs-on: ubuntu-24.04
     steps:
+      - name: Check the release selected for rebuilding
+        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF_NAME" == "$DEFAULT_BRANCH" && "$RELEASE_TAG" =~ ^v[0-9]+(\.[0-9]+)+$ ]]
+          gh release view "$RELEASE_TAG" --json isDraft,isPrerelease \
+            --jq 'if .isDraft or .isPrerelease then error("A published, stable GitHub Release is required") else empty end'
       - name: Check out RWPP
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
-      - uses: actions/setup-java@v4
+          ref: ${{ github.event.release.tag_name || (inputs.release_tag != '' && format('refs/tags/{0}', inputs.release_tag)) || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         with:
           distribution: jetbrains
           java-version: '25'
       - uses: android-actions/setup-android@v3
         with:
-          # The legacy "tools" package was removed from Google's SDK repository.
-          # Leaving the action's default packages installs it, sdkmanager exits 1,
-          # and every later build and publish step is skipped.
-          packages: platform-tools
-      - name: Install the stable Android platform used by CI
+          packages: 'platform-tools platforms;android-37.0 build-tools;36.0.0'
+      - name: Expose the Android 37 jar to the extension pack builder
         shell: bash
         run: |
           set -euo pipefail
-          # API 37 is only shipped with Android Studio previews and is absent from
-          # the stable SDK repository that CI's sdkmanager can see. The archives
-          # only need android.jar for D8 and the Android plugin, so CI builds with
-          # the latest stable platform and overrides the compile level below.
-          sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+          platforms="$ANDROID_HOME/platforms"
+          # The tagged D8 task uses the major-version directory name.
+          test -f "$platforms/android-37.0/android.jar"
+          if [[ ! -e "$platforms/android-37" ]]; then
+            ln -s android-37.0 "$platforms/android-37"
+          fi
+          test -f "$platforms/android-37/android.jar"
       - uses: gradle/actions/setup-gradle@v4
       - name: Build and verify JVM and Android packs
         run: >-
           ./gradlew
-          -PandroidCompileSdk=36
           verifyJvmExtensionPack verifyAndroidExtensionPack
       - name: Collect packs and individual extension archives
         shell: bash
@@ -71,7 +96,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    if: github.event_name == 'release' && github.event.action == 'published'
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.central_tag == '')
     needs: build
     runs-on: ubuntu-24.04
     permissions:
@@ -81,7 +106,7 @@ jobs:
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       R2_BUCKET: ${{ vars.R2_BUCKET || 'rwpp' }}
-      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
       GITHUB_REPOSITORY: ${{ github.repository }}
       ASSETS_DIR: release-assets
     steps:
@@ -97,9 +122,102 @@ jobs:
       - name: Check out the publishing script from the release commit
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: refs/tags/${{ env.RELEASE_TAG }}
           path: .ci/repo
           clean: false
           persist-credentials: false
       - name: Publish the same archives to R2 and refresh the registry
         run: python3 .ci/repo/scripts/publish-r2.py
+
+  publish-central:
+    if: >-
+      !cancelled() && !inputs.skip_central && (
+        (github.event_name == 'release' && needs.publish.result == 'success' &&
+         !github.event.release.prerelease && !github.event.release.draft) ||
+        (github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.central_tag == '' &&
+         needs.publish.result == 'success') ||
+        (github.event_name == 'workflow_dispatch' && inputs.central_tag != '' &&
+         inputs.release_tag == '' &&
+         github.ref_name == github.event.repository.default_branch)
+      )
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    concurrency:
+      group: maven-central-release
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read
+    env:
+      RELEASE_TAG: ${{ inputs.central_tag || inputs.release_tag || github.event.release.tag_name }}
+    steps:
+      - name: Check stable release and publishing credentials
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+(\.[0-9]+)+$ ]]; then
+            echo '::error::Provide a stable release tag such as v2.0.2'
+            exit 1
+          fi
+          gh release view "$RELEASE_TAG" --json isDraft,isPrerelease \
+            --jq 'if .isDraft or .isPrerelease then error("A published, stable GitHub Release is required") else empty end'
+          missing=0
+          for name in GPG_PRIVATE_KEY CENTRAL_USERNAME CENTRAL_TOKEN; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Configure the $name repository secret"
+              missing=1
+            fi
+          done
+          exit "$missing"
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          distribution: jetbrains
+          java-version: '25'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-37.0 build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build the signed API and client Maven bundle
+        id: bundle
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          ./gradlew --no-daemon bundleForCentral
+          bundle="build/rwpp-$version-central-bundle.zip"
+          python3 .github/scripts/publish-central.py verify rwpp "$RELEASE_TAG" "$bundle"
+          echo "path=$bundle" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Submit one deployment or resume an existing one
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN }}
+          BUNDLE: ${{ steps.bundle.outputs.path }}
+        run: python3 .github/scripts/publish-central.py submit rwpp "$RELEASE_TAG" "$BUNDLE"
+      - name: Save deployment ID for reruns
+        if: ${{ always() && hashFiles('build/new-central-deployment') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: central-deployment-rwpp-${{ steps.bundle.outputs.version }}
+          path: build/central-deployment.json
+      - name: Wait for Maven Central
+        if: ${{ hashFiles('build/central-deployment.json') != '' }}
+        env:
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN }}
+        run: python3 .github/scripts/publish-central.py wait rwpp "$RELEASE_TAG"

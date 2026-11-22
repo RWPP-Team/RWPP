@@ -221,7 +221,7 @@ internal object SingleUnitMoveController {
                     current = null
                 } else current?.let { cancelPlanning(it) }
                 val enabled = settings()?.let { it.singleUnitMoveAssist || it.singleUnitMoveDebug } == true
-                if (enabled && supported && owns(engine, unit) && !unit.isBuilding() && current == null) {
+                if (enabled && supported && owns(engine, unit) && !unit.isBuilding && current == null) {
                     if (watches.size >= MAX_TRACKED_UNITS) stop(watches.first(), "observation-capacity", false)
                     current = Watch(engine, unit, ++nextToken).also { watches.add(it) }
                 }

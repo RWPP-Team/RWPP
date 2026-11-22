@@ -13,7 +13,8 @@ build/
 
 /.kotlin/
 /.workbuddy/
-/docs/
+/docs/*
+!/docs/UI-CUSTOMIZATION.zh.md
 /scripts/*
 !/scripts/install-client-extensions.ps1
 !/scripts/publish-r2.py

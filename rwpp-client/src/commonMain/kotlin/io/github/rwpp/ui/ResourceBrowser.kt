@@ -33,103 +33,129 @@ import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.api.net.Net
 import io.github.rwpp.generated.Res
 import io.github.rwpp.generated.download
-import io.github.rwpp.mapDir
-import io.github.rwpp.modDir
 import io.github.rwpp.net.NetResourceInfo
+import io.github.rwpp.net.RTSBoxProtocol
 import io.github.rwpp.net.ResourceType
 import io.github.rwpp.net.bbsProtocols
+import io.github.rwpp.net.downloadBbsResource
 import io.github.rwpp.net.searchBBS
 import io.github.rwpp.screen.LocalScreenNavigator
 import io.github.rwpp.screen.Screen
 import io.github.rwpp.sound.Sounds
 import io.github.rwpp.widget.v2.*
 import io.github.rwpp.widget.v2.scrollbar.LazyVerticalGridScrollbar
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import org.jetbrains.compose.resources.painterResource
 import org.koin.compose.koinInject
 import org.koin.core.annotation.Single
-import java.io.File
+import kotlin.coroutines.resume
 
 @Single
 class ResourceBrowserScreen : Screen {
     @Composable
     override fun Content() {
         val navigator = LocalScreenNavigator.current
-        var downloadingMod by remember { mutableStateOf(false) }
-        var progress by remember { mutableFloatStateOf(0f) }
+        val scope = rememberCoroutineScope()
+        var showTransfer by remember { mutableStateOf(false) }
+        var progress by remember { mutableStateOf<Float?>(null) }
+        var downloadError by remember { mutableStateOf<String?>(null) }
+        var installed by remember { mutableStateOf(false) }
+        var transferJob by remember { mutableStateOf<Job?>(null) }
 
         var isLoading by remember { mutableStateOf(false) }
         val net = koinInject<Net>()
         var page by remember { mutableIntStateOf(1) }
         var selectedProtocolIndex by remember { mutableIntStateOf(1) }
         var selectedTypeIndex by remember { mutableIntStateOf(0) }
+        var retry by remember { mutableIntStateOf(0) }
+        var canLoadMore by remember { mutableStateOf(false) }
+        var searchError by remember { mutableStateOf(false) }
         var keyword by remember { mutableStateOf("") }
         var searchInput by remember { mutableStateOf("") }
         val allInfo = remember { SnapshotStateList<NetResourceInfo>() }
 
-        LaunchedEffect(keyword, page, selectedTypeIndex) {
+        val resourceType = if (selectedTypeIndex == 0) ResourceType.Mod else ResourceType.Map
+        val protocol = net.bbsProtocols.getOrNull(selectedProtocolIndex)
+        val needsKeyword = protocol == RTSBoxProtocol && keyword.isBlank()
+
+        LaunchedEffect(keyword, page, resourceType, protocol, retry) {
+            if (page == 1) allInfo.clear()
+            searchError = false
+            canLoadMore = false
+            if (protocol == null || needsKeyword) return@LaunchedEffect
             isLoading = true
-            net.searchBBS(
-                net.bbsProtocols[selectedProtocolIndex],
-                page,
-                keyword,
-                if (selectedTypeIndex == 0) ResourceType.Mod else ResourceType.Map,
-            ) { result ->
-                result.getOrNull()?.let { allInfo.addAll(it) }
+            try {
+                val results = suspendCancellableCoroutine<Result<Array<NetResourceInfo>>> { continuation ->
+                    val call = net.searchBBS(protocol, page, keyword, resourceType) { continuation.resume(it) }
+                    continuation.invokeOnCancellation { call.cancel() }
+                }
+                results.onSuccess { resources ->
+                    val known = allInfo.mapTo(hashSetOf(), NetResourceInfo::id)
+                    val fresh = resources.filter { known.add(it.id) }
+                    allInfo.addAll(fresh)
+                    canLoadMore = fresh.isNotEmpty()
+                }.onFailure { searchError = true }
+            } finally {
                 isLoading = false
             }
         }
 
-        if (downloadingMod) {
+        if (showTransfer) {
+            val percentage = progress
+            val done = installed || downloadError != null
             AnimatedAlertDialog(
-                visible = downloadingMod,
+                visible = true,
                 onDismissRequest = {
-                    if (progress !in 0f..<1f) {
-                        downloadingMod = false
-                        progress = 0f
-                    }
+                    showTransfer = false
+                    transferJob = null
                 },
-                enableDismiss = progress !in 0f..<1f
+                onDismissStarted = { transferJob?.cancel() },
             ) { dismiss ->
+                LaunchedEffect(installed) {
+                    if (installed) dismiss()
+                }
                 AeroPanel(
                     modifier = Modifier
                         .widthIn(max = 320.dp)
                         .fillMaxWidth(0.92f)
-                        .heightIn(max = 180.dp)
-                        .padding(12.dp)
                 ) {
                     Column(
-                        modifier = Modifier.fillMaxSize().padding(12.dp),
-                        verticalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         AeroHeader(
                             title = "DATA TRANSFER",
-                            tag = if (progress >= 1f) "COMPLETE" else if (progress < 0f) "ERROR" else "DOWNLOADING",
-                            color = if (progress >= 1f) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
+                            tag = if (downloadError != null) "ERROR" else if (done) "COMPLETE" else "DOWNLOADING",
+                            color = if (done) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
                         )
 
                         Text(
-                            text = if (progress >= 1f) readI18n("rwpp.browser.resourceAcquired")
-                            else if (progress < 0f) readI18n("rwpp.browser.transferFailed")
-                            else readI18n("rwpp.browser.downloadProgress", (progress * 100).toInt()),
+                            text = downloadError ?: when {
+                                done -> readI18n("rwpp.browser.resourceAcquired")
+                                percentage == null -> readI18n("rwpp.browser.downloading")
+                                else -> readI18n("rwpp.browser.downloadProgress", (percentage * 100).toInt())
+                            },
                             fontSize = 12.sp,
                             fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
                         )
 
-                        LinearProgressIndicator(
-                            progress = { progress.coerceIn(0f, 1f) },
-                            modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                        )
-
-                        if (progress !in 0f..<1f) {
-                            AeroButton(
-                                text = readI18n("rwpp.common.close").uppercase(),
-                                onClick = dismiss
-                            )
+                        if (downloadError == null) {
+                            val progressBar = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))
+                            if (percentage == null) LinearProgressIndicator(modifier = progressBar)
+                            else LinearProgressIndicator(progress = { percentage }, modifier = progressBar)
                         }
+
+                        AeroButton(
+                            text = readI18n(if (done) "rwpp.common.close" else "rwpp.common.cancel").uppercase(),
+                            onClick = dismiss
+                        )
                     }
                 }
             }
@@ -190,7 +216,10 @@ class ResourceBrowserScreen : Screen {
                         items = net.bbsProtocols.map { it.name },
                         selectedIndex = selectedProtocolIndex,
                         onItemSelected = { index ->
+                            allInfo.clear()
+                            page = 1
                             selectedProtocolIndex = index
+                            retry++
                         },
                         modifier = Modifier.weight(0.3f)
                     )
@@ -214,10 +243,11 @@ class ResourceBrowserScreen : Screen {
                                 size = 28.dp,
                                 iconSize = 14.dp,
                                 onClick = {
-                                    keyword = searchInput
+                                    keyword = searchInput.trim()
                                     selectedProtocolIndex = if (keyword.isNotBlank()) 0 else 1
                                     page = 1
                                     allInfo.clear()
+                                    retry++
                                 }
                             )
                         }
@@ -325,15 +355,23 @@ class ResourceBrowserScreen : Screen {
                                                 iconSize = 16.dp,
                                                 contentDescription = readI18n("rwpp.browser.downloadResource"),
                                                 onClick = {
-                                                    downloadingMod = true
-                                                    net.downloadFile(
-                                                        info.downloadUrl,
-                                                        File(
-                                                            if (selectedTypeIndex == 0)
-                                                                "$modDir/${info.title}.rwmod"
-                                                            else "$mapDir/${info.title}.tmx"
-                                                        )
-                                                    ) { p -> progress = p }
+                                                    if (!showTransfer) {
+                                                        progress = null
+                                                        downloadError = null
+                                                        installed = false
+                                                        showTransfer = true
+                                                        transferJob = scope.launch {
+                                                            try {
+                                                                net.downloadBbsResource(info, resourceType) { progress = it }
+                                                                installed = true
+                                                            } catch (cancelled: CancellationException) {
+                                                                throw cancelled
+                                                            } catch (failure: Exception) {
+                                                                downloadError = failure.message?.takeIf(String::isNotBlank)
+                                                                    ?: readI18n("rwpp.browser.transferFailed")
+                                                            }
+                                                        }
+                                                    }
                                                 }
                                             )
                                         }
@@ -352,11 +390,16 @@ class ResourceBrowserScreen : Screen {
                                         modifier = Modifier.size(32.dp),
                                         color = MaterialTheme.colorScheme.primary
                                     )
-                                } else {
+                                } else if (searchError || canLoadMore) {
                                     AeroButton(
-                                        text = readI18n("rwpp.browser.loadMore"),
+                                        text = readI18n(if (searchError) "rwpp.browser.retrySearch" else "rwpp.browser.loadMore"),
                                         modifier = Modifier.width(200.dp),
-                                        onClick = { page += 1 }
+                                        onClick = { if (searchError) retry++ else page++ }
+                                    )
+                                } else if (allInfo.isEmpty()) {
+                                    Text(
+                                        readI18n(if (needsKeyword) "rwpp.browser.enterKeyword" else "rwpp.browser.noResults"),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
                             }

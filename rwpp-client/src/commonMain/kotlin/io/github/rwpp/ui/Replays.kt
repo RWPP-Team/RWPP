@@ -14,6 +14,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -69,7 +71,7 @@ class ReplaysScreen : Screen {
     override fun Content() {
         val navigator = LocalScreenNavigator.current
         val game = koinInject<Game>()
-        val compact = koinInject<io.github.rwpp.AppContext>().isAndroid() ||
+        val compact = koinInject<AppContext>().isAndroid() ||
                 usesCompactSelectionLayout(LocalWindowManager.current)
 
         val gameMaps = remember { mutableStateListOf<GameMap>() }
@@ -576,7 +578,8 @@ class ReplaysScreen : Screen {
                     },
                     desktopContent = {
                         // Restore the original desktop toolbar and split list/details view.
-                        Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+                        Column(modifier = Modifier.fillMaxSize().padding(12.dp)
+                            .scrollable(rememberScrollState(), Orientation.Vertical)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,

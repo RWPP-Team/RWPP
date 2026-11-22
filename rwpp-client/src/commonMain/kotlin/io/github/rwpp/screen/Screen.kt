@@ -7,16 +7,11 @@
 
 package io.github.rwpp.screen
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
-import androidx.compose.ui.Modifier
-import io.github.rwpp.widget.v2.AeroCyberOverlay
-import io.github.rwpp.widget.v2.skiaGlitchEffect
+import io.github.rwpp.config.Settings
+import io.github.rwpp.ui.AeroThemeTransition
 import org.koin.compose.currentKoinScope
+import org.koin.compose.koinInject
 import org.koin.core.component.KoinComponent
 import org.koin.core.parameter.parametersOf
 import org.koin.core.qualifier.Qualifier
@@ -193,53 +188,16 @@ class ScreenNavigator(
             val localOverrides = LocalScreenOverrides.current
             val currentScreen = current
 
-            val glitchAnimatable = remember { Animatable(0f) }
-            val effects = org.koin.compose.koinInject<io.github.rwpp.config.Settings>().enableAnimations
-            // The counter advances when the user picks another color scheme, so the flash also
-            // covers theme changes that keep the current screen.
-            val themeGeneration = io.github.rwpp.ui.AeroThemeTransition.generation
-
-            LaunchedEffect(currentScreen, themeGeneration, effects) {
-                if (!effects) {
-                    glitchAnimatable.snapTo(0f)
-                    return@LaunchedEffect
-                }
-                glitchAnimatable.snapTo(0f)
-                glitchAnimatable.animateTo(
-                    targetValue = 1.0f,
-                    animationSpec = tween(durationMillis = 140, easing = LinearEasing)
-                )
-                glitchAnimatable.animateTo(
-                    targetValue = 0.0f,
-                    animationSpec = tween(durationMillis = 140, easing = LinearEasing)
-                )
-            }
-
-            val glitchProgress = glitchAnimatable.value
-
             // Keep route changes synchronous. Retaining singleton room screens for an exit
             // animation leaves their dialogs and listeners attached while the game tears down.
-            key(currentScreen) {
-                val glitchTime = glitchProgress * 0.28f
-                Box(modifier = Modifier.fillMaxSize()) {
-                    val screenKey = currentScreen::class.qualifiedName.orEmpty()
-                    val override = localOverrides[screenKey] as? Screen
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .skiaGlitchEffect(
-                                progress = glitchProgress,
-                                time = glitchTime
-                            )
-                    ) {
-                        (override ?: currentScreen).Content()
-                    }
-
-                    AeroCyberOverlay(
-                        progress = glitchProgress,
-                        time = glitchTime,
-                        modifier = Modifier.fillMaxSize()
-                    )
+            SceneTransition(
+                context = SceneTransitionContext(currentScreen, AeroThemeTransition.generation),
+                enabled = koinInject<Settings>().enableAnimations,
+                effect = SceneTransitions.effect,
+            ) {
+                key(currentScreen) {
+                    val override = localOverrides[currentScreen::class.qualifiedName.orEmpty()] as? Screen
+                    (override ?: currentScreen).Content()
                 }
             }
         }

@@ -20,6 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.corrodinggames.rts.gameFramework.GameEngine
 import io.github.rwpp.api.coroutines.GameScope
@@ -30,7 +31,6 @@ import io.github.rwpp.widget.v2.AeroButton
 import io.github.rwpp.widget.v2.AeroPanel
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun AdvancedRallyControls() {
     val draft = AdvancedRally.draft ?: return
@@ -47,6 +47,7 @@ internal fun AdvancedRallyControls() {
                 Text(
                     readI18n("rwpp.hud.rally.instructions", draft.points.size, MAX_RALLY_POINTS),
                     style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
                 )
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),

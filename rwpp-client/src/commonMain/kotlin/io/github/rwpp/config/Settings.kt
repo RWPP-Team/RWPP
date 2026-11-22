@@ -15,6 +15,9 @@ import io.github.rwpp.logic.selection.DEFAULT_SMART_SELECTION_EXTRA_BUILDER_TYPE
 import kotlinx.serialization.Serializable
 import org.koin.core.annotation.Single
 
+@Serializable
+enum class UnitMapColorMode { PLAYER, TEAM, RELATION }
+
 @Single
 @Serializable
 data class Settings(
@@ -29,13 +32,12 @@ data class Settings(
     var aeroEnemyRangesOnly: Boolean = false,
     var aeroRallyPointEffects: Boolean = false,
     @Volatile var advancedRallyPoints: Boolean = false,
+    @Volatile var showTargetedSalvo: Boolean = false,
     var aeroProductionLabels: Boolean = false,
     var aeroAlliedProductionLabels: Boolean = true,
     var aeroSelection: Boolean = false,
     /** Unit type IDs treated as builders only by native mixed-combat drag smart-selection. */
     var smartSelectionExtraBuilders: String = DEFAULT_SMART_SELECTION_EXTRA_BUILDER_TYPES,
-    /** Opt in to native repair orders that add long-idle selected builders to group construction. */
-    var builderQueueProtectionEnabled: Boolean = true,
     var aeroUnitGlowHighlight: Boolean = false,
     var aeroDamageAnimation: Boolean = true,
     var aeroDamageNumbers: Boolean = false,
@@ -51,6 +53,7 @@ data class Settings(
     @Volatile var drawUnitShadows: Boolean = true,
     @Volatile var suppressDeathSmoke: Boolean = false,
     @Volatile var terrainEdgeBuilding: Boolean = true,
+    @Volatile var constructionAssistanceEnabled: Boolean = false,
     @Volatile var overflowProductionQueue: Boolean = false,
     @Volatile var showSurvivalSpawnPoints: Boolean = false,
     @Volatile var showSurvivalWaveAtSpawn: Boolean = false,
@@ -91,6 +94,7 @@ data class Settings(
     var hudChatShowTimestamp: Boolean = false,
     /** Use each player's configured team color for unit markers on the Aero minimap. */
     var minimapUsePlayerColors: Boolean = false,
+    @Volatile var unitMapColorMode: UnitMapColorMode = UnitMapColorMode.PLAYER,
     /** Reassign native team-mask colors locally in the renderer; never changes Team state. */
     @Volatile var unitAppearancePaintEnabled: Boolean = false,
     /** Ten comma-separated 1-based team slots or hex colors, ordered by the unit owner's slot. */
@@ -142,7 +146,7 @@ data class Settings(
     var displayUnitGroupXOffset: Int = 0,
     var changeGameTheme: Boolean = false,
     var showUnitTargetLine: Boolean = false,
-    var mouseMoveView: Boolean = false,
+    @Volatile var mouseMoveView: Boolean = false,
     var allowCameraOverscroll: Boolean = false,
     var cameraOverscrollPixels: Float = 160f,
     /** Local command assistance; all resulting orders still use the native multiplayer protocol. */
@@ -154,15 +158,19 @@ data class Settings(
     @Deprecated("Useless")
     var enableOffscreenPanel: Boolean = false,
 
+    @Deprecated("Useless")
     var displayTimeInGame: Boolean = false,
     var effectLimitForAllEffects: String = "Keep", // Zero, Keep, Unlimited
 
     // --- Android ---
     var enableVolumeKeyMapping: Boolean = false,
+
+    @Deprecated("Useless")
     var enableLargerKeys: Boolean = false,
     // ---------------
 
     // --- Desktop ---
+    @Deprecated("Useless")
     var renderingBackend: String = "OpenGL", // Default, Software, OpenGL
     /**
      * Decide whether to allow game in full screen (Only PC)

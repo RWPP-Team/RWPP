@@ -7,7 +7,10 @@
 
 package io.github.rwpp.mixin.desktop
 
+import com.corrodinggames.rts.appFramework.GameViewInterface
 import com.corrodinggames.rts.gameFramework.GameEngine
+import io.github.rwpp.appKoin
+import io.github.rwpp.config.Settings
 import kim.der.asm.api.annotation.AsmInject
 import kim.der.asm.api.annotation.AsmMixin
 import kim.der.asm.api.annotation.At
@@ -21,6 +24,20 @@ import org.newdawn.slick.AppGameContainer
 import java.util.concurrent.atomic.AtomicBoolean
 
 private val fullscreenRequestedAtLaunch = AtomicBoolean()
+
+@AsmMixin("com/corrodinggames/rts/gameFramework/gui/InterfaceEngine")
+object DesktopMouseEdgeScrollMixin {
+    @WrapOperation(
+        method = "update(F)V",
+        at = At(
+            value = InjectionPoint.INVOKE,
+            target = "com.corrodinggames.rts.appFramework.GameViewInterface.isFullscreen()Z",
+        ),
+        require = 1,
+    )
+    fun allowFullscreenEdgeScroll(view: GameViewInterface, original: Operation<Boolean>): Boolean =
+        original.call(view) && (appKoin.getOrNull<Settings>()?.mouseMoveView ?: true)
+}
 
 /** The launcher creates the Slick display before the engine loads its window preferences. */
 @AsmMixin("com/corrodinggames/rts/java/MainLauncher")
@@ -54,7 +71,17 @@ object DesktopBorderlessFullscreenMixin {
         val fullscreen = requestedAtLaunch || settings.slick2dFullScreen || settings.slick2dBorderless
         settings.slick2dFullScreen = fullscreen
         settings.slick2dBorderless = fullscreen
+        if (fullscreen) settings.slick2dFullScreenResolution = "native"
     }
+
+    @ModifyArg(
+        method = "applyResolution()V",
+        ordinal = 1,
+        index = 2,
+        at = At(InjectionPoint.INVOKE, target = "com.corrodinggames.rts.java.SlickGameContainer.setDisplayMode(IIZ)V"),
+        require = 1,
+    )
+    fun avoidExclusiveFullscreen(@Suppress("UNUSED_PARAMETER") fullscreen: Boolean): Boolean = false
 
     @WrapOperation(
         method = "applyResolution()V",

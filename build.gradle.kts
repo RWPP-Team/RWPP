@@ -5,6 +5,11 @@
  * https://github.com/RWPP-Team/RWPP/blob/main/LICENSE.md
  */
 
+import java.io.OutputStream
+import java.security.DigestInputStream
+import java.security.MessageDigest
+import java.util.HexFormat
+
 plugins {
     base
     id("jvm-toolchains")
@@ -71,7 +76,7 @@ listOf("jvm", "android").forEach { platform ->
     }
 }
 
-val extensionPack = tasks.register("extensionPack") {
+tasks.register("extensionPack") {
     group = "distribution"
     description = "Build the JVM pack by default; select Android with -PextensionPlatform=android."
     dependsOn(provider {
@@ -80,7 +85,6 @@ val extensionPack = tasks.register("extensionPack") {
         "rwpp${platform.replaceFirstChar(Char::uppercaseChar)}ExtensionPack"
     })
 }
-tasks.assemble { dependsOn(extensionPack) }
 
 val extensionPackCheckHost = configurations.create("extensionPackCheckHost") {
     isCanBeConsumed = false
@@ -120,9 +124,76 @@ listOf("jvm", "android").forEach { platform ->
     }
 }
 
+val releasePackages = tasks.register<Sync>("releasePackages") {
+    group = "distribution"
+    description = "Build, verify, and stage both RWPP release packs with their JARs and SHA-256 checksums."
+    into(layout.buildDirectory.dir("release-assets"))
+    listOf("Jvm", "Android").forEach { platform ->
+        dependsOn("verify${platform}ExtensionPack")
+        from(tasks.named<Zip>("rwpp${platform}ExtensionPack"))
+        listOf(":rwpp-api", ":rwpp-client").forEach { module ->
+            from(provider {
+                project(module).tasks.named<Jar>("rwpp${platform}ExtensionJar").get().archiveFile.get().asFile
+            })
+        }
+    }
+    doLast {
+        val hex = HexFormat.of()
+        val archives = destinationDir.listFiles().orEmpty()
+            .filter { it.isFile && it.extension in setOf("jar", "zip") }
+            .sortedBy { it.name }
+        check(archives.size == 6) { "Expected two packs and four release JARs." }
+        destinationDir.resolve("SHA256SUMS.txt").writeText(
+            archives.joinToString(separator = "\n", postfix = "\n") { archive ->
+                val digest = MessageDigest.getInstance("SHA-256")
+                DigestInputStream(archive.inputStream().buffered(), digest).use {
+                    it.transferTo(OutputStream.nullOutputStream())
+                }
+                "${hex.formatHex(digest.digest())}  ${archive.name}"
+            }
+        )
+    }
+}
+tasks.assemble { dependsOn(releasePackages) }
+
+tasks.register<Zip>("bundleForCentral") {
+    group = "publishing"
+    description = "Bundle the RWPP API and client Maven publications and their platform variants."
+    val releaseVersion = provider { project.version.toString() }
+    archiveFileName.set(releaseVersion.map { "rwpp-$it-central-bundle.zip" })
+    destinationDirectory.set(layout.buildDirectory)
+    exclude("**/*.asc.*")
+    for (module in listOf("rwpp-api", "rwpp-client")) {
+        dependsOn(":$module:publishAllPublicationsToLocalStagingRepository")
+        val staging = project(":$module").layout.buildDirectory.dir("central-staging")
+        from(staging) {
+            include(releaseVersion.map { version ->
+                listOf("", "-jvm", "-android").map { "io/github/rwpp-team/$module$it/$version/**" }
+            }.get())
+        }
+        doFirst {
+            val version = releaseVersion.get()
+            check(!version.endsWith("SNAPSHOT")) { "Central release bundles cannot contain snapshots." }
+            for (variant in listOf(module, "$module-jvm", "$module-android")) {
+                val directory = staging.get().asFile.resolve("io/github/rwpp-team/$variant/$version")
+                val baseName = "$variant-$version"
+                val binary = if (variant.endsWith("-android")) ".aar" else ".jar"
+                for (suffix in listOf(binary, ".pom", ".module", "-sources.jar", "-javadoc.jar")) {
+                    for (ending in listOf("", ".asc", ".md5", ".sha1")) {
+                        val file = "$baseName$suffix$ending"
+                        check(directory.resolve(file).isFile) { "Missing $file in the Central staging directory." }
+                    }
+                }
+            }
+        }
+    }
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
+}
+
 allprojects {
     group = "io.github.rwpp"
-    version = "0.1.0-test.1"
+    version = "2.0.2"
 
 //    subprojects {
 //        tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {

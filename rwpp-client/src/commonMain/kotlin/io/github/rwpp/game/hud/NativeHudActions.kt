@@ -10,6 +10,7 @@ package io.github.rwpp.game.hud
 import com.corrodinggames.rts.game.units.OrderableUnit
 import com.corrodinggames.rts.game.units.actions.SpecialAction
 import com.corrodinggames.rts.gameFramework.GameEngine
+import com.corrodinggames.rts.gameFramework.gui.InterfaceEngine
 import io.github.rwpp.game.nativeaccess.NativeBattleAccess
 import io.github.rwpp.game.nativeaccess.NativeCommandsAccess
 import com.corrodinggames.rts.game.units.Unit as GameUnit
@@ -51,10 +52,8 @@ internal fun hudActionCooldownForSelection(action: SpecialAction, productionProg
     return if (value.isFinite()) value.coerceIn(0f, 1f) else 0f
 }
 
-/** Native getDisplayNameWithCount scans every selected unit using one owner's implementation. */
-internal fun hudActionLabelForUnit(action: SpecialAction, owner: GameUnit?, count: Int): String {
-    val name = owner?.let(action::getDisplayNameForUnit) ?: action.displayName
-    return name + if (count > 0) " ($count)" else ""
+internal fun hudActionLabelForUnit(action: SpecialAction, owner: GameUnit?): String {
+    return owner?.let(action::getDisplayNameForUnit) ?: action.displayName
 }
 
 /** Native row packing: column override changes width; buttonWidthScale changes height. */
@@ -86,17 +85,35 @@ internal object NativeHudActions {
     // private and never escape; published is replaced with a separate copy when identities change.
     private val selectedScratch = ArrayList<OrderableUnit>()
     private val previousSelection = ArrayList<OrderableUnit>()
+    private val previousTypes = ArrayList<com.corrodinggames.rts.game.units.UnitTypeInterface>()
+    private val previousTech = ArrayList<Int>()
     private val actionScratch = ArrayList<SpecialAction>()
     private var previousPrimary: GameUnit? = null
     private var guardOffered = false
     private var published: List<SpecialAction> = emptyList()
+    private var nextRefresh = 0L
+    private var lastUiStamp: Int? = null
+    private val uiStampField by lazy {
+        runCatching { InterfaceEngine::class.java.getDeclaredField("uiDirtyCounter").apply { isAccessible = true } }.getOrNull()
+    }
 
     fun selection(primary: GameUnit, units: List<GameUnit>): List<SpecialAction> {
-        val battle = GameEngine.getInstance().interfaceEngine.battleInterface
+        val ui = GameEngine.getInstance().interfaceEngine
+        val battle = ui.battleInterface
         selectedScratch.clear()
         for (unit in units) if (unit is OrderableUnit) selectedScratch.add(unit)
         val selectionChanged = previousPrimary !== primary || previousSelection.size != selectedScratch.size ||
-                previousSelection.indices.any { previousSelection[it] !== selectedScratch[it] }
+                previousSelection.indices.any {
+                    val unit = selectedScratch[it]
+                    previousSelection[it] !== unit || previousTypes[it] !== unit.unitTypeInterface ||
+                        previousTech[it] != unit.techLevel
+                }
+        val now = System.nanoTime()
+        val stamp = uiStampField?.getInt(null)
+        if (!selectionChanged && stamp == lastUiStamp && now < nextRefresh) {
+            (ui as NativeCommandsAccess).rwppGuardOffered(guardOffered)
+            return published
+        }
 
         actionScratch.clear()
         // Copy/filter the native reusable result before the next native action-bar call.
@@ -116,6 +133,9 @@ internal object NativeHudActions {
             previousPrimary = primary
             previousSelection.clear()
             previousSelection.addAll(selectedScratch)
+            previousTypes.clear()
+            previousTech.clear()
+            selectedScratch.forEach { previousTypes.add(it.unitTypeInterface); previousTech.add(it.techLevel) }
             // This list is detached from the scratch list and remains untouched after publication.
             published = ArrayList(actionScratch)
             guardOffered = published.any {
@@ -123,9 +143,9 @@ internal object NativeHudActions {
             }
         }
         // Native action-bar rendering resets this latch, so keep synchronizing it each update.
-        (GameEngine.getInstance().interfaceEngine as NativeCommandsAccess).rwppGuardOffered(
-            guardOffered
-        )
+        lastUiStamp = stamp
+        nextRefresh = if (native.size > 24) now + 100_000_000L else now
+        (ui as NativeCommandsAccess).rwppGuardOffered(guardOffered)
         return published
     }
 }

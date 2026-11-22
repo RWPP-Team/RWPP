@@ -213,7 +213,7 @@ object SandboxEditorForceBuildMixin {
         at = At(InjectionPoint.INVOKE, target = SET_BUILD_WAYPOINT),
         require = 1,
     )
-    fun dispatchEditorBuildAsNativeSpawn(
+    fun prepareNativeBuildingCommand(
         command: CommandControllerCommand,
         x: Float,
         y: Float,
@@ -226,7 +226,6 @@ object SandboxEditorForceBuildMixin {
             command.hasSystemAction = true
             command.systemActionId = 5
         }
-
     }
 }
 

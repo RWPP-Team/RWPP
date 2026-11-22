@@ -9,8 +9,8 @@ package io.github.rwpp.desktop.impl
 
 import io.github.rwpp.api.game.RoomOption
 import io.github.rwpp.api.net.InternalPacketType
-import io.github.rwpp.mixin.desktop.DesktopNetworkPacketMixin
-import io.github.rwpp.mixin.desktop.DesktopRoomOptionHandshakeMixin
+import io.github.rwpp.mixin.network.RoomNetworkPacketMixin
+import io.github.rwpp.mixin.network.RoomOptionHandshakeMixin
 import io.github.rwpp.net.*
 import kim.der.asm.AsmRegistry
 import kim.der.asm.transformer.AsmProcessor
@@ -141,8 +141,8 @@ class DesktopNetworkHooksTest {
 
         AsmRegistry.clear()
         try {
-            AsmRegistry.register(DesktopRoomOptionHandshakeMixin::class.java)
-            AsmRegistry.register(DesktopNetworkPacketMixin::class.java)
+            AsmRegistry.register(RoomOptionHandshakeMixin::class.java)
+            AsmRegistry.register(RoomNetworkPacketMixin::class.java)
 
             val transformedBytes = AsmProcessor().transform(className, originalBytes, classLoader)
             val transformedNode = ClassNode()
@@ -151,13 +151,13 @@ class DesktopNetworkHooksTest {
             assertTransformedCall(
                 transformedNode,
                 "sendPreregisterInfo",
-                "io/github/rwpp/mixin/desktop/DesktopRoomOptionHandshakeMixin",
+                "io/github/rwpp/mixin/network/RoomOptionHandshakeMixin",
                 "includeServerRoomOption",
             )
             assertTransformedCall(
                 transformedNode,
                 "processSystemPacket",
-                "io/github/rwpp/mixin/desktop/DesktopNetworkPacketMixin",
+                "io/github/rwpp/mixin/network/RoomNetworkPacketMixin",
                 "receiveRwppPackets",
             )
         } finally {

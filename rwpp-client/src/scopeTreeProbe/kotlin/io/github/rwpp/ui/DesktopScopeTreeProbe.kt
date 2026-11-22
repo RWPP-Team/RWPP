@@ -25,21 +25,10 @@ import kotlinx.coroutines.withTimeoutOrNull
 @Composable
 internal fun DesktopScopeTreeProbe(content: @Composable () -> Unit) {
     val enabled = remember { java.lang.Boolean.getBoolean("rwpp.scopeTreeProbe") }
-    if (!enabled) {
-        content()
-        return
-    }
-
-    val host = remember {
-        val trackAll = java.lang.Boolean.getBoolean("rwpp.scopeTreeTrackAll")
-        ImplicitScopeTreeHost { site, function ->
-            trackAll || function.startsWith("io.github.rwpp.") ||
-                (function == "androidx.compose.foundation.layout.Row" && ".MainMenu.kt:" in site) ||
-                (function == "androidx.compose.material3.Text" && ".AeroSciFiTheme.kt:" in site)
-        }
-    }
-    host.Content(content)
-    LaunchedEffect(host) {
+    content()
+    if (!enabled) return
+    LaunchedEffect(Unit) {
+        val host = RwppScopeTrees.hosts.first { it.isNotEmpty() }.first()
         DesktopScopeTreeMetrics.awaitCompletion()
         val target = withTimeoutOrNull(20_000) {
             snapshotFlow {

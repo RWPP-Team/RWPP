@@ -12,9 +12,11 @@ import io.github.rwpp.config.RoomPreset
 import io.github.rwpp.config.RoomPresetPlayer
 import io.github.rwpp.config.SavedBlueprint
 import io.github.rwpp.config.Settings
+import io.github.rwpp.config.UnitMapColorMode
 import io.github.rwpp.game.building.BuildingPlanningBlueprintItem
 import io.github.rwpp.logic.config.EDITABLE_NATIVE_SETTINGS
 import io.github.rwpp.logic.config.SettingsEditSession
+import net.peanuuutz.tomlkt.Toml
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -52,6 +54,33 @@ class SettingsEditSessionTest {
         assertIs<Float>(native["scrollSpeed"])
         assertIs<Int>(native["teamUnitCapSinglePlayer"])
         assertFalse(session.hasChanges())
+    }
+
+    @Test
+    fun battlefieldColorsDefaultToPlayerAndPersistWithTheOtherClientPreferences() {
+        val serializer = Settings.serializer()
+        val legacy = Toml.decodeFromString(serializer, "minimapUsePlayerColors = true")
+        assertEquals(UnitMapColorMode.PLAYER, legacy.unitMapColorMode)
+
+        for (mode in UnitMapColorMode.entries) {
+            val settings = legacy.copy(unitMapColorMode = mode)
+            val restored = Toml.decodeFromString(serializer, Toml.encodeToString(serializer, settings))
+            assertEquals(mode, restored.unitMapColorMode)
+            assertTrue(restored.minimapUsePlayerColors)
+        }
+    }
+
+    @Test
+    fun constructionAssistanceIsOptInAndCanBeRestoredAfterPreviewing() {
+        val serializer = Settings.serializer()
+        val settings = Toml.decodeFromString(serializer, "minimapUsePlayerColors = true")
+        assertFalse(settings.constructionAssistanceEnabled)
+        val session = SettingsEditSession.capture(settings, { null }, { _, _ -> }, emptySet())
+        settings.constructionAssistanceEnabled = true
+        assertTrue(session.hasChanges())
+        assertTrue(Toml.decodeFromString(serializer, Toml.encodeToString(serializer, settings)).constructionAssistanceEnabled)
+        session.restore()
+        assertFalse(settings.constructionAssistanceEnabled)
     }
 
     @Test

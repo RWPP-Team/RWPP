@@ -267,6 +267,7 @@ class GameScreen : Screen {
         var placementAction by remember { mutableStateOf<SpecialAction?>(null, referentialEqualityPolicy()) }
         var placementSource by remember { mutableStateOf<GameUnit?>(null, referentialEqualityPolicy()) }
         var placementTooltip by remember { mutableStateOf<CommandTooltip?>(null) }
+        var placementShortages by remember { mutableStateOf(CommandCostShortages.None) }
         OnGameUpdate {
             showPerformance = hotkeySettings.showPerformanceUsage
             val engine = GameEngine.getInstance()
@@ -303,13 +304,15 @@ class GameScreen : Screen {
                     hideOriginalHud && it.actionType == ActionType.placeBuilding
                 }
                 val source = action?.let { ui.specialActionSourceUnit ?: selectedUnits.firstOrNull() }
-                if (action !== placementAction || source !== placementSource) {
+                val shortages = action?.let { hudActionCostShortages(it, source) } ?: CommandCostShortages.None
+                if (action !== placementAction || source !== placementSource || shortages != placementShortages) {
                     placementTooltip = action?.let {
-                        val (title, details) = hudActionInfo(it, source)
+                        val (title, details) = hudActionInfo(it, source, shortages)
                         CommandTooltip(Rect.Zero, title, details)
                     }
                     placementAction = action
                     placementSource = source
+                    placementShortages = shortages
                 }
             }
             // Only the components that belong to the running session are offered in the editor,
@@ -444,7 +447,6 @@ class GameScreen : Screen {
             Box(Modifier.align(Alignment.TopStart).padding(start = 8.dp, top = 52.dp)) {
                 val topHudVisible = !showPauseMenu && !isEditMode && !interfaceHidden
                 AeroReplayControls(visible = topHudVisible)
-                if (topHudVisible) WaitingProductionStatus()
             }
         }
 
@@ -489,43 +491,6 @@ class GameScreen : Screen {
                 saveDialog = null
                 showPauseMenu = false
             })
-        }
-    }
-
-    @Composable
-    private fun WaitingProductionStatus() {
-        val selection = selectedUnits
-        var orders by remember(selection) { mutableStateOf<Map<String, Int>>(emptyMap()) }
-        OnGameUpdate {
-            val engine = GameEngine.getInstance()
-            orders = if (engine == null || engine.replayEngine.isPlayingReplay) emptyMap()
-            else OverflowProductionQueue.selectedWaitingOrders(engine, selection)
-        }
-        if (orders.isEmpty()) return
-
-        val colors = MaterialTheme.colorScheme
-        Column(
-            modifier = Modifier
-                .widthIn(max = 224.dp)
-                .background(colors.surfaceContainerHigh.copy(alpha = 0.82f), RoundedCornerShape(4.dp))
-                .padding(horizontal = 8.dp, vertical = 5.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            Text(
-                text = readI18n("rwpp.production.pendingCount", orders.values.sum()),
-                color = colors.onSurface,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Column(Modifier.heightIn(max = 136.dp).verticalScroll(rememberScrollState())) {
-                for ((name, count) in orders) {
-                    Text(
-                        text = "$name ×$count",
-                        color = colors.onSurface,
-                        style = MaterialTheme.typography.labelSmall,
-                    )
-                }
-            }
         }
     }
 

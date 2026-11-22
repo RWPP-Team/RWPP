@@ -9,6 +9,12 @@ import kotlin.test.assertTrue
 
 class MatchHistoryUiTest {
     @Test
+    fun missingMapNamesUseTheLocalizedFallback() {
+        assertEquals("Unknown map", matchHistoryMapTitle(null, "Unknown map"))
+        assertEquals("Unknown map", matchHistoryMapTitle("maps/skirmish/", "Unknown map"))
+        assertEquals("Big island", matchHistoryMapTitle("maps/skirmish/[p2]big_island.tmx", "Unknown map"))
+    }
+    @Test
     fun unitKdIncludesExperimentalUnitsButExcludesBuildings() {
         val stats = stats(
             unitsKilled = 5,

@@ -18,6 +18,40 @@ import kotlin.test.assertTrue
 
 class MapPreviewGenerationServiceTest {
     @Test
+    fun readsNativeSpawnSlotsFromTilesetsAndObjects() = runBlocking {
+        val tmx = """
+            <map orientation="orthogonal" width="4" height="2" tilewidth="20" tileheight="20">
+              <tileset firstgid="1" source="units.tsx"/>
+              <layer name="Units" visible="0">
+                <data encoding="csv">2,0,2147483649,0,0,0,0,0</data>
+              </layer>
+              <objectgroup name="Triggers" offsetx="8">
+                <object x="20" y="14" width="4" height="12"><properties>
+                  <property name="customUnit" value="commandCenter"/><property name="team">2</property>
+                </properties></object>
+                <object x="60" y="20"><properties>
+                  <property name="unit" value="commandCenter"/><property name="team" value="none"/>
+                </properties></object>
+              </objectgroup>
+            </map>
+        """.trimIndent().encodeToByteArray()
+        val tsx = """
+            <tileset>
+              <tile id="0"><properties>
+                <property name="unit" value="commandCenter"/><property name="team" value="0"/>
+              </properties></tile>
+              <tile id="1"><properties>
+                <property name="unit" value="builder"/><property name="team" value="0"/>
+              </properties></tile>
+            </tileset>
+        """.trimIndent().encodeToByteArray()
+        assertEquals(
+            listOf(MapSpawnPosition(0, 0.625f, 0.25f), MapSpawnPosition(2, 0.375f, 0.5f)),
+            readMapSpawnPositions(tmx, "maps/skirmish/test.tmx") { tsx.takeIf { _ -> it == "tilesets/units.tsx" } },
+        )
+    }
+
+    @Test
     fun supportsNativeLegacyTilesetImagePaths() {
         assertTrue(
             "tilesets/bitmaps/mountain.png" in previewResourceCandidates(

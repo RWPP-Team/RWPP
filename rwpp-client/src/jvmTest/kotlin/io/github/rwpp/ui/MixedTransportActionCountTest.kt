@@ -16,7 +16,7 @@ import com.corrodinggames.rts.game.units.Unit as NativeUnit
 
 class MixedTransportActionCountTest {
     @Test
-    fun mixedActionCaptionUsesAlreadyResolvedCountsWithoutNativeGlobalAggregation() {
+    fun mixedActionCaptionLeavesCountsToTheSeparateCounter() {
         val action = object : EditorActionButton(900001) {
             override fun getDisplayName(): String = "Transport"
             override fun getDisplayDescription(): String = ""
@@ -27,7 +27,7 @@ class MixedTransportActionCountTest {
 
             override fun getDisplayNameWithCount(): String = error("Unsafe native mixed aggregation")
         }
-        assertEquals("Transport (3)", hudActionLabelForUnit(action, null, 3))
+        assertEquals("Transport", hudActionLabelForUnit(action, null))
     }
 
     @Test

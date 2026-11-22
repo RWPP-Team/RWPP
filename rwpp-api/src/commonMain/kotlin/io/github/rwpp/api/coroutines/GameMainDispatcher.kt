@@ -34,6 +34,10 @@ object GameMainDispatcher : CoroutineDispatcher() {
     private var nativeThread: Thread? = null
     private var handoffThread: Thread? = null
     private var lastNativeFrameNanos = 0L
+    @Volatile
+    private var idleWorkReserved = false
+    @Volatile
+    private var idleWorker: Thread? = null
 
     @Volatile
     private var wakeThread: Thread? = null
@@ -47,18 +51,46 @@ object GameMainDispatcher : CoroutineDispatcher() {
         if (owner != null) LockSupport.unpark(owner)
     }
 
+    override fun isDispatchNeeded(context: CoroutineContext): Boolean =
+        idleWorker !== Thread.currentThread()
+
     /**
      * Drains work on Android's main looper while the native game loop is idle. The pump remains
      * scheduled while the game is active so it can detect a return to the launcher, but it does
      * not drain the queue while native frames own it.
      */
     internal fun drainPlatformPump(): Boolean = synchronized(drainLock) {
+        if (idleWorkReserved) return@synchronized false
         if (refreshNativeLoopStateLocked()) {
             PlatformGameMainDispatcherPump.stop()
             return@synchronized true
         }
-        drainTasksLocked()
+        drainTasksLocked(stopAtHandoff = true)
         false
+    }
+
+    /** Run a blocking operation off the Android menu looper while it owns the idle engine. */
+    suspend fun <T> runIdleGameWork(action: () -> T): T = withContext(NonCancellable) {
+        val reserved = withContext(this@GameMainDispatcher) {
+            if (PlatformGameMainDispatcherPump.isPumpThread() && !refreshNativeLoopStateLocked()) {
+                idleWorkReserved = true
+                true
+            } else false
+        }
+        if (!reserved) return@withContext withContext(this@GameMainDispatcher) { action() }
+
+        try {
+            withContext(Dispatchers.IO) {
+                idleWorker = Thread.currentThread()
+                try {
+                    action()
+                } finally {
+                    idleWorker = null
+                }
+            }
+        } finally {
+            idleWorkReserved = false
+        }
     }
 
     /** Starts Android's idle pump; it remains scheduled to detect later native-loop transitions. */
@@ -112,7 +144,7 @@ object GameMainDispatcher : CoroutineDispatcher() {
                 }
             }
             lastNativeFrameNanos = System.nanoTime()
-            drainTasksLocked()
+            if (!idleWorkReserved) drainTasksLocked()
         }
     }
 
@@ -300,6 +332,7 @@ object GameMainDispatcher : CoroutineDispatcher() {
     }
 
     private fun canDrainOnCurrentThread(): Boolean = synchronized(drainLock) {
+        if (idleWorkReserved) return@synchronized idleWorker === Thread.currentThread()
         refreshNativeLoopStateLocked()
         val currentThread = Thread.currentThread()
         val owner = nativeThread
@@ -331,13 +364,13 @@ object GameMainDispatcher : CoroutineDispatcher() {
         var madeProgress = false
         if (includeUpdateTasks) {
             for (task in updateTasks) {
-                if (stopAtHandoff && nativeLoopActive) return madeProgress
+                if (stopAtHandoff && (nativeLoopActive || idleWorkReserved)) return madeProgress
                 task.run()
                 madeProgress = true
             }
         }
         while (true) {
-            if (stopAtHandoff && nativeLoopActive) return madeProgress
+            if (stopAtHandoff && (nativeLoopActive || idleWorkReserved)) return madeProgress
             val task = taskQueue.poll() ?: break
             task.run()
             madeProgress = true

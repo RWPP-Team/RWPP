@@ -125,7 +125,6 @@ internal object NativeGameHotkeys {
                 return
             }
             apply(settings)
-            NativeBuilderGroupAssistance.update(settings, blocked)
             BuildingPlanningController.onGameUpdate(blocked)
             if (!blocked && followSelectionButton.isPressed) toggleFollowSelection(engine)
             SelectionCameraFollowController.updateOnGameThread(

@@ -7,8 +7,26 @@
 
 package io.github.rwpp.graphics
 
+import com.corrodinggames.rts.game.Team
+import io.github.rwpp.config.UnitMapColorMode
+
 /** Relation is based on native Team alliance state; it is only a display choice. */
 enum class UnitAppearanceRelation { SELF, ALLY, ENEMY, NEUTRAL }
+
+internal fun resolveUnitMapPaintColor(mode: UnitMapColorMode, owner: Team, viewer: Team?): Int? {
+    if (mode == UnitMapColorMode.PLAYER || owner.teamId < 0 || owner.isSpectator) return null
+    if (mode == UnitMapColorMode.RELATION && viewer != null && viewer.teamId >= 0 && !viewer.isSpectator) {
+        return when {
+            owner === viewer -> 0xff00ff00.toInt()
+            viewer.isEnemy(owner) -> 0xffff0000.toInt()
+            viewer.isSameTeam(owner) -> 0xffffff00.toInt()
+            else -> null
+        }
+    }
+    // Observers without a player perspective use alliance colors. Reuse the native palette,
+    // cycling it for alliance IDs above the ten standard slots, as native player colors do.
+    return owner.allyTeam.takeIf { it >= 0 }?.let { Team.lookupTeamColor(it % 10) }
+}
 
 /** A paint source is the unit's own color, another player's position, or a fixed ARGB color. */
 sealed interface UnitAppearanceColorSource {

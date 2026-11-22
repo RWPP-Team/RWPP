@@ -36,6 +36,18 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.*
 
 class CommandCanvasTest : DesktopComposeGraphicsTest() {
+    @Test
+    fun shortageHighlightsOnlyTheDisplayedCreditAmount() {
+        val label = "Factory\n\$600"
+        val caption = commandButtonCaption(label, creditsShort = true)
+        assertEquals(label, caption.text)
+        val highlight = caption.spanStyles.single()
+        assertEquals("\$600", caption.text.substring(highlight.start, highlight.end))
+        assertEquals(androidx.compose.ui.graphics.Color(0xffff6262), highlight.item.color)
+        assertTrue(commandButtonCaption(label, creditsShort = false).spanStyles.isEmpty())
+        assertTrue(commandButtonCaption("Factory", creditsShort = true).spanStyles.isEmpty())
+    }
+
     private class TooltipSemantics : PlatformContext by PlatformContext.Empty() {
         private var owner: SemanticsOwner? = null
         override val semanticsOwnerListener = object : PlatformContext.SemanticsOwnerListener {
@@ -60,7 +72,7 @@ class CommandCanvasTest : DesktopComposeGraphicsTest() {
         var placing = false
         val frame = mutableStateOf(CommandFrame(buttons = listOf(CommandButton(
             label = "Build", clickSound = null, opensBuildingPlacement = true,
-            info = { "Build" to "Place a factory" },
+            info = { CommandInfo("Build", "Place a factory") },
             activate = {
                 assertNull(CommandHover.current.value, "The click must dismiss the tooltip before activation")
                 placing = true
@@ -113,7 +125,7 @@ class CommandCanvasTest : DesktopComposeGraphicsTest() {
         val surface = Surface.makeRasterN32Premul(640, 260)
         val frame = mutableStateOf(CommandFrame(buttons = listOf(CommandButton(
             label = "Unit", enabled = false, clickSound = null,
-            info = { "Unit" to "Native command description" },
+            info = { CommandInfo("Unit", "Native command description") },
         ))))
         var time = 0L
         fun render() {
@@ -283,7 +295,7 @@ class CommandCanvasTest : DesktopComposeGraphicsTest() {
         var time = 0L
         fun button(id: String) = CommandButton(
             id, identity = id, clickSound = null, opensTouchQueue = true,
-            info = { id to "Production details" }, activate = {
+            info = { CommandInfo(id, "Production details") }, activate = {
                 if (selection.tap(id)) builds++
                 HudQueuePopupTouch.active = true
                 HudQueuePopupTouch.selectedIdentity = id
@@ -293,7 +305,7 @@ class CommandCanvasTest : DesktopComposeGraphicsTest() {
         val model = mutableStateOf(
             CommandFrame(
                 "Factory", buttons = listOf(button("Tank"), button("Builder")),
-                info = { "Factory" to "Unit statistics" })
+                info = { CommandInfo("Factory", "Unit statistics") })
         )
 
         fun render() {
@@ -421,10 +433,12 @@ class CommandCanvasTest : DesktopComposeGraphicsTest() {
                 "Hovering an action must open the information panel without a click"
             )
             scene.sendPointerEvent(PointerEventType.Move, Offset(240f, 400f))
+            assertNull(CommandHover.current.value, "Blank console space must close action information")
+            scene.sendPointerEvent(PointerEventType.Move, Offset(20f, 2f))
             assertEquals(
                 "Factory",
                 CommandHover.current.value?.title,
-                "Hovering the console must show the selected unit information"
+                "The header strip may show selected unit information"
             )
             scene.sendPointerEvent(PointerEventType.Move, Offset(20f, 20f))
             assertTrue(
@@ -459,7 +473,7 @@ class CommandCanvasTest : DesktopComposeGraphicsTest() {
             incoming.set(CommandFrame("建造中心", 0.85f, 0.4f, 3, List(24) {
                 CommandButton(
                     "单位 $it\n$500", queued = if (it == 0) 12 else 0,
-                    pendingProduction = if (it == 1) 5 else 0,
+                    pendingProduction = if (it == 0) 5 else 0,
                     progress = if (it == 0) 0.4f else 0f, image = icon
                 )
             }))
@@ -469,9 +483,9 @@ class CommandCanvasTest : DesktopComposeGraphicsTest() {
                 org.jetbrains.skia.Bitmap().use { bitmap ->
                     bitmap.allocPixels(image.imageInfo)
                     assertTrue(image.readPixels(bitmap))
-                    assertFalse((0 until image.height).any { y ->
+                    assertTrue((0 until image.height).any { y ->
                         (0 until image.width).any { x -> bitmap.getColor(x, y) == 0xffffcb74.toInt() }
-                    }, "Waiting orders must not draw a separate badge on production buttons")
+                    }, "The queue counter must show its waiting production accent")
                 }
                 image.encodeToData()!!.use {
                     java.nio.file.Files.write(

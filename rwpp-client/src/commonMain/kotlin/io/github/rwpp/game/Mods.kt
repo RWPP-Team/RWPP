@@ -8,25 +8,112 @@
 package io.github.rwpp.game
 
 import com.corrodinggames.rts.gameFramework.GameEngine
-import io.github.rwpp.api.coroutines.GameMainDispatcher
+import com.corrodinggames.rts.gameFramework.CommonUtils
+import com.corrodinggames.rts.gameFramework.files.FileLoader
+import com.corrodinggames.rts.gameFramework.mod.Mod
+import io.github.rwpp.api.i18n.readI18n
+import io.github.rwpp.modDir
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.nio.file.Files
 
 /** Desktop texture uploads require the native GL owner and a neutral unpack state. */
 internal expect fun withNativeModReloadGraphics(engine: GameEngine, reload: () -> Unit)
 
-internal fun reloadModDataOnGameThread(engine: GameEngine) {
-    withNativeModReloadGraphics(engine) {
-        engine.modManager.reloadModsAndSelection()
-        engine.modManager.reloadModData()
+internal expect suspend fun <T> runNativeModWork(reloadData: Boolean = false, action: () -> T): T
+internal expect fun presentNativeModProgress()
+
+private val modOperation = Mutex()
+
+internal suspend fun scanMods(): List<Mod> = modOperation.withLock {
+    runNativeModWork { GameEngine.getInstance().modManager.refreshModList().filterIsInstance<Mod>() }
+}
+
+internal suspend fun importRwmod(file: File): List<Mod> = modOperation.withLock {
+    require(file.extension.equals("rwmod", ignoreCase = true)) { readI18n("rwpp.mod.loadInfo") }
+    val archiveName = "${file.nameWithoutExtension}.rwmod"
+    val hash = CommonUtils.sha256Hex(archiveName)
+    val directory = runNativeModWork {
+        val manager = GameEngine.getInstance().modManager
+        val existing = manager.getModByHash(hash)
+        val existingPath = existing?.sourcePathRaw?.let(FileLoader::convertAbstractPath)
+        if (existingPath != null) {
+            require(File(existingPath).canonicalFile == file.canonicalFile) { readI18n("rwpp.mod.fileExists", archiveName) }
+            null
+        } else File(modDir).absoluteFile
+    }
+    if (directory != null) withContext(Dispatchers.IO) { installRwmod(file, directory) }
+    runNativeModWork {
+        val engine = GameEngine.getInstance()
+        val manager = engine.modManager
+        val mods = manager.refreshModList().filterIsInstance<Mod>()
+        val imported = checkNotNull(manager.getModByHash(hash)) { readI18n("rwpp.mod.importNotFound", archiveName) }
+        if (directory != null) {
+            imported.disabled = true
+            manager.saveSelection()
+            check(engine.settings.save()) { "Could not save mod selection" }
+        }
+        mods
     }
 }
 
-/** Reload the engine's mod selection and data on the game thread. */
+/** Publish only a fully copied archive. The native ZIP reader validates its contents. */
+internal fun installRwmod(file: File, directory: File): File {
+    Files.createDirectories(directory.toPath())
+    val target = File(directory, "${file.nameWithoutExtension}.rwmod")
+    if (file.canonicalFile == target.canonicalFile) return target
+    val temporary = Files.createTempFile(directory.toPath(), ".rwpp-mod-", ".part")
+    try {
+        file.inputStream().use { input ->
+            Files.newOutputStream(temporary).use { output -> input.copyTo(output, 64 * 1024) }
+        }
+        Files.move(temporary, target.toPath())
+        return target
+    } finally {
+        Files.deleteIfExists(temporary)
+    }
+}
+
+/** Reload selected mods without committing a potentially unbootable selection beforehand. */
 suspend fun reloadMods() {
-    withContext(GameMainDispatcher) {
+    applyModSelection(reloadData = true)
+}
+
+internal suspend fun applyModSelection(reloadData: Boolean): List<Mod> = modOperation.withLock {
+    runNativeModWork(reloadData) {
         val engine = GameEngine.getInstance()
-        engine.modManager.saveSelection()
-        check(engine.settings.save()) { "Could not save mod selection" }
-        reloadModDataOnGameThread(engine)
+        val manager = engine.modManager
+        val settings = engine.settings
+        val previous = settings.modSettings
+        val previousVersion = settings.modSettingsVersion
+        val progress = NativeModLoadProgress()
+        try {
+            if (reloadData) progress.run {
+                withNativeModReloadGraphics(engine) {
+                    manager.reloadModData()
+                }
+            }
+        } catch (failure: OutOfMemoryError) {
+            settings.modSettings = previous
+            settings.modSettingsVersion = previousVersion
+            manager.loadSelection()
+            settings.save()
+            throw ModMemoryLoadFailure(readI18n("rwpp.mod.memoryExhausted"), failure)
+        } catch (failure: Exception) {
+            settings.modSettings = previous
+            settings.modSettingsVersion = previousVersion
+            manager.loadSelection()
+            settings.save()
+            throw failure
+        }
+        manager.saveSelection()
+        check(settings.save()) { "Could not save mod selection" }
+        if (progress.failedMods.isNotEmpty()) {
+            throw ModMemoryLoadFailure(readI18n("rwpp.mod.memorySkipped", progress.failedMods.joinToString(", ")))
+        }
+        manager.refreshModList().filterIsInstance<Mod>()
     }
 }

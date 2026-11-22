@@ -18,12 +18,13 @@
 package io.github.rwpp
 
 import io.github.rwpp.api.appKoin
+import io.github.rwpp.generated.ClientBuildConfig
 import org.koin.core.Koin
 
 /**
  * The version of the project.
  */
-const val projectVersion = "v2.0.0"
+const val projectVersion = "v${ClientBuildConfig.VERSION}"
 
 /**
  * The version of the game core.
@@ -71,6 +72,7 @@ val mapDir by lazy {
     appKoin.get<AppContext>().externalStoragePath("maps")
 }
 
-val modDir by lazy {
-    appKoin.get<AppContext>().externalStoragePath("units")
-}
+val modDir: String
+    get() = com.corrodinggames.rts.gameFramework.files.FileLoader.convertAbstractPath(
+        com.corrodinggames.rts.game.units.custom.CustomUnitMetadataLoader.getModsUnitsDirectory()
+    )

@@ -15,6 +15,7 @@ import com.corrodinggames.rts.gameFramework.GameEngine
 import com.corrodinggames.rts.gameFramework.render.BitmapOrTexture
 import com.corrodinggames.rts.gameFramework.render.BitmapOrTextureLazyColoring
 import io.github.rwpp.config.Settings
+import io.github.rwpp.config.UnitMapColorMode
 import io.github.rwpp.logic.GameVisualSettings
 
 /** Local draw-time overrides only. Never writes native Team colors or Unit ownership. */
@@ -57,6 +58,7 @@ internal object UnitAppearanceRenderBridge {
     )
 
     private data class RawSettings(
+        val mapColorMode: UnitMapColorMode,
         val paintEnabled: Boolean,
         val playerMap: String,
         val triColorEnabled: Boolean,
@@ -72,6 +74,7 @@ internal object UnitAppearanceRenderBridge {
     )
 
     private data class SettingsSnapshot(
+        val mapColorMode: UnitMapColorMode,
         val paintEnabled: Boolean,
         val playerMap: List<UnitAppearanceColorSource>,
         val triColorEnabled: Boolean,
@@ -103,7 +106,8 @@ internal object UnitAppearanceRenderBridge {
     fun <T> withUnit(unit: Unit, selection: Boolean = false, block: () -> T): T {
         val previous = context.get()
         val settings = snapshot(GameVisualSettings.get())
-        if (settings == null || (!settings.paintEnabled && !settings.outlineEnabled &&
+        if (settings == null || (settings.mapColorMode == UnitMapColorMode.PLAYER &&
+                    !settings.paintEnabled && !settings.outlineEnabled &&
                     !(selection && settings.ringsEnabled)
                     )
         ) context.remove()
@@ -149,54 +153,62 @@ internal object UnitAppearanceRenderBridge {
         val source = synchronized(lock) { variantSources[texture.id] } ?: return null
         val settings = current.settings
         val team = current.unit.team ?: return null
-        val displaySlot = team.getDisplaySlot().coerceIn(0, 9)
-        val ownerPosition = team.teamId
-        val ownerNativeColor = team.color
-        val paintColor = resolveUnitAppearancePaintColor(
-            enabled = settings.paintEnabled,
-            triColorEnabled = settings.triColorEnabled,
-            relation = relation(current.unit),
-            ownerPosition = ownerPosition,
-            ownerNativeColor = ownerNativeColor,
-            playerColorMap = settings.playerMap,
-            selfSource = settings.selfColor,
-            enemySource = settings.enemyColor,
-            allySource = settings.allyColor,
-            nativeColorForPlayerPosition = { playerPosition ->
-                Team.getTeam(playerPosition)?.color ?: Team.lookupTeamColor(playerPosition)
-            },
-        ) ?: ownerNativeColor
+        val paintColor = when {
+            settings.mapColorMode != UnitMapColorMode.PLAYER -> {
+                val viewer = if (settings.mapColorMode == UnitMapColorMode.RELATION) {
+                    GameEngine.getInstance()?.playerTeam
+                } else null
+                resolveUnitMapPaintColor(settings.mapColorMode, team, viewer)
+            }
+            settings.paintEnabled -> resolveUnitAppearancePaintColor(
+                enabled = true,
+                triColorEnabled = settings.triColorEnabled,
+                relation = relation(current.unit),
+                ownerPosition = team.teamId,
+                ownerNativeColor = team.color,
+                playerColorMap = settings.playerMap,
+                selfSource = settings.selfColor,
+                enemySource = settings.enemyColor,
+                allySource = settings.allyColor,
+                nativeColorForPlayerPosition = { playerPosition ->
+                    Team.getTeam(playerPosition)?.color ?: Team.lookupTeamColor(playerPosition)
+                },
+            )
+            else -> null
+        }
 
         if (settings.outlineEnabled) {
             val frame = sourceRect?.let { Rect(it) } ?: Rect(0, 0, texture.width, texture.height)
-            val outlined = outlineTexture(source, frame, paintColor)
+            val outlined = outlineTexture(source, frame, paintColor ?: team.color)
             if (outlined != null) {
                 return DrawOverride(outlined, Rect(0, 0, frame.width(), frame.height()))
             }
         }
 
-        val painted = paintedTexture(texture, source, settings, displaySlot, paintColor)
+        val painted = if (paintColor == null) texture else paintedTexture(
+            texture, source, team.getDisplaySlot().coerceIn(0, 9), paintColor,
+        )
         return if (painted === texture) null else DrawOverride(painted, sourceRect)
     }
 
     private fun paintedTexture(
         texture: BitmapOrTexture,
         source: VariantSource,
-        settings: SettingsSnapshot,
         displaySlot: Int,
         paintColor: Int,
     ): BitmapOrTexture {
-        if (!settings.paintEnabled || source.mode == TeamColorMode.disabled ||
+        if (source.mode == TeamColorMode.disabled ||
             paintColor == Team.lookupTeamColor(source.originalSlot)
         ) return texture
-        val key = TextureKey(source.source, source.source.version, source.mode, paintColor, displaySlot)
+        val colorSlot = if (source.mode == TeamColorMode.hueShift) displaySlot else 0
+        val key = TextureKey(source.source, source.source.version, source.mode, paintColor, colorSlot)
         synchronized(lock) {
             coloredTextures[key]?.let { cached ->
                 coloredTextures.remove(key)
                 coloredTextures[key] = cached
                 return cached
             }
-            val colored = BitmapOrTextureLazyColoring(source.source, paintColor, source.mode, displaySlot)
+            val colored = BitmapOrTextureLazyColoring(source.source, paintColor, source.mode, colorSlot)
             colored.name = "RWPP local paint ${source.source.name} #${paintColor.toString(16)}"
             coloredTextures[key] = colored
             while (coloredTextures.size > MAX_COLORED_ENTRIES) {
@@ -362,6 +374,7 @@ internal object UnitAppearanceRenderBridge {
     private fun snapshot(settings: Settings?): SettingsSnapshot? {
         settings ?: return null
         val raw = RawSettings(
+            settings.unitMapColorMode,
             settings.unitAppearancePaintEnabled,
             settings.unitAppearancePlayerColorMap,
             settings.unitAppearanceTriColorEnabled,
@@ -378,6 +391,7 @@ internal object UnitAppearanceRenderBridge {
         synchronized(lock) {
             if (raw == previousRawSettings) return previousSettings
             return SettingsSnapshot(
+                mapColorMode = raw.mapColorMode,
                 paintEnabled = raw.paintEnabled,
                 playerMap = parseUnitAppearancePlayerColorMap(raw.playerMap),
                 triColorEnabled = raw.triColorEnabled,

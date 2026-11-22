@@ -12,7 +12,7 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import javax.imageio.ImageIO
 
-internal actual fun decodeMapPreviewImage(bytes: ByteArray): MapPreviewRaster {
+internal actual fun decodeMapPreviewImage(bytes: ByteArray, maxSide: Int): MapPreviewRaster {
     val input = ImageIO.createImageInputStream(ByteArrayInputStream(bytes))
         ?: error("Tileset image could not be opened")
     input.use {
@@ -22,7 +22,7 @@ internal actual fun decodeMapPreviewImage(bytes: ByteArray): MapPreviewRaster {
         try {
             val width = reader.getWidth(0)
             val height = reader.getHeight(0)
-            require(width in 1..8192 && height in 1..8192 && width.toLong() * height <= 8_000_000L) {
+            require(width in 1..maxSide && height in 1..maxSide && width.toLong() * height <= 8_000_000L) {
                 "Tileset image dimensions exceed the preview limit"
             }
             val image = reader.read(0)

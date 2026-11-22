@@ -11,6 +11,13 @@ include(":rwpp-api", ":rwpp-server", ":rwpp-client")
 
 
 pluginManagement {
+    resolutionStrategy {
+        eachPlugin {
+            if (requested.id.id == "com.android.application" || requested.id.id == "com.android.library") {
+                useModule("com.android.tools.build:gradle:${requested.version}")
+            }
+        }
+    }
     repositories {
         gradlePluginPortal()
         google()
@@ -47,23 +54,18 @@ dependencyResolutionManagement {
                 includeModule("io.github.rwpp-team", "rwml-desktop")
             }
         }
+        // Prefer a local mapping build when it provides the pinned version.
+        rwmlLocalGameRepository?.let { localRepository ->
+            maven {
+                name = "RWMLLocal"
+                url = uri(localRepository)
+                content { includeModule("io.github.rwpp-team", "game-lib") }
+            }
+        }
         google()
         mavenCentral()
         maven("https://jitpack.io")
         maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
-        rwmlLocalGameRepository?.let { localRepository ->
-            exclusiveContent {
-                forRepository {
-                    maven {
-                        name = "RWMLLocal"
-                        url = uri(localRepository)
-                    }
-                }
-                filter {
-                    includeModule("io.github.rwpp-team", "game-lib")
-                }
-            }
-        }
     }
 }
 

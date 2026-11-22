@@ -12,6 +12,7 @@ package io.github.rwpp.desktop
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.InternalComposeUiApi
 import androidx.compose.ui.geometry.Offset
@@ -276,6 +277,11 @@ class OffscreenComposeRenderer : AutoCloseable, InputListener {
     fun setContent(content: @androidx.compose.runtime.Composable () -> Unit) {
         scene.setContent(content = content)
         scene.size = IntSize(framebufferWidth, framebufferHeight)
+    }
+
+    internal fun forceFrame() {
+        Snapshot.sendApplyNotifications()
+        needRender = true
     }
 
     @OptIn(InternalComposeUiApi::class)

@@ -126,6 +126,8 @@ val verifyExtension: (File, Boolean) -> Unit = { archive, android ->
             check(zip.getEntry("io/github/rwpp/api/ApiRuntime.class") == null) { "Client must not embed API" }
             check(zip.getEntry("org/koin/core/Koin.class") == null) { "API owns the shared Koin runtime" }
             check(zip.getEntry("io/github/rwpp/ui/RwppUiFramework.class") != null)
+            check(zip.getEntry("dev/composescopetree/ImplicitScopeTreeHost.class") != null)
+            check(zip.getEntry("dev/composescopetree/compiler/ScopeTreeCompilerPluginRegistrar.class") == null)
             check(zip.getEntry("org/koin/compose/KoinApplicationKt.class") != null)
             check(zip.getEntry("composeResources/io.github.rwpp.generated/drawable/logo.png") != null)
         } else {

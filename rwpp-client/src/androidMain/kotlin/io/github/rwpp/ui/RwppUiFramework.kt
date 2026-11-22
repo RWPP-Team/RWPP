@@ -87,6 +87,7 @@ internal object AndroidUiRuntime {
             suspendLauncherUi = null
             restoreLauncherUi = null
             openingGame = false
+            UI.nativeWorldOwnsSurface = false
             gameSurface.also { gameSurface = null }
         }
         toClose?.close()
@@ -105,6 +106,7 @@ internal object AndroidUiRuntime {
                 surface = current?.takeUnless { it.isClosed } ?: checkNotNull(gameSurfaceFactory).invoke()
                     .also { gameSurface = it }
                 openingGame = true
+                UI.nativeWorldOwnsSurface = true
             }
             try {
                 suspendLauncherUi?.invoke()
@@ -126,6 +128,7 @@ internal object AndroidUiRuntime {
             if (this.host !== host || gameSurface !== surface) return
             gameSurface = null
             openingGame = false
+            UI.nativeWorldOwnsSurface = false
             restoreLauncherUi
         }
         if (restore) restoreUi?.invoke()

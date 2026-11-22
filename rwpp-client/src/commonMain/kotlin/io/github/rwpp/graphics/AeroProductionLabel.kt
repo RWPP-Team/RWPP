@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.rwpp.api.i18n.readI18n
 import kotlin.math.max
 
 internal fun productionTimeLabel(
@@ -61,8 +62,14 @@ internal fun DrawScope.drawAeroProductionLabel(
         }   ×${item.count}",
         TextStyle(color = if (item.paused || item.waiting) Color(0xffffcb74) else Color(0xff8bdcf0), fontSize = 10.sp)
     )
-    val width = max(name.size.width, details.size.width).toFloat() + iconSize + pad * 3
-    val height = max(iconSize, (name.size.height + details.size.height).toFloat()) + pad * 2
+    val pending = item.pendingProduction.takeIf { it > 0 }?.let {
+        text.measure(readI18n("rwpp.production.pendingCount", it),
+            TextStyle(color = Color(0xffffcb74), fontSize = 10.sp))
+    }
+    val activeWidth = if (item.count > 0) max(name.size.width, details.size.width) else 0
+    val width = max(activeWidth, pending?.size?.width ?: 0).toFloat() + iconSize + pad * 3
+    val activeHeight = if (item.count > 0) name.size.height + details.size.height else 0
+    val height = max(iconSize, activeHeight.toFloat()) + (pending?.size?.height ?: 0) + pad * 2
     val origin = Offset(
         (center.x - width / 2).coerceIn(0f, (size.width - width).coerceAtLeast(0f)),
         (center.y - radius - height - 7.dp.toPx()).coerceAtLeast(2.dp.toPx())
@@ -82,8 +89,11 @@ internal fun DrawScope.drawAeroProductionLabel(
         )
     }
     val content = origin + Offset(iconSize + pad * 1.5f, pad)
-    drawText(name, topLeft = content)
-    drawText(details, topLeft = content + Offset(0f, name.size.height.toFloat()))
+    if (item.count > 0) {
+        drawText(name, topLeft = content)
+        drawText(details, topLeft = content + Offset(0f, name.size.height.toFloat()))
+    }
+    pending?.let { drawText(it, topLeft = content + Offset(0f, activeHeight.toFloat())) }
     drawRect(
         Color(0xff78d4ea), origin + Offset(cut, height - 2.dp.toPx()),
         Size((width - cut * 2) * item.progress.coerceIn(0f, 1f), 1.dp.toPx())
