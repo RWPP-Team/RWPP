@@ -8,6 +8,7 @@
 package io.github.rwpp.logic
 
 import com.corrodinggames.rts.game.units.buildings.FactoryInterface
+import com.corrodinggames.rts.game.units.Unit as GameUnit
 import com.corrodinggames.rts.gameFramework.CommandControllerCommand
 import com.corrodinggames.rts.gameFramework.utility.FastArrayList
 import io.github.rwpp.RwppExtensionRuntime
@@ -20,6 +21,7 @@ import io.github.rwpp.api.event.events.*
 import io.github.rwpp.appKoin
 import io.github.rwpp.config.Settings
 import io.github.rwpp.game.chat.shouldClearChatAfterGameQuit
+import io.github.rwpp.game.hud.OverflowProductionQueue
 import io.github.rwpp.ui.UI
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -72,7 +74,13 @@ class ProductGamePolicies(
             if (!settings.enhancedReinforceTroops || command.actionId.id == "-1") return@subscribeAlways
             val units = commandUnits.get(command) as? FastArrayList ?: return@subscribeAlways
             if (units.size < 2) return@subscribeAlways
-            val sorted = units.sortedBy { (it as? FactoryInterface)?.queuedItems?.size ?: 0 }
+            // Factories with deferred orders are already loaded even when their native queue is
+            // short; include those orders so new production does not pile onto the same factory.
+            val sorted = units.sortedBy { raw ->
+                val unit = raw as? GameUnit
+                ((unit as? FactoryInterface)?.queuedItems?.size ?: 0) +
+                        (unit?.let(OverflowProductionQueue::pendingCountForFactory) ?: 0)
+            }
             commandUnits.set(command, FastArrayList(sorted))
         }
         GlobalEventChannel.filter(ChatMessageEvent::class)

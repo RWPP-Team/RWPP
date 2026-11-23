@@ -33,7 +33,13 @@ internal object OverflowProductionQueue {
     private val pending = linkedMapOf<OrderableUnit, ArrayDeque<ActionId>>()
     private var map: NativeMap? = null
     private var team: Team? = null
-    private val inFlight = HashMap<OrderableUnit, CommandControllerCommand>()
+    private data class Submitted(
+        val command: CommandControllerCommand,
+        val actionId: ActionId,
+        val countBefore: Int,
+        var settleTicks: Int = 0,
+    )
+    private val inFlight = HashMap<OrderableUnit, Submitted>()
     private var updating = false
     private var nextUpdateAt = 0L
     private val updateTask = Runnable {
@@ -50,8 +56,14 @@ internal object OverflowProductionQueue {
         }
 
     fun pendingCount(action: SpecialAction, units: List<GameUnit>): Int {
-        if (!enabled || pending.isEmpty() || !isProductionAction(action)) return 0
-        return owners(action, units).sumOf { owner -> pending[owner]?.count { it == action.storedActionId } ?: 0 }
+        if (!enabled || !isProductionAction(action)) return 0
+        return owners(action, units).sumOf { owner -> pendingCountForOwner(owner, action.storedActionId) }
+    }
+
+    private fun pendingCountForOwner(owner: OrderableUnit, actionId: ActionId): Int {
+        val queued = pending[owner]?.count { it == actionId } ?: 0
+        val inflight = inFlight[owner]?.takeIf { it.actionId == actionId }?.let { 1 } ?: 0
+        return queued + inflight
     }
 
     /** A read-only snapshot of waiting orders for the current selection. Caller holds the game update lock. */
@@ -80,10 +92,11 @@ internal object OverflowProductionQueue {
         val candidates = owners(action, units).filter { canControl(engine, it) }.mapNotNull { owner ->
             val owned = resolveQueueAction(owner, action.storedActionId) ?: return@mapNotNull null
             owner to admission(owner, owned)
-        }
+        }.toMutableList()
+        markBatchOverflowAsResources(action, candidates)
         val ready = candidates.any { it.second == Admission.Ready }
         val waiting = candidates.filter { it.second == Admission.Resources }.map { it.first }
-        if (waiting.isEmpty() || action.isUnitSpecificAction && ready) return false
+        if (waiting.isEmpty()) return false
         val ui = engine.interfaceEngine
         val batch = hudQueueBatch(action.canQueueMultiple(), ui.isShiftKeyDown(engine), ui.isCtrlKeyDown(engine))
         var full = false
@@ -129,9 +142,26 @@ internal object OverflowProductionQueue {
         if (now < nextUpdateAt) return
         nextUpdateAt = now + 100_000_000L
         val controller = engine.commandController
-        inFlight.values.removeAll {
-            it !in controller.localPendingCommands && it !in controller.networkPendingCommands && it !in controller.issuedCommands
+        val canVerifyAcceptance = !engine.networkEngine.networked || engine.networkEngine.isServer
+        inFlight.entries.removeAll { (owner, submitted) ->
+            val command = submitted.command
+            val commandAlive = command in controller.localPendingCommands ||
+                    command in controller.networkPendingCommands ||
+                    command in controller.issuedCommands
+            if (commandAlive) return@removeAll false
+            if (canVerifyAcceptance && command.actionId == submitted.actionId) {
+                val accepted = (owner as? FactoryInterface)?.getQueuedCountOf(submitted.actionId, true)?.let {
+                    it > submitted.countBefore
+                } ?: false
+                if (!accepted) {
+                    if (submitted.settleTicks++ < 5) return@removeAll false
+                    // Command finished locally but factory rejected it; requeue at head so the click is not lost.
+                    pending.getOrPut(owner) { ArrayDeque() }.addFirst(submitted.actionId)
+                }
+            }
+            true
         }
+        val readyCandidates = mutableListOf<ReadyCandidate>()
         val factories = pending.iterator()
         while (factories.hasNext()) {
             val (owner, requests) = factories.next()
@@ -148,23 +178,41 @@ internal object OverflowProductionQueue {
                     queue.remove()
                     continue
                 }
-                if (first && state == Admission.Ready && action != null && owner !in inFlight) {
-                    try {
-                        val ui = engine.interfaceEngine
-                        val command = ui.playerCommandQueued
-                        command.addUnit(owner)
-                        command.setActionId(action.actionId)
-                        ui.queueExtraActionOrder(action, null, null, command)
-                        inFlight[owner] = command
-                        InterfaceEngine.markUiDirty()
-                    } catch (failure: Exception) {
-                        logger().warn("Could not submit a deferred production order", failure)
-                    }
-                    queue.remove()
+                if (state == Admission.Resources || state == Admission.Waiting) {
+                    // Resource shortage or a transient gate (cap, transport slot, build state):
+                    // keep the order and let the head of this factory's queue retain priority.
+                    first = false
+                    continue
+                }
+                if (first && action != null && owner !in inFlight) {
+                    val nativeQueued = (owner as? FactoryInterface)?.getTotalQueuedCount(true) ?: 0
+                    readyCandidates += ReadyCandidate(owner, action, requests, nativeQueued, requests.size)
                 }
                 first = false
             }
             if (requests.isEmpty()) factories.remove()
+        }
+
+        val candidate = selectReadyCandidate(readyCandidates)
+        if (candidate != null) {
+            try {
+                val ui = engine.interfaceEngine
+                val countBefore = (candidate.owner as? FactoryInterface)
+                    ?.getQueuedCountOf(candidate.action.actionId, true) ?: 0
+                val command = ui.playerCommandQueued
+                command.addUnit(candidate.owner)
+                command.setActionId(candidate.action.actionId)
+                ui.queueExtraActionOrder(candidate.action, null, null, command)
+                inFlight[candidate.owner] = Submitted(command, candidate.action.actionId, countBefore)
+                InterfaceEngine.markUiDirty()
+            } catch (failure: Exception) {
+                logger().warn("Could not submit a deferred production order", failure)
+            }
+            candidate.queue.removeFirst()
+            if (candidate.queue.isEmpty()) pending.remove(candidate.owner)
+            // Serialize submissions: issuing multiple commands in the same tick can over-commit
+            // shared team credits before the engine deducts them, causing later orders to be
+            // rejected and requeued one by one.
         }
         if (pending.isEmpty()) clear()
     }
@@ -197,17 +245,89 @@ internal object OverflowProductionQueue {
     private fun isProductionAction(action: SpecialAction): Boolean =
         action.actionType == ActionType.none || action.actionType == ActionType.popupQueue
 
-    private enum class Admission { Ready, Resources, Blocked }
+    private data class ReadyCandidate(
+        val owner: OrderableUnit,
+        val action: SpecialAction,
+        val queue: ArrayDeque<ActionId>,
+        val nativeQueued: Int,
+        val waitingQueued: Int,
+    )
+
+    private fun selectReadyCandidate(candidates: List<ReadyCandidate>): ReadyCandidate? {
+        if (candidates.isEmpty()) return null
+        // Water-fill: drain factories with no/less native manufacturing first so they catch up.
+        val minNative = candidates.minOf { it.nativeQueued }
+        return candidates.firstOrNull { it.nativeQueued == minNative }
+    }
+
+    /**
+     * When queuing one order across multiple selected factories, the first factories may be
+     * affordable alone but the whole batch is not. Native would issue them; we defer the tail so
+     * all selected factories end up with the same pending order.
+     */
+    private fun markBatchOverflowAsResources(
+        action: SpecialAction,
+        candidates: MutableList<Pair<OrderableUnit, Admission>>
+    ) {
+        if (action.isUnitSpecificAction) return
+        val sample = candidates.firstNotNullOfOrNull { (owner, _) -> resolveQueueAction(owner, action.storedActionId) }
+            ?: return
+        val price = runCatching { sample.getCustomPrice() }.getOrNull() ?: return
+        var affordable = 0
+        for (i in candidates.indices) {
+            val (owner, state) = candidates[i]
+            if (state != Admission.Ready) continue
+            val canAffordThis = runCatching { price.canAfford(owner, (affordable + 1).toDouble()) }.getOrDefault(false)
+            if (canAffordThis) {
+                affordable++
+            } else {
+                // Not enough team resources for this ready factory in this batch; defer it.
+                candidates[i] = owner to Admission.Resources
+            }
+        }
+    }
+
+    internal enum class Admission { Ready, Resources, Waiting, Blocked }
+
+    /** Pure classification so transient factory gates can be regression-tested without native objects. */
+    internal data class AdmissionInput(
+        val unlocked: Boolean,
+        val builtAndNotTransported: Boolean,
+        val factorySpeedPositive: Boolean,
+        val overTransportCapacity: Boolean,
+        val unitCapReached: Boolean,
+        val affordable: Boolean,
+        val onlyResourceShortage: Boolean,
+    )
+
+    internal fun classify(input: AdmissionInput): Admission = when {
+        !input.unlocked -> Admission.Blocked
+        // Only a genuine resource shortage is worth deferring: the native queue rejects such an
+        // order outright, so there is no risk of duplicating an order the engine already accepted.
+        !input.affordable && input.onlyResourceShortage -> Admission.Resources
+        // Transient factory gates must keep already-queued orders alive, but native accepts new
+        // orders while over transport capacity, so those must not be added to the deferred queue.
+        !input.builtAndNotTransported || !input.factorySpeedPositive ||
+                input.overTransportCapacity || input.unitCapReached -> Admission.Waiting
+        input.affordable -> Admission.Ready
+        else -> Admission.Blocked
+    }
 
     private fun admission(owner: OrderableUnit, action: SpecialAction): Admission = runCatching {
-        if (!owner.isBuiltAndNotTransported || owner.nanoFactorySpeed <= 0f ||
-            !hudActionUnlocked(action, owner) ||
-            action.canQueueMultiple() && (owner.team.unitCapCount >= owner.team.unitsMax ||
-                (owner as FactoryInterface).isOverTransportCapacity)
-        ) return@runCatching Admission.Blocked
-        if (action.canAffordForUnit(owner, true)) Admission.Ready
-        else if (ProductionPriceProbe.hasOnlyResourceShortage(action, owner)) Admission.Resources
-        else Admission.Blocked
+        val team = owner.team
+        val queueable = action.canQueueMultiple()
+        val affordable = action.canAffordForUnit(owner, true)
+        classify(
+            AdmissionInput(
+                unlocked = hudActionUnlocked(action, owner),
+                builtAndNotTransported = owner.isBuiltAndNotTransported,
+                factorySpeedPositive = owner.nanoFactorySpeed > 0f,
+                overTransportCapacity = queueable && (owner as? FactoryInterface)?.isOverTransportCapacity == true,
+                unitCapReached = queueable && team != null && team.unitCapCount >= team.unitsMax,
+                affordable = affordable,
+                onlyResourceShortage = !affordable && ProductionPriceProbe.hasOnlyResourceShortage(action, owner),
+            )
+        )
     }.getOrDefault(Admission.Blocked)
 
     private fun owners(action: SpecialAction, units: List<GameUnit>): List<OrderableUnit> {
