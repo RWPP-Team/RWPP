@@ -177,7 +177,7 @@ internal object OverflowProductionQueue {
                     continue
                 }
                 val state = admission(owner, action, useLagHiding = false)
-                if (state == Admission.Resources) break
+                if (state == Admission.Resources || state == Admission.Waiting) break
                 if (state == Admission.Ready && dispatch(engine, owner, id, action)) {
                     // Funds are shared. Wait for the native deduction before picking another
                     // factory, and give the remaining factories priority on the next scan.
@@ -242,8 +242,8 @@ internal object OverflowProductionQueue {
         if (flight.executing !== command) return
         val accepted = (flight.owner as FactoryInterface).getQueuedCountOf(flight.actionId, false) > flight.queuedBefore
         val action = if (accepted) null else resolveQueueAction(flight.owner, flight.actionId)
-        finishDispatch(flight, keepWaiting = action != null &&
-            admission(flight.owner, action, useLagHiding = false) == Admission.Resources)
+        val state = action?.let { admission(flight.owner, it, useLagHiding = false) }
+        finishDispatch(flight, keepWaiting = state == Admission.Resources || state == Admission.Waiting)
     }
 
     private fun isLocalProduction(engine: GameEngine, command: CommandControllerCommand): Boolean =
@@ -305,17 +305,45 @@ internal object OverflowProductionQueue {
     private fun isProductionAction(action: SpecialAction): Boolean =
         action.actionType == ActionType.none || action.actionType == ActionType.popupQueue
 
-    private enum class Admission { Ready, Resources, Blocked }
+    internal enum class Admission { Ready, Resources, Waiting, Blocked }
+
+    internal data class AdmissionInput(
+        val unlocked: Boolean,
+        val builtAndNotTransported: Boolean,
+        val factorySpeedPositive: Boolean,
+        val overTransportCapacity: Boolean,
+        val unitCapReached: Boolean,
+        val affordable: Boolean,
+        val onlyResourceShortage: Boolean,
+    ) {
+        val productionReady: Boolean get() =
+            builtAndNotTransported && factorySpeedPositive && !overTransportCapacity && !unitCapReached
+    }
+
+    internal fun classify(input: AdmissionInput): Admission = when {
+        !input.unlocked -> Admission.Blocked
+        !input.productionReady -> Admission.Waiting
+        input.affordable -> Admission.Ready
+        input.onlyResourceShortage -> Admission.Resources
+        else -> Admission.Blocked
+    }
 
     private fun admission(owner: OrderableUnit, action: SpecialAction, useLagHiding: Boolean = true): Admission = runCatching {
-        if (!owner.isBuiltAndNotTransported || owner.nanoFactorySpeed <= 0f ||
-            !hudActionUnlocked(action, owner) ||
-            action.canQueueMultiple() && (owner.team.unitCapCount >= owner.team.unitsMax ||
-                (owner as FactoryInterface).isOverTransportCapacity)
-        ) return@runCatching Admission.Blocked
-        if (action.canAffordForUnit(owner, useLagHiding)) Admission.Ready
-        else if (ProductionPriceProbe.hasOnlyResourceShortage(action, owner, useLagHiding)) Admission.Resources
-        else Admission.Blocked
+        val team = owner.team ?: return@runCatching Admission.Blocked
+        val queueable = action.canQueueMultiple()
+        val input = AdmissionInput(
+            unlocked = hudActionUnlocked(action, owner),
+            builtAndNotTransported = owner.isBuiltAndNotTransported,
+            factorySpeedPositive = owner.nanoFactorySpeed > 0f,
+            overTransportCapacity = queueable && (owner as FactoryInterface).isOverTransportCapacity,
+            unitCapReached = queueable && team.unitCapCount >= team.unitsMax,
+            affordable = false,
+            onlyResourceShortage = false,
+        )
+        if (!input.unlocked || !input.productionReady) return@runCatching classify(input)
+        val affordable = action.canAffordForUnit(owner, useLagHiding)
+        classify(input.copy(affordable = affordable, onlyResourceShortage = !affordable &&
+            ProductionPriceProbe.hasOnlyResourceShortage(action, owner, useLagHiding)))
     }.getOrDefault(Admission.Blocked)
 
     private fun owners(action: SpecialAction, units: List<GameUnit>): List<OrderableUnit> {
