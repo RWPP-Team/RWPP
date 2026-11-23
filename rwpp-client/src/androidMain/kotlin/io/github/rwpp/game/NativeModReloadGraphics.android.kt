@@ -7,15 +7,23 @@
 
 package io.github.rwpp.game
 
+import android.os.Looper
+import androidx.compose.runtime.snapshots.Snapshot
+import androidx.core.os.HandlerCompat
 import com.corrodinggames.rts.gameFramework.GameEngine
 import coil3.SingletonImageLoader
 import io.github.rwpp.api.coroutines.GameMainDispatcher
+import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.graphics.ActionImages
 
 internal actual suspend fun <T> runNativeModWork(reloadData: Boolean, action: () -> T): T =
     GameMainDispatcher.runIdleGameWork(action)
 
-internal actual fun presentNativeModProgress() = Unit
+private val progressHandler by lazy { HandlerCompat.createAsync(Looper.getMainLooper()) }
+
+internal actual fun presentNativeModProgress() {
+    progressHandler.post { Snapshot.sendApplyNotifications() }
+}
 
 /**
  * The Android host records frames onto a hardware canvas from its own thread while mod data is
@@ -23,10 +31,15 @@ internal actual fun presentNativeModProgress() = Unit
  * table or a recycled bitmap, which is the crash the mod reload used to produce. Native text and
  * icon caches also hold the old definitions, so they are dropped once the swap completed.
  */
-internal actual fun withNativeModReloadGraphics(engine: GameEngine, reload: () -> Unit) {
-    ActionImages.clear()
-    SingletonImageLoader.get(engine.context.applicationContext).memoryCache?.clear()
+internal actual fun reloadNativeMods(engine: GameEngine) {
+    val menuMap = engine.currentMapPath?.startsWith("maps/menu_background/") == true
+    check(!engine.gameJustLoaded || menuMap) { readI18n("rwpp.mod.reloadInMenu") }
+    // Android's RWML launcher owns the menu surface. Reloading unit definitions must not
+    // also start the stock background map, which expects a native game view and loop.
+    if (engine.gameJustLoaded) engine.updateGame()
     synchronized(engine.renderLock) {
-        reload()
+        ActionImages.clear()
+        SingletonImageLoader.get(engine.context.applicationContext).memoryCache?.clear()
+        engine.modManager.reloadModDataInternal(false, false)
     }
 }

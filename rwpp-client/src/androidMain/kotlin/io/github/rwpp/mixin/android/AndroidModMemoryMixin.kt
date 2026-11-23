@@ -50,6 +50,7 @@ object AndroidModMemoryMixin {
             original.call(path, depth, userContent, mod, root, template)
             return
         }
+        NativeModLoadProgress.modStarted(mod.getTitle() ?: mod.name.orEmpty())
         val before = oomErrors.getInt(null)
         try {
             original.call(path, depth, userContent, mod, root, template)

@@ -1,4 +1,4 @@
-"""Upload one verified Maven bundle per stable GitHub release, or resume its deployment."""
+"""Package and publish one Maven component family, or resume its deployment."""
 
 import argparse
 import base64
@@ -19,18 +19,18 @@ from zipfile import ZipFile, ZIP_DEFLATED
 
 GROUP = "io.github.rwpp-team"
 GROUP_PATH = GROUP.replace(".", "/")
+RWPP_PROJECTS = ("rwpp-api", "rwpp-client")
 MODULES = {
-    "rwml": {"rwml-core", "game-lib"},
-    "rwpp": {
-        base + variant
-        for base in ("rwpp-api", "rwpp-client")
-        for variant in ("", "-jvm", "-android")
-    },
+    project: {project + variant for variant in ("", "-jvm", "-android")}
+    for project in RWPP_PROJECTS
 }
+MODULES["rwpp"] = set.union(*(MODULES[project] for project in RWPP_PROJECTS))
+MODULES["rwml"] = {"rwml-core", "game-lib"}
 # These releases already have a Portal deployment created before GitHub Actions took over.
 PREVIOUSLY_SUBMITTED = {"rwml": {"1.0.4"}, "rwpp": {"2.0.1.1"}}
-RECORD = Path("build/central-deployment.json")
-NEW_RECORD = Path("build/new-central-deployment")
+RECORD_DIR = Path(os.environ.get("CENTRAL_RECORD_DIR", "build"))
+RECORD = RECORD_DIR / "central-deployment.json"
+NEW_RECORD = RECORD_DIR / "new-central-deployment"
 PORTAL = "https://central.sonatype.com/api/v1/publisher/"
 REPOSITORY = "https://repo.maven.apache.org/maven2/"
 
@@ -42,28 +42,42 @@ def release_version(tag):
     return version
 
 
-def prepare_bundle(project, version, archives):
-    files = {}
-    expected = MODULES[project]
+def archive_entries(archives):
     for path in archives:
         with ZipFile(path) as archive:
             for entry in archive.infolist():
-                if entry.is_dir():
-                    continue
-                path_parts = entry.filename.split("/")
-                suffix = path_parts[len(GROUP_PATH.split("/")):]
-                if (len(suffix) != 3 or not entry.filename.startswith(GROUP_PATH + "/")
-                        or suffix[0] not in expected or suffix[1] != version
-                        or not suffix[2].startswith((f"{suffix[0]}-{version}.", f"{suffix[0]}-{version}-"))):
-                    raise ValueError(f"Unexpected file in the Central bundle: {entry.filename}")
-                if entry.filename in files:
-                    raise ValueError(f"Duplicate file in the Central bundle: {entry.filename}")
-                files[entry.filename] = archive.read(entry)
+                if not entry.is_dir():
+                    yield entry.filename, archive.read(entry)
+
+
+def staging_entries(staging, project, version):
+    for module in sorted(MODULES[project]):
+        directory = staging / GROUP_PATH / module / version
+        for file in directory.iterdir():
+            if file.is_file() and ".asc." not in file.name:
+                yield file.relative_to(staging).as_posix(), file.read_bytes()
+
+
+def prepare_bundle(project, version, entries):
+    files = {}
+    expected = MODULES[project]
+    for name, content in entries:
+        suffix = name.split("/")[len(GROUP_PATH.split("/")):]
+        if (len(suffix) != 3 or not name.startswith(GROUP_PATH + "/")
+                or suffix[0] not in expected or suffix[1] != version
+                or not suffix[2].startswith((f"{suffix[0]}-{version}.", f"{suffix[0]}-{version}-"))):
+            raise ValueError(f"Unexpected file in the Central bundle: {name}")
+        if name in files:
+            raise ValueError(f"Duplicate file in the Central bundle: {name}")
+        files[name] = content
 
     for module in expected:
         base = f"{GROUP_PATH}/{module}/{version}/{module}-{version}"
         extension = ".aar" if module.endswith("-android") else ".jar"
-        for suffix in (".pom", extension, "-sources.jar", "-javadoc.jar"):
+        required = (".pom", extension, "-sources.jar", "-javadoc.jar")
+        if project in RWPP_PROJECTS:
+            required += (".module",)
+        for suffix in required:
             path = base + suffix
             if not files.get(path) or not files.get(path + ".asc"):
                 raise ValueError(f"Missing artifact or signature: {path}")
@@ -129,17 +143,20 @@ def restore_record(project, version):
     if RECORD.exists():
         return
     repo = os.environ["GITHUB_REPOSITORY"]
-    result = subprocess.check_output([
-        "gh", "api", "--method", "GET", f"repos/{repo}/actions/artifacts",
-        "-f", f"name={record_name(project, version)}",
-    ])
-    artifacts = [entry for entry in json.loads(result)["artifacts"] if not entry["expired"]]
-    if not artifacts:
+    projects = (project, "rwpp") if project in RWPP_PROJECTS else (project,)
+    for candidate in projects:
+        result = subprocess.check_output([
+            "gh", "api", "--method", "GET", f"repos/{repo}/actions/artifacts",
+            "-f", f"name={record_name(candidate, version)}",
+        ])
+        artifacts = [entry for entry in json.loads(result)["artifacts"] if not entry["expired"]]
+        if not artifacts:
+            continue
+        latest = max(artifacts, key=lambda entry: entry["id"])
+        archive = subprocess.check_output(["gh", "api", f"repos/{repo}/actions/artifacts/{latest['id']}/zip"])
+        with ZipFile(io.BytesIO(archive)) as artifact:
+            write_record(json.loads(artifact.read(RECORD.name)))
         return
-    latest = max(artifacts, key=lambda entry: entry["id"])
-    archive = subprocess.check_output(["gh", "api", f"repos/{repo}/actions/artifacts/{latest['id']}/zip"])
-    with ZipFile(io.BytesIO(archive)) as artifact:
-        write_record(json.loads(artifact.read(RECORD.name)))
 
 
 def write_record(record):
@@ -147,15 +164,28 @@ def write_record(record):
     RECORD.write_text(json.dumps(record) + "\n", encoding="utf-8")
 
 
+def deployment_state(deployment_id):
+    query = urllib.parse.urlencode({"id": str(uuid.UUID(deployment_id))})
+    return json.loads(request_portal("status?" + query))["deploymentState"]
+
+
 def submit(project, version, archives):
-    bundle = prepare_bundle(project, version, archives)
-    if version in PREVIOUSLY_SUBMITTED[project]:
+    bundle = prepare_bundle(project, version, archive_entries(archives))
+    historical_project = "rwpp" if project in RWPP_PROJECTS else project
+    if version in PREVIOUSLY_SUBMITTED[historical_project]:
         print("This release already has a pre-CI Central deployment. No deployment submitted.", flush=True)
         return
     restore_record(project, version)
     if RECORD.exists():
-        print("Resuming the stored deployment for this version.", flush=True)
-        return
+        record = json.loads(RECORD.read_text(encoding="utf-8"))
+        failed_combined = (project in RWPP_PROJECTS and record["project"] == "rwpp"
+                           and record["version"] == version and record["id"] is not None
+                           and deployment_state(record["id"]) == "FAILED")
+        if not failed_combined:
+            print("Resuming the stored deployment for this version.", flush=True)
+            return
+        print("The previous combined deployment failed. Checking this component's coordinates.", flush=True)
+        RECORD.unlink()
     present = published_modules(project, version)
     if present == MODULES[project]:
         print("All release coordinates already exist in Central. No deployment submitted.", flush=True)
@@ -182,15 +212,15 @@ def submit(project, version, archives):
 
 def wait_for_publish(project, version):
     record = json.loads(RECORD.read_text(encoding="utf-8"))
-    if record["project"] != project or record["version"] != version:
+    projects = (project, "rwpp") if project in RWPP_PROJECTS else (project,)
+    if record["project"] not in projects or record["version"] != version:
         raise ValueError("Stored Central deployment belongs to another release")
     if record["id"] is None:
         raise ValueError("Submission result is unknown. Check the Central Portal before retrying.")
-    query = urllib.parse.urlencode({"id": str(uuid.UUID(record["id"]))})
     deadline = time.monotonic() + 1200
     previous = None
     while time.monotonic() < deadline:
-        state = json.loads(request_portal("status?" + query))["deploymentState"]
+        state = deployment_state(record["id"])
         if state != previous:
             print(f"Central deployment {record['id']}: {state}", flush=True)
             previous = state
@@ -204,14 +234,22 @@ def wait_for_publish(project, version):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("verify", "submit", "wait"))
+    parser.add_argument("command", choices=("pack", "verify", "submit", "wait"))
     parser.add_argument("project", choices=MODULES)
     parser.add_argument("tag")
     parser.add_argument("archives", nargs="*", type=Path)
     args = parser.parse_args()
     version = release_version(args.tag)
-    if args.command == "verify":
-        prepare_bundle(args.project, version, args.archives)
+    if args.command == "pack":
+        if len(args.archives) != 2:
+            parser.error("pack requires a local staging directory and an output ZIP")
+        staging, output = args.archives
+        bundle = prepare_bundle(args.project, version, staging_entries(staging, args.project, version))
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(bundle)
+        print(f"Packaged {args.project} {version} as {output}.")
+    elif args.command == "verify":
+        prepare_bundle(args.project, version, archive_entries(args.archives))
         print(f"Verified {args.project} {version} Maven coordinates, signatures and checksums.")
     elif args.command == "submit":
         submit(args.project, version, args.archives)

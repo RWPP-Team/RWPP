@@ -142,7 +142,7 @@ jobs:
       )
     needs: publish
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     concurrency:
       group: maven-central-release
       cancel-in-progress: false
@@ -175,9 +175,16 @@ jobs:
             fi
           done
           exit "$missing"
-      - uses: actions/checkout@v4
+      - name: Check out the Central tooling from this workflow revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Check out the release source
+        uses: actions/checkout@v4
         with:
           ref: refs/tags/${{ env.RELEASE_TAG }}
+          path: .ci/release
           persist-credentials: false
       - uses: actions/setup-java@v5
         env:
@@ -189,7 +196,7 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-37.0 build-tools;36.0.0'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Build the signed API and client Maven bundle
+      - name: Build separate signed Maven bundles for the API and client
         id: bundle
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
@@ -197,27 +204,32 @@ jobs:
         run: |
           set -euo pipefail
           version="${RELEASE_TAG#v}"
-          ./gradlew --no-daemon bundleForCentral
-          bundle="build/rwpp-$version-central-bundle.zip"
-          python3 .github/scripts/publish-central.py verify rwpp "$RELEASE_TAG" "$bundle"
-          echo "path=$bundle" >> "$GITHUB_OUTPUT"
+          (
+            cd .ci/release
+            ./gradlew --no-daemon \
+              :rwpp-api:publishAllPublicationsToLocalStagingRepository \
+              :rwpp-client:publishAllPublicationsToLocalStagingRepository
+          )
+          for module in rwpp-api rwpp-client; do
+            python3 .github/scripts/publish-central.py pack "$module" "$RELEASE_TAG" \
+              ".ci/release/$module/build/central-staging" "build/central/$module/$module-$version.zip"
+          done
           echo "version=$version" >> "$GITHUB_OUTPUT"
-      - name: Submit one deployment or resume an existing one
+      - name: Publish rwpp-api to Maven Central
+        uses: ./.github/actions/publish-central
+        with:
+          module: rwpp-api
+          version: ${{ steps.bundle.outputs.version }}
         env:
           GH_TOKEN: ${{ github.token }}
           CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
           CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN }}
-          BUNDLE: ${{ steps.bundle.outputs.path }}
-        run: python3 .github/scripts/publish-central.py submit rwpp "$RELEASE_TAG" "$BUNDLE"
-      - name: Save deployment ID for reruns
-        if: ${{ always() && hashFiles('build/new-central-deployment') != '' }}
-        uses: actions/upload-artifact@v4
+      - name: Publish rwpp-client to Maven Central
+        uses: ./.github/actions/publish-central
         with:
-          name: central-deployment-rwpp-${{ steps.bundle.outputs.version }}
-          path: build/central-deployment.json
-      - name: Wait for Maven Central
-        if: ${{ hashFiles('build/central-deployment.json') != '' }}
+          module: rwpp-client
+          version: ${{ steps.bundle.outputs.version }}
         env:
+          GH_TOKEN: ${{ github.token }}
           CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
           CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN }}
-        run: python3 .github/scripts/publish-central.py wait rwpp "$RELEASE_TAG"

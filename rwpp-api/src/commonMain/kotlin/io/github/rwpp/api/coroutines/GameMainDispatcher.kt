@@ -11,11 +11,13 @@ import kotlinx.coroutines.*
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.locks.LockSupport
+import java.util.concurrent.locks.ReentrantLock
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
+import kotlin.concurrent.withLock
 
 /**
  * Game operations run on one drain owner at a time. Android uses the main looper while the
@@ -28,7 +30,7 @@ import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
 object GameMainDispatcher : CoroutineDispatcher() {
     private val taskQueue = ConcurrentLinkedQueue<Runnable>()
     private val updateTasks = CopyOnWriteArrayList<Runnable>()
-    private val drainLock = Any()
+    private val drainLock = ReentrantLock()
     private var nativeLoopActive = false
     private var engineInitialized = false
     private var nativeThread: Thread? = null
@@ -59,14 +61,19 @@ object GameMainDispatcher : CoroutineDispatcher() {
      * scheduled while the game is active so it can detect a return to the launcher, but it does
      * not drain the queue while native frames own it.
      */
-    internal fun drainPlatformPump(): Boolean = synchronized(drainLock) {
-        if (idleWorkReserved) return@synchronized false
-        if (refreshNativeLoopStateLocked()) {
-            PlatformGameMainDispatcherPump.stop()
-            return@synchronized true
+    internal fun drainPlatformPump(): Boolean {
+        if (!drainLock.tryLock()) return false
+        try {
+            if (idleWorkReserved) return false
+            if (refreshNativeLoopStateLocked()) {
+                PlatformGameMainDispatcherPump.stop()
+                return true
+            }
+            drainTasksLocked(stopAtHandoff = true)
+            return false
+        } finally {
+            drainLock.unlock()
         }
-        drainTasksLocked(stopAtHandoff = true)
-        false
     }
 
     /** Run a blocking operation off the Android menu looper while it owns the idle engine. */
@@ -94,20 +101,30 @@ object GameMainDispatcher : CoroutineDispatcher() {
     }
 
     /** Starts Android's idle pump; it remains scheduled to detect later native-loop transitions. */
-    internal fun startPump() {
-        synchronized(drainLock) {
-            if (!refreshNativeLoopStateLocked()) PlatformGameMainDispatcherPump.start()
+    internal fun startPump() = drainLock.withLock { startPumpLocked() }
+
+    /** The Android looper must be free to draw while the native owner runs a long task. */
+    internal fun pollPlatformPump() {
+        if (!drainLock.tryLock()) return
+        try {
+            startPumpLocked()
+        } finally {
+            drainLock.unlock()
         }
     }
 
+    private fun startPumpLocked() {
+        if (!refreshNativeLoopStateLocked()) PlatformGameMainDispatcherPump.start()
+    }
+
     /** Reports whether the native loop owns game-thread work at this moment. */
-    internal fun isNativeLoopActive(): Boolean = synchronized(drainLock) {
+    internal fun isNativeLoopActive(): Boolean = drainLock.withLock {
         refreshNativeLoopStateLocked()
     }
 
     /** Marks engine initialization without assuming that its native view is already running. */
     internal fun noteEngineInitialized() {
-        synchronized(drainLock) {
+        drainLock.withLock {
             engineInitialized = true
             handoffThread = Thread.currentThread()
             wakeThread = handoffThread
@@ -116,7 +133,7 @@ object GameMainDispatcher : CoroutineDispatcher() {
 
     /** Called by the native frame hook; the first frame becomes the dispatcher owner thread. */
     internal fun drainNativeFrame() {
-        synchronized(drainLock) {
+        drainLock.withLock {
             engineInitialized = true
             if (!nativeLoopActive) {
                 nativeLoopActive = true
@@ -202,7 +219,7 @@ object GameMainDispatcher : CoroutineDispatcher() {
             var madeProgress = frame.drain()
 
             if (canDrainOnCurrentThread()) {
-                madeProgress = synchronized(drainLock) {
+                madeProgress = drainLock.withLock {
                     drainTasksLocked(includeUpdateTasks = false)
                 } || madeProgress
             }
@@ -331,8 +348,8 @@ object GameMainDispatcher : CoroutineDispatcher() {
         }
     }
 
-    private fun canDrainOnCurrentThread(): Boolean = synchronized(drainLock) {
-        if (idleWorkReserved) return@synchronized idleWorker === Thread.currentThread()
+    private fun canDrainOnCurrentThread(): Boolean = drainLock.withLock {
+        if (idleWorkReserved) return@withLock idleWorker === Thread.currentThread()
         refreshNativeLoopStateLocked()
         val currentThread = Thread.currentThread()
         val owner = nativeThread

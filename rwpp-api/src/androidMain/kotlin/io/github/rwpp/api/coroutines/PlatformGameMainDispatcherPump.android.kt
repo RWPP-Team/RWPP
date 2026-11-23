@@ -37,7 +37,7 @@ internal actual object PlatformGameMainDispatcherPump {
         override fun run() {
             if (!schedulerRunning.get()) return
             try {
-                GameMainDispatcher.startPump()
+                GameMainDispatcher.pollPlatformPump()
             } catch (failure: Throwable) {
                 Log.e("RWML", "Error checking the Android game dispatcher owner", failure)
             } finally {

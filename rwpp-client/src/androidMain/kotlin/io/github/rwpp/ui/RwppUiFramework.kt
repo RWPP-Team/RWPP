@@ -9,8 +9,11 @@ package io.github.rwpp.ui
 
 import android.app.Activity
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.view.KeyEvent
+import android.view.MenuItem
 import android.view.View
 import android.view.Window
 import android.widget.FrameLayout
@@ -27,6 +30,7 @@ import androidx.lifecycle.Lifecycle
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
 import coil3.gif.GifDecoder
+import com.corrodinggames.rts.gameFramework.GameEngine
 import io.github.rwml.api.ui.*
 import io.github.rwpp.AppContext
 import io.github.rwpp.android.AndroidModule
@@ -41,6 +45,7 @@ import io.github.rwpp.logic.config.ConfigModule
 import io.github.rwpp.logic.config.migrateTerrainEdgeBuildingPreference
 import io.github.rwpp.logic.config.registerClientConfigSerializers
 import io.github.rwpp.logic.i18n.ProductTranslations
+import io.github.rwpp.logic.hud.NativeHudVisibility
 import io.github.rwpp.widget.isLoading
 import io.github.rwpp.widget.loadingMessage
 import kotlinx.coroutines.runBlocking
@@ -49,6 +54,31 @@ import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Proxy
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+
+internal const val ANDROID_SETTINGS_OPTION = 2
+
+internal fun openAndroidAeroSettings(): Boolean {
+    val navigator = UI.liveNavigator ?: return false
+    val game = navigator.current as? GameScreen
+        ?: return navigator.backStack.any { it is GameScreen }
+    val open = Runnable {
+        if (UI.liveNavigator === navigator && navigator.current === game) {
+            GameEngine.getInstance()?.interfaceEngine?.pauseMenuOpen = false
+            navigator.push<SettingsScreen>("RWPP")
+        }
+    }
+    if (Looper.myLooper() == Looper.getMainLooper()) open.run()
+    else Handler(Looper.getMainLooper()).post(open)
+    return true
+}
+
+private fun showAndroidAeroPauseMenu(): Boolean {
+    if (!NativeHudVisibility.hidden) return false
+    val game = UI.liveNavigator?.current as? GameScreen ?: return false
+    GameEngine.getInstance()?.interfaceEngine?.pauseMenuOpen = false
+    game.showPauseMenu = true
+    return true
+}
 
 /** Android services that need the host handle after the framework entry point returns. */
 internal object AndroidUiRuntime {
@@ -264,7 +294,7 @@ class RwppUiFramework : UiFramework {
                     FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT
                 )
             )
-            val restoreKeys = installVolumeKeyMapping(gameActivity)
+            val restoreKeys = installVolumeKeyMapping(gameActivity, gameWindow = true)
             val cleaned = AtomicBoolean()
             val cleanup: () -> Unit = {
                 if (cleaned.compareAndSet(false, true)) {
@@ -297,7 +327,7 @@ class RwppUiFramework : UiFramework {
         }
     }
 
-    private fun installVolumeKeyMapping(activity: Activity): () -> Unit {
+    private fun installVolumeKeyMapping(activity: Activity, gameWindow: Boolean = false): () -> Unit {
         val window = activity.window
         val original = window.callback ?: return {}
         val closed = AtomicBoolean(false)
@@ -306,8 +336,22 @@ class RwppUiFramework : UiFramework {
         lateinit var wrapped: Window.Callback
 
         val handler = InvocationHandler { _, method, args ->
+            if (gameWindow) {
+                if (method.name == "onMenuItemSelected" &&
+                    (args?.getOrNull(1) as? MenuItem)?.itemId == ANDROID_SETTINGS_OPTION && openAndroidAeroSettings()
+                ) return@InvocationHandler true
+                if (method.name == "onMenuOpened" && args?.firstOrNull() == Window.FEATURE_OPTIONS_PANEL &&
+                    showAndroidAeroPauseMenu()
+                ) return@InvocationHandler false
+            }
             if (method.name == "dispatchKeyEvent" && args?.firstOrNull() is KeyEvent) {
                 val event = args[0] as KeyEvent
+                if (gameWindow && event.keyCode == KeyEvent.KEYCODE_MENU && NativeHudVisibility.hidden &&
+                    UI.liveNavigator?.current is GameScreen
+                ) {
+                    if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) showAndroidAeroPauseMenu()
+                    return@InvocationHandler true
+                }
                 if (runCatching { appKoin.get<Settings>().enableVolumeKeyMapping }.getOrDefault(false)) {
                     when (event.keyCode) {
                         KeyEvent.KEYCODE_VOLUME_UP -> {

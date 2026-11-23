@@ -567,7 +567,8 @@ private fun MatchHistoryText(
 internal fun matchHistoryMapTitle(path: String?, fallback: String): String =
     MapNames.getPrettyMapName(path.orEmpty()).ifBlank { fallback }
 
-@Composable
+// These labels are plain values. Tracking a value-returning composable can skip its body
+// on recomposition and leave the result unset in ComposeScopeTree 0.1.1.
 internal fun matchOutcomeLabel(outcome: MatchOutcome): String = readI18n(
     when (outcome) {
         MatchOutcome.IN_PROGRESS -> "rwpp.matchHistory.outcome.inProgress"
@@ -579,7 +580,6 @@ internal fun matchOutcomeLabel(outcome: MatchOutcome): String = readI18n(
     },
 )
 
-@Composable
 private fun matchTypeLabel(type: MatchType): String = readI18n(
     when (type) {
         MatchType.CAMPAIGN -> "rwpp.matchHistory.type.campaign"
@@ -589,7 +589,6 @@ private fun matchTypeLabel(type: MatchType): String = readI18n(
     },
 )
 
-@Composable
 private fun matchDifficultyLabel(difficulty: Int): String = readI18n(
     when (difficulty.coerceIn(-2, 3)) {
         -2 -> "rwpp.difficulty.veryEasy"

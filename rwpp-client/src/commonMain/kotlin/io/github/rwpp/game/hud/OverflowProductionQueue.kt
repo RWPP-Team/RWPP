@@ -25,6 +25,7 @@ import io.github.rwpp.api.coroutines.GameMainDispatcher
 import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.api.logging.logger
 import io.github.rwpp.logic.GameVisualSettings
+import io.github.rwpp.mixin.building.NativeBuildingPlanningCommandAccess
 
 /** Local intent only. Each accepted order is sent through the ordinary native command controller. */
 internal object OverflowProductionQueue {
@@ -33,7 +34,16 @@ internal object OverflowProductionQueue {
     private val pending = linkedMapOf<OrderableUnit, ArrayDeque<ActionId>>()
     private var map: NativeMap? = null
     private var team: Team? = null
-    private val inFlight = HashMap<OrderableUnit, CommandControllerCommand>()
+    private class Dispatch(val owner: OrderableUnit, val actionId: ActionId, val command: CommandControllerCommand) {
+        var executing: CommandControllerCommand? = null
+        var queuedBefore = 0
+    }
+    private data class OrderKey(val ownerId: Long, val actionId: ActionId, val queued: Boolean)
+
+    private var inFlight: Dispatch? = null
+    // The server echoes a newly deserialized command. Identical orders from this player return
+    // in send order, including any ordinary production orders preceding a deferred one.
+    private val sent = HashMap<OrderKey, ArrayDeque<CommandControllerCommand>>()
     private var updating = false
     private var nextUpdateAt = 0L
     private val updateTask = Runnable {
@@ -89,7 +99,9 @@ internal object OverflowProductionQueue {
         var full = false
         repeat(batch) {
             val recipients = if (action.isUnitSpecificAction) {
-                listOf(waiting.minWith(compareBy({ pending[it]?.size ?: 0 }, { (it as FactoryInterface).getTotalQueuedCount(true) }, { it.id })))
+                listOf(waiting.minWith(compareBy({
+                    (pending[it]?.size ?: 0) + (it as FactoryInterface).getTotalQueuedCount(true)
+                }, { it.id })))
             } else waiting
             for (owner in recipients) {
                 val queue = pending.getOrPut(owner) { ArrayDeque() }
@@ -104,8 +116,19 @@ internal object OverflowProductionQueue {
             GameMainDispatcher.addUpdateTask(updateTask)
         }
         if (full) ui.showImportantScreenMessage(readI18n("rwpp.production.pendingFull"))
-        if (!ready) ui.activeSpecialAction = null
-        return !ready
+        ui.activeSpecialAction = null
+        if (ready) {
+            // A mixed group click issues the affordable portion now. Deferred owners must
+            // appear only in their waiting queues, even if their funds change before execution.
+            val affordable = candidates.filter { it.second == Admission.Ready }.map { it.first }
+            repeat(batch) {
+                val command = ui.playerCommandQueued
+                affordable.forEach(command::addUnit)
+                command.setActionId(action.actionId)
+                ui.queueExtraActionOrder(action, null, null, command)
+            }
+        }
+        return true
     }
 
     fun cancelLast(engine: GameEngine, action: SpecialAction, units: List<OrderableUnit>): Boolean {
@@ -114,7 +137,7 @@ internal object OverflowProductionQueue {
         for (owner in owners(action, units)) {
             val queue = pending[owner] ?: continue
             val index = queue.indexOfLast { it == action.storedActionId }
-            if (index < 0) continue
+            if (index < 0 || index == 0 && inFlight?.owner === owner) continue
             queue.removeAt(index)
             if (queue.isEmpty()) pending.remove(owner)
             removed = true
@@ -126,57 +149,142 @@ internal object OverflowProductionQueue {
     private fun update(engine: GameEngine) {
         if (!syncSession(engine)) return
         val now = System.nanoTime()
+        inFlight?.let { flight ->
+            val controller = engine.commandController
+            val controllable = canControl(engine, flight.owner)
+            if (controllable && (flight.command in controller.localPendingCommands ||
+                    flight.command in controller.networkPendingCommands || flight.command in controller.issuedCommands ||
+                    orderKey(flight.command)?.let { flight.command in sent[it].orEmpty() } == true)
+            ) return
+            // A command can disappear before submission. Recheck its original request without
+            // treating removal from a native transport queue as a successful purchase.
+            finishDispatch(flight, keepWaiting = controllable)
+            nextUpdateAt = now + 100_000_000L
+        }
         if (now < nextUpdateAt) return
         nextUpdateAt = now + 100_000_000L
-        val controller = engine.commandController
-        inFlight.values.removeAll {
-            it !in controller.localPendingCommands && it !in controller.networkPendingCommands && it !in controller.issuedCommands
-        }
-        val factories = pending.iterator()
-        while (factories.hasNext()) {
-            val (owner, requests) = factories.next()
+        val factories = pending.entries.iterator()
+        for ((owner, requests) in factories) {
             if (!canControl(engine, owner)) {
                 factories.remove()
                 continue
             }
-            val queue = requests.iterator()
-            var first = true
-            while (queue.hasNext()) {
-                val action = resolveQueueAction(owner, queue.next())
-                val state = if (action == null) Admission.Blocked else admission(owner, action)
-                if (state == Admission.Blocked) {
-                    queue.remove()
+            while (requests.isNotEmpty()) {
+                val id = requests.first()
+                val action = resolveQueueAction(owner, id)
+                if (action == null) {
+                    requests.removeFirst()
                     continue
                 }
-                if (first && state == Admission.Ready && action != null && owner !in inFlight) {
-                    try {
-                        val ui = engine.interfaceEngine
-                        val command = ui.playerCommandQueued
-                        command.addUnit(owner)
-                        command.setActionId(action.actionId)
-                        ui.queueExtraActionOrder(action, null, null, command)
-                        inFlight[owner] = command
-                        InterfaceEngine.markUiDirty()
-                    } catch (failure: Exception) {
-                        logger().warn("Could not submit a deferred production order", failure)
-                    }
-                    queue.remove()
+                val state = admission(owner, action, useLagHiding = false)
+                if (state == Admission.Resources) break
+                if (state == Admission.Ready && dispatch(engine, owner, id, action)) {
+                    // Funds are shared. Wait for the native deduction before picking another
+                    // factory, and give the remaining factories priority on the next scan.
+                    factories.remove()
+                    pending[owner] = requests
+                    return
                 }
-                first = false
+                requests.removeFirst()
             }
             if (requests.isEmpty()) factories.remove()
         }
-        if (pending.isEmpty()) clear()
+        if (pending.isEmpty()) stopUpdating()
     }
 
-    private fun clear() {
+    private fun dispatch(engine: GameEngine, owner: OrderableUnit, id: ActionId, action: SpecialAction): Boolean {
+        val ui = engine.interfaceEngine
+        val command = ui.playerCommand
+        return try {
+            command.addUnit(owner)
+            command.setActionId(action.actionId)
+            ui.queueExtraActionOrder(action, null, null, command)
+            inFlight = Dispatch(owner, id, command)
+            true
+        } catch (failure: Exception) {
+            engine.commandController.localPendingCommands.remove(command)
+            engine.commandController.networkPendingCommands.remove(command)
+            logger().warn("Could not submit a deferred production order", failure)
+            false
+        }
+    }
+
+    fun recordNetworkSend(command: CommandControllerCommand) {
+        if (!enabled) return
+        val engine = GameEngine.getInstance() ?: return
+        if (engine.networkEngine.isServer || !isLocalProduction(engine, command) || !syncSession(engine)) return
+        val access = command as? NativeBuildingPlanningCommandAccess ?: return
+        if (access.rwppPlanningCommandUnits().firstOrNull() !is FactoryInterface) return
+        val key = orderKey(command) ?: return
+        sent.getOrPut(key) { ArrayDeque() }.addLast(command)
+    }
+
+    fun beforeApplication(command: CommandControllerCommand) {
+        if (inFlight == null && sent.isEmpty()) return
+        val engine = GameEngine.getInstance()
+        val submitted = if (engine != null && engine.networkEngine.networked && !engine.networkEngine.isServer &&
+            isLocalProduction(engine, command)
+        ) {
+            val key = orderKey(command)
+            val queue = sent[key]
+            val sentCommand = queue?.removeFirstOrNull()
+            if (queue?.isEmpty() == true) sent.remove(key)
+            sentCommand
+        } else command
+        val flight = inFlight ?: return
+        if (submitted !== flight.command) return
+        flight.executing = command
+        flight.queuedBefore = (flight.owner as FactoryInterface).getQueuedCountOf(flight.actionId, false)
+    }
+
+    fun afterApplication(command: CommandControllerCommand) {
+        val flight = inFlight ?: return
+        if (flight.executing !== command) return
+        val accepted = (flight.owner as FactoryInterface).getQueuedCountOf(flight.actionId, false) > flight.queuedBefore
+        val action = if (accepted) null else resolveQueueAction(flight.owner, flight.actionId)
+        finishDispatch(flight, keepWaiting = action != null &&
+            admission(flight.owner, action, useLagHiding = false) == Admission.Resources)
+    }
+
+    private fun isLocalProduction(engine: GameEngine, command: CommandControllerCommand): Boolean =
+        !command.isReplayCommand && command.team === engine.playerTeam &&
+            (command.player == null || command.player === engine.playerTeam) && !command.removeFromQueue &&
+            command.waypoint == null && !command.hasSystemAction && command.targetPoint == null &&
+            command.targetUnit == null && SpecialAction.isRealActionId(command.actionId)
+
+    private fun orderKey(command: CommandControllerCommand): OrderKey? {
+        if (command.unitCount != 1) return null
+        val access = command as? NativeBuildingPlanningCommandAccess ?: return null
+        val ownerId = (access.rwppPlanningCommandUnits().firstOrNull() as? OrderableUnit)?.id
+            ?: access.rwppPlanningPendingUnitIds().firstOrNull() as? Long ?: return null
+        return OrderKey(ownerId, command.actionId, command.queueOrder)
+    }
+
+    private fun finishDispatch(flight: Dispatch, keepWaiting: Boolean) {
+        inFlight = null
+        if (!keepWaiting) {
+            pending[flight.owner]?.let { queue ->
+                queue.removeFirst()
+                if (queue.isEmpty()) pending.remove(flight.owner)
+            }
+        }
+        nextUpdateAt = 0L
+        InterfaceEngine.markUiDirty()
+    }
+
+    private fun stopUpdating() {
         if (updating) {
             GameMainDispatcher.removeUpdateTask(updateTask)
             updating = false
         }
-        pending.clear()
-        inFlight.clear()
         nextUpdateAt = 0L
+    }
+
+    private fun clear() {
+        stopUpdating()
+        pending.clear()
+        inFlight = null
+        sent.clear()
         map = null
         team = null
     }
@@ -199,14 +307,14 @@ internal object OverflowProductionQueue {
 
     private enum class Admission { Ready, Resources, Blocked }
 
-    private fun admission(owner: OrderableUnit, action: SpecialAction): Admission = runCatching {
+    private fun admission(owner: OrderableUnit, action: SpecialAction, useLagHiding: Boolean = true): Admission = runCatching {
         if (!owner.isBuiltAndNotTransported || owner.nanoFactorySpeed <= 0f ||
             !hudActionUnlocked(action, owner) ||
             action.canQueueMultiple() && (owner.team.unitCapCount >= owner.team.unitsMax ||
                 (owner as FactoryInterface).isOverTransportCapacity)
         ) return@runCatching Admission.Blocked
-        if (action.canAffordForUnit(owner, true)) Admission.Ready
-        else if (ProductionPriceProbe.hasOnlyResourceShortage(action, owner)) Admission.Resources
+        if (action.canAffordForUnit(owner, useLagHiding)) Admission.Ready
+        else if (ProductionPriceProbe.hasOnlyResourceShortage(action, owner, useLagHiding)) Admission.Resources
         else Admission.Blocked
     }.getOrDefault(Admission.Blocked)
 
@@ -230,10 +338,10 @@ internal object OverflowProductionQueue {
 internal object ProductionPriceProbe {
     private val checkingOwner = ThreadLocal<GameUnit>()
 
-    fun hasOnlyResourceShortage(action: SpecialAction, owner: OrderableUnit): Boolean {
+    fun hasOnlyResourceShortage(action: SpecialAction, owner: OrderableUnit, useLagHiding: Boolean): Boolean {
         checkingOwner.set(owner)
         return try {
-            action.canAffordForUnit(owner, true)
+            action.canAffordForUnit(owner, useLagHiding)
         } finally {
             checkingOwner.remove()
         }

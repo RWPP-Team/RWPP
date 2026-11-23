@@ -1,0 +1,37 @@
+name: Publish a Maven Central component
+description: Submit or resume the signed bundle and wait for it to be published
+inputs:
+  module:
+    description: Maven artifact family for this deployment
+    required: true
+  version:
+    description: Version of the signed bundle
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Submit the deployment or resume an existing one
+      shell: bash
+      env:
+        MODULE: ${{ inputs.module }}
+        VERSION: ${{ inputs.version }}
+        CENTRAL_RECORD_DIR: build/central/${{ inputs.module }}
+      run: |
+        set -euo pipefail
+        python3 "$GITHUB_ACTION_PATH/../../scripts/publish-central.py" submit "$MODULE" "$VERSION" \
+          "$CENTRAL_RECORD_DIR/$MODULE-$VERSION.zip"
+    - name: Save the deployment ID for reruns
+      if: ${{ always() && hashFiles(format('build/central/{0}/new-central-deployment', inputs.module)) != '' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: central-deployment-${{ inputs.module }}-${{ inputs.version }}
+        path: build/central/${{ inputs.module }}/central-deployment.json
+    - name: Wait for the deployment to reach Maven Central
+      if: ${{ hashFiles(format('build/central/{0}/central-deployment.json', inputs.module)) != '' }}
+      shell: bash
+      env:
+        MODULE: ${{ inputs.module }}
+        VERSION: ${{ inputs.version }}
+        CENTRAL_RECORD_DIR: build/central/${{ inputs.module }}
+      run: python3 "$GITHUB_ACTION_PATH/../../scripts/publish-central.py" wait "$MODULE" "$VERSION"

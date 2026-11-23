@@ -40,7 +40,11 @@ internal fun <T> withSlickTextureUploadState(block: () -> T): T {
     }
 }
 
-internal actual fun withNativeModReloadGraphics(engine: GameEngine, reload: () -> Unit) {
+internal actual fun reloadNativeMods(engine: GameEngine) = withNativeModReloadGraphics(engine) {
+    engine.modManager.reloadModData()
+}
+
+private fun withNativeModReloadGraphics(engine: GameEngine, reload: () -> Unit) {
     val canvas = engine.graphics as? JavaCanvas ?: return reload()
     check(Display.isCurrent()) { "Mod textures must be loaded on the native Slick GL thread" }
     synchronized(engine.renderLock) {

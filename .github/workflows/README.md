@@ -21,16 +21,19 @@ on them.
 ## Maven Central
 
 The `publish-central` job runs for a published, stable GitHub Release. The tag must match the
-Gradle project version. It signs a single bundle containing `io.github.rwpp-team:rwpp-api` and
-`io.github.rwpp-team:rwpp-client`, including their JVM and Android variants. Configure the
+Gradle project version. The job signs and submits two bundles under `io.github.rwpp-team`.
+The `rwpp-api` deployment contains the API and its JVM and Android variants. Once it is
+published, the job submits the `rwpp-client` deployment with the client and its variants. Configure the
 `CENTRAL_USERNAME`, `CENTRAL_TOKEN`, and `GPG_PRIVATE_KEY` repository secrets. Use the Central
 Portal user token credentials and an armored private key. Set `GPG_PASSPHRASE` if the key requires it.
 
-The workflow stores its deployment ID as an Actions artifact. A rerun resumes that deployment
-or skips coordinates already available in Maven Central. You can also run the workflow from the
-default branch with `central_tag` set to a published stable release tag. This runs only the Central
-job and uses the tagged source. If Central does not return a deployment ID after submission, check
-the Portal before retrying. The pre-CI 2.0.1.1 deployment is skipped.
+The workflow stores an Actions artifact for each deployment ID. Reruns resume each deployment
+or skip its coordinates if they already exist in Maven Central. A stored combined deployment is
+also resumed. If Central reports that it failed, each new deployment checks its own coordinates
+first. You can also run the workflow from the default branch
+with `central_tag` set to a published stable release tag. The Central job builds the tagged source
+using the workflow revision's publishing tools. If Central does not return a deployment ID after
+submission, check the Portal before retrying. The pre-CI 2.0.1.1 deployment is skipped.
 
 To rebuild and replace the packages of a published stable release, run the workflow from the
 default branch with `release_tag` and leave `central_tag` blank. Enable `skip_central` to

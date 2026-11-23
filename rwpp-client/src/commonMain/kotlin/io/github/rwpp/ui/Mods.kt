@@ -63,6 +63,15 @@ import org.jetbrains.compose.resources.painterResource
 import org.koin.compose.koinInject
 import org.koin.core.annotation.Single
 
+private class ModCardInfo(val mod: Mod) {
+    val title = mod.getTitle() ?: mod.name.orEmpty()
+    val memoryUsage = mod.getMemoryUsageText().orEmpty()
+    val error = mod.errorMessage?.takeIf { it.isNotBlank() }
+    val details = listOfNotNull(mod.description, mod.descriptionWithInfo, mod.statusMessage)
+        .filter { it.isNotBlank() }.distinct()
+    val warnings = mod.warnings.toArray().filterIsInstance<String>().filter { it.isNotBlank() }.distinct()
+}
+
 @Single
 class ModsScreen : Screen {
     @Composable
@@ -72,7 +81,7 @@ class ModsScreen : Screen {
         val android = koinInject<AppContext>().isAndroid()
         val compact = android || LocalWindowManager.current == WindowManager.Small
 
-        var mods by remember { mutableStateOf(emptyList<Mod>()) }
+        var mods by remember { mutableStateOf(emptyList<ModCardInfo>()) }
         var filter by remember { mutableStateOf("") }
 
         val scope = rememberCoroutineScope()
@@ -81,20 +90,20 @@ class ModsScreen : Screen {
         var enabledChanged by remember { mutableStateOf(false) }
 
         val filteredMods = remember(mods, filter, updated) {
-            mods.filter { (it.getTitle() ?: it.name.orEmpty()).contains(filter, ignoreCase = true) }
+            mods.filter { it.title.contains(filter, ignoreCase = true) }
         }
 
         val enabledMods = remember(enabledChanged, filteredMods, updated) {
-            filteredMods.filter { it.isEnabled }
+            filteredMods.filter { it.mod.isEnabled }
         }
 
         val disabledMods = remember(enabledChanged, filteredMods, updated) {
-            filteredMods.filter { !it.isEnabled }
+            filteredMods.filter { !it.mod.isEnabled }
         }
 
         LaunchedEffect(Unit) {
             try {
-                mods = scanMods()
+                mods = scanMods().map(::ModCardInfo)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -103,7 +112,7 @@ class ModsScreen : Screen {
         }
 
         fun showMods(refreshed: List<Mod>) {
-            mods = refreshed
+            mods = refreshed.map(::ModCardInfo)
             updated = !updated
         }
 
@@ -194,7 +203,7 @@ class ModsScreen : Screen {
                     modifier = Modifier.width(130.dp),
                     isDanger = true,
                     onClick = {
-                        mods.forEach { it.disabled = true }
+                        mods.forEach { it.mod.disabled = true }
                         enabledChanged = !enabledChanged
                     }
                 )
@@ -252,7 +261,7 @@ class ModsScreen : Screen {
 
         fun delete(mod: Mod) {
             if (mod.canBeDeleted() && mod.deleteMod()) {
-                mods = mods - mod
+                mods = mods.filterNot { it.mod === mod }
             } else UI.showWarning(readI18n("rwpp.mod.removeInfo"))
         }
         AeroScaledContainer {
@@ -275,7 +284,7 @@ class ModsScreen : Screen {
                             item(key = "mods-header") { header() }
                             item(key = "mods-filter") { filters() }
                             item(key = "mods-enabled") { AeroHeader(title = "ENABLED", tag = "${enabledMods.size} ITEMS") }
-                            items(count = enabledMods.size, key = { "enabled-${enabledMods[it].modId}" }) { index ->
+                            items(count = enabledMods.size, key = { "enabled-${enabledMods[it].mod.modId}" }) { index ->
                                 ModCard(enabledMods[index], true, { toggle(it, true) }, ::delete)
                             }
                             item(key = "mods-disabled") {
@@ -284,7 +293,7 @@ class ModsScreen : Screen {
                                     tag = "${disabledMods.size} ITEMS"
                                 )
                             }
-                            items(count = disabledMods.size, key = { "disabled-${disabledMods[it].modId}" }) { index ->
+                            items(count = disabledMods.size, key = { "disabled-${disabledMods[it].mod.modId}" }) { index ->
                                 ModCard(disabledMods[index], false, { toggle(it, false) }, ::delete)
                             }
                             if (!android) item(key = "mods-actions") { actions(Modifier) }
@@ -328,7 +337,7 @@ class ModsScreen : Screen {
     }
 
     @Composable
-    private fun ModCard(mod: Mod, isEnabledList: Boolean, onToggle: (Mod) -> Unit, onDelete: (Mod) -> Unit) {
+    private fun ModCard(info: ModCardInfo, isEnabledList: Boolean, onToggle: (Mod) -> Unit, onDelete: (Mod) -> Unit) {
         AeroPanel(
             borderColor = if (isEnabledList) MaterialTheme.colorScheme.primary.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outlineVariant,
             modifier = Modifier.fillMaxWidth()
@@ -352,7 +361,7 @@ class ModsScreen : Screen {
 
                         Column {
                             Text(
-                                text = mod.getTitle() ?: mod.name.orEmpty(),
+                                text = info.title,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface,
@@ -360,7 +369,7 @@ class ModsScreen : Screen {
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = readI18n("rwpp.mod.memoryUsage", mod.getMemoryUsageText()),
+                                text = readI18n("rwpp.mod.memoryUsage", info.memoryUsage),
                                 fontSize = 10.sp,
                                 fontFamily = FontFamily.Monospace,
                                 color = Color.Green
@@ -376,7 +385,7 @@ class ModsScreen : Screen {
                             size = 32.dp,
                             iconSize = 16.dp,
                             contentDescription = readI18n(if (isEnabledList) "rwpp.mod.moveToDisabled" else "rwpp.mod.moveToEnabled"),
-                            onClick = { onToggle(mod) }
+                            onClick = { onToggle(info.mod) }
                         )
 
                         AeroIconButton(
@@ -385,14 +394,14 @@ class ModsScreen : Screen {
                             iconSize = 16.dp,
                             contentDescription = readI18n("rwpp.mod.delete"),
                             isDanger = true,
-                            onClick = { onDelete(mod) }
+                            onClick = { onDelete(info.mod) }
                         )
                     }
                 }
 
-                if (mod.errorMessage != null) {
+                info.error?.let { error ->
                     Text(
-                        text = mod.errorMessage!!,
+                        text = error,
                         fontSize = 10.sp,
                         fontFamily = FontFamily.Monospace,
                         color = MaterialTheme.colorScheme.error,
@@ -400,13 +409,11 @@ class ModsScreen : Screen {
                     )
                 }
 
-                if (!mod.description.isNullOrBlank()) {
-                    val expandedDescription = listOfNotNull(
-                        mod.description,
-                        mod.descriptionWithInfo,
-                        mod.statusMessage,
-                        mod.errorMessage
-                    ).filter { it.isNotBlank() }.distinct().joinToString("\n\n")
+                val warningText = info.warnings.takeIf { it.isNotEmpty() }?.let {
+                    readI18n("rwpp.mod.warnings", it.size) + "\n" + it.joinToString("\n")
+                }
+                val expandedDescription = (info.details + listOfNotNull(warningText)).joinToString("\n\n")
+                if (expandedDescription.isNotEmpty()) {
                     val expandedTextStyle = remember {
                         SpanStyle(
                             fontWeight = FontWeight.W500,
@@ -440,7 +447,7 @@ class ModsScreen : Screen {
     @Composable
     private fun ModListColumn(
         title: String,
-        mods: List<Mod>,
+        mods: List<ModCardInfo>,
         isEnabledList: Boolean,
         modifier: Modifier = Modifier,
         onToggle: (Mod) -> Unit,
@@ -464,7 +471,7 @@ class ModsScreen : Screen {
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    items(count = mods.size, key = { mods[it].modId }) { card(it) }
+                    items(count = mods.size, key = { mods[it].mod.modId }) { card(it) }
                 }
             }
         }

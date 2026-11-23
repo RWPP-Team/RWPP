@@ -7,14 +7,12 @@
 
 package io.github.rwpp.mixin.android
 
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import com.corrodinggames.rts.gameFramework.GameEngine
 import io.github.rwpp.logic.hud.NativeHudVisibility
-import io.github.rwpp.ui.GameScreen
-import io.github.rwpp.ui.SettingsScreen
 import io.github.rwpp.ui.UI
+import io.github.rwpp.ui.ANDROID_SETTINGS_OPTION
+import io.github.rwpp.ui.openAndroidAeroSettings
 import kim.der.asm.api.annotation.AsmInject
 import kim.der.asm.api.annotation.AsmMixin
 import kim.der.asm.api.annotation.At
@@ -25,23 +23,9 @@ import kim.der.asm.api.annotation.ModifyExpressionValue
 /** Both the native HUD menu and the Android menu dispatch through this game entry point. */
 @AsmMixin("com/corrodinggames/rts/appFramework/GameActivity")
 object AndroidAeroSettingsMixin {
-    private const val SETTINGS_OPTION = 2
-    private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
-
     @AsmInject(method = "selectMenuOption(I)V", target = InjectionPoint.HEAD, cancellable = true, require = 1)
     fun openAeroSettings(callbackInfo: CallbackInfo, self: Any, option: Int) {
-        if (option != SETTINGS_OPTION) return
-        val navigator = UI.liveNavigator ?: return
-        val gameScreen = navigator.current as? GameScreen
-        if (gameScreen == null && navigator.backStack.none { it is GameScreen }) return
-
-        callbackInfo.cancel()
-        GameEngine.getInstance()?.interfaceEngine?.pauseMenuOpen = false
-        if (gameScreen != null) mainHandler.post {
-            if (UI.liveNavigator === navigator && navigator.current === gameScreen) {
-                navigator.push<SettingsScreen>("RWPP")
-            }
-        }
+        if (option == ANDROID_SETTINGS_OPTION && openAndroidAeroSettings()) callbackInfo.cancel()
     }
 }
 

@@ -25,10 +25,15 @@ import kotlinx.coroutines.withTimeoutOrNull
 @Composable
 internal fun DesktopScopeTreeProbe(content: @Composable () -> Unit) {
     val enabled = remember { java.lang.Boolean.getBoolean("rwpp.scopeTreeProbe") }
+    val clientGeneralDemo = remember { java.lang.Boolean.getBoolean("rwpp.scopeTreeClientGeneralDemo") }
     content()
-    if (!enabled) return
+    if (!enabled && !clientGeneralDemo) return
     LaunchedEffect(Unit) {
         val host = RwppScopeTrees.hosts.first { it.isNotEmpty() }.first()
+        if (clientGeneralDemo) {
+            runClientGeneralScopeTreeExample(host)
+            return@LaunchedEffect
+        }
         DesktopScopeTreeMetrics.awaitCompletion()
         val target = withTimeoutOrNull(20_000) {
             snapshotFlow {
@@ -79,7 +84,7 @@ internal fun DesktopScopeTreeProbe(content: @Composable () -> Unit) {
     }
 }
 
-private fun descendants(node: ImplicitScopeNode): Sequence<ImplicitScopeNode> =
+internal fun descendants(node: ImplicitScopeNode): Sequence<ImplicitScopeNode> =
     sequenceOf(node) + node.children.asSequence().flatMap(::descendants)
 
 private fun ImplicitScopeTreeHost.nodes(): Sequence<ImplicitScopeNode> =

@@ -9,11 +9,13 @@ internal class ModMemoryLoadFailure(message: String, cause: Throwable? = null) :
 internal class NativeModLoadProgress {
     val failedMods = linkedSetOf<String>()
     private var lastProgressNanos = 0L
+    private val visible = loadingOverlayKeepsContent
 
     fun run(load: () -> Unit) {
         current.set(this)
         try {
             load()
+            if (visible) publish(readI18n("rwpp.mod.finishingLoad"))
         } finally {
             current.remove()
         }
@@ -24,13 +26,21 @@ internal class NativeModLoadProgress {
 
         fun report(message: String?) {
             val operation = current.get() ?: return
-            if (!loadingOverlayKeepsContent || message == null) return
+            if (!operation.visible || message.isNullOrBlank()) return
             val now = System.nanoTime()
             if (now - operation.lastProgressNanos < 125_000_000L) return
             val unit = nativeUnitProgress.matchEntire(message)
-            loadingMessage = if (unit != null) readI18n("rwpp.mod.loadingUnits", unit.groupValues[1], unit.groupValues[2])
-            else message
+            publish(if (unit != null) readI18n("rwpp.mod.loadingUnits", unit.groupValues[1], unit.groupValues[2])
+            else message)
             operation.lastProgressNanos = now
+        }
+
+        fun modStarted(title: String) {
+            if (current.get()?.visible == true) report(readI18n("rwpp.mod.loadingMod", title))
+        }
+
+        private fun publish(message: String) {
+            loadingMessage = message
             presentNativeModProgress()
         }
 
