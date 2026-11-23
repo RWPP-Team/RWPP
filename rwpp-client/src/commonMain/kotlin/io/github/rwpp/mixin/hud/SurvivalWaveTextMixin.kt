@@ -16,12 +16,9 @@ import kim.der.asm.api.annotation.AsmMixin
 import kim.der.asm.api.annotation.At
 import kim.der.asm.api.annotation.InjectionPoint
 import kim.der.asm.api.annotation.Redirect
-import java.util.WeakHashMap
 
 @AsmMixin("com/corrodinggames/rts/gameFramework/trigger/TriggerEngine")
 object SurvivalWaveTextMixin {
-    private val scaledPaints = ThreadLocal<WeakHashMap<Paint, Paint>>()
-
     @Redirect(
         method = "drawMapTexts(F)V", at = At(
             InjectionPoint.INVOKE,
@@ -42,10 +39,13 @@ object SurvivalWaveTextMixin {
             graphics.drawText(text, x, y, paint)
             return
         }
-        val cache = scaledPaints.get() ?: WeakHashMap<Paint, Paint>().also(scaledPaints::set)
-        val scaled = cache.getOrPut(paint) { Paint() }
-        scaled.set(paint)
-        scaled.textSize = paint.textSize * scale
-        graphics.drawText(text, x, y, scaled)
+        // Keep the native font atlas at a stable size as the camera zooms.
+        graphics.save()
+        try {
+            graphics.scaleAroundPoint(scale, scale, x, y)
+            graphics.drawText(text, x, y, paint)
+        } finally {
+            graphics.restore()
+        }
     }
 }

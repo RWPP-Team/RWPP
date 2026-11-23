@@ -8,7 +8,6 @@
 package io.github.rwpp.widget.v2
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -27,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size as DrawSize
 import androidx.compose.ui.graphics.Color
@@ -59,7 +59,6 @@ import io.github.rwpp.api.game.map.GameMap
 import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.game.map.MapPreviewGenerationService
 import io.github.rwpp.game.team
-import io.github.rwpp.screen.LocalScreenNavigator
 import io.github.rwpp.sound.Sounds
 import io.github.rwpp.ui.BattleRoomScreen
 import io.github.rwpp.ui.UI
@@ -129,9 +128,10 @@ fun AeroZoomableImage(
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
     var imageSize by remember(model) { mutableStateOf(DrawSize.Zero) }
     val fitted = fitPreviewImage(containerSize, imageSize)
-    val positions by produceState(emptyList(), model) {
+    val showPositions = model is GameMap && UI.showMapPlayerPositions
+    val positions by produceState(emptyList(), model, showPositions) {
         value = emptyList()
-        if (model is GameMap) value = MapPreviewGenerationService().spawnPositions(model)
+        if (showPositions && model is GameMap) value = MapPreviewGenerationService().spawnPositions(model)
     }
 
     fun clampOffset(newOffset: Offset, currentScale: Float): Offset {
@@ -207,55 +207,62 @@ fun AeroZoomableImage(
                 }
         )
 
-        val navigator = UI.liveNavigator
-        if (positions.isNotEmpty() && navigator?.current is BattleRoomScreen && fitted.width > 0f && fitted.height > 0f) {
+        if (showPositions && positions.isNotEmpty() && fitted.width > 0f && fitted.height > 0f) {
+            val room = UI.liveNavigator?.current as? BattleRoomScreen
+            val labels = remember(positions, room, room?.update) {
+                positions.map { (slot, _, _) ->
+                    val player = if (room != null) Team.getTeam(slot) else null
+                    player?.let {
+                        buildAnnotatedString {
+                            withStyle(SpanStyle(color = getTeamColor(it.team))) {
+                                append("[${it.teamLetter}]")
+                            }
+                            append(" ${it.name}")
+                        }
+                    }
+                }
+            }
             val textMeasurer = rememberTextMeasurer(cacheSize = positions.size * 2)
-            val markerTextStyle = TextStyle(
+            val markerTextStyle = remember(wheelZoom) { TextStyle(
                 color = Color.White,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
                 fontSize = if (wheelZoom) 12.sp else 10.sp,
-            )
-            Canvas(Modifier.matchParentSize()) {
-                val zoomedWidth = fitted.width * scale
-                val zoomedHeight = fitted.height * scale
-                val topLeft = center + offset - Offset(zoomedWidth / 2f, zoomedHeight / 2f)
-                for ((slot, xFraction, yFraction) in positions) {
-                    val point = topLeft + Offset(xFraction * zoomedWidth, yFraction * zoomedHeight)
+            ) }
+            Spacer(Modifier.matchParentSize().drawWithCache {
+                val numbers = positions.map { (slot, _, _) ->
                     val label = textMeasurer.measure((slot + 1).toString(), markerTextStyle)
                     val radius = maxOf((if (wheelZoom) 11.dp else 8.dp).toPx(), label.size.width / 2f + 3.dp.toPx())
-                    drawCircle(Color(0xE6101822), radius, point)
-                    drawCircle(getTeamColor(slot), radius, point, style = Stroke(1.5.dp.toPx()))
-                    drawText(label, topLeft = point - Offset(label.size.width / 2f, label.size.height / 2f))
-                    if (scale >= 3f || maxScale >= 8f) {
-                        (navigator.current as? BattleRoomScreen)?.update // 观察是否更新
-                        val player = Team.getTeam(slot) ?: continue
-
-                        val annotatedText = buildAnnotatedString {
-                            withStyle(
-                                SpanStyle(color = getTeamColor(player.team))
-                            ) {
-                                append("[${player.teamLetter}]")
-                            }
-
-                            append(" ${player.name}")
+                    label to radius
+                }
+                val names = labels.map { it?.let { label -> textMeasurer.measure(label, markerTextStyle) } }
+                val ring = Stroke(1.5.dp.toPx())
+                val labelGap = 4.dp.toPx()
+                onDrawBehind {
+                    val zoomedWidth = fitted.width * scale
+                    val zoomedHeight = fitted.height * scale
+                    val topLeft = center + offset - Offset(zoomedWidth / 2f, zoomedHeight / 2f)
+                    val drawNames = scale >= 3f || maxScale >= 8f
+                    for ((index, position) in positions.withIndex()) {
+                        val (slot, xFraction, yFraction) = position
+                        val point = topLeft + Offset(xFraction * zoomedWidth, yFraction * zoomedHeight)
+                        val (label, radius) = numbers[index]
+                        if (point.x + radius >= 0f && point.x - radius <= size.width &&
+                            point.y + radius >= 0f && point.y - radius <= size.height
+                        ) {
+                            drawCircle(Color(0xE6101822), radius, point)
+                            drawCircle(getTeamColor(slot), radius, point, style = ring)
+                            drawText(label, topLeft = point - Offset(label.size.width / 2f, label.size.height / 2f))
                         }
-
-                        val nameLayout = textMeasurer.measure(
-                            text = annotatedText,
-                            style = markerTextStyle
-                        )
-
-                        drawText(
-                            textLayoutResult = nameLayout,
-                            topLeft = Offset(
-                                point.x - nameLayout.size.width / 2f,
-                                point.y + radius + 4.dp.toPx()
-                            )
-                        )
+                        val name = (if (drawNames) names[index] else null) ?: continue
+                        val x = point.x - name.size.width / 2f
+                        val y = point.y + radius + labelGap
+                        if (x + name.size.width >= 0f && x <= size.width &&
+                            y + name.size.height >= 0f && y <= size.height
+                        ) drawText(name, topLeft = Offset(x, y))
                     }
                 }
-            }
+            })
         }
 
         // 状态面板 (显示当前放大倍率 & 一键重置)
@@ -352,6 +359,13 @@ fun MapInspectorDialog(
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
+
+                AeroToggleTile(
+                    label = readI18n("rwpp.map.showPlayerPositions"),
+                    checked = UI.showMapPlayerPositions,
+                    onCheckedChange = { UI.showMapPlayerPositions = it },
+                    modifier = Modifier.align(Alignment.Start).padding(bottom = 8.dp),
+                )
 
                 Box(
                     modifier = Modifier

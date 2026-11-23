@@ -60,6 +60,7 @@ object UI : Initialization, IUserInterface {
     var chatMessages by mutableStateOf(AnnotatedString(""))
         internal set
     var inspectingMap: GameMap? by mutableStateOf(null)
+    var showMapPlayerPositions by mutableStateOf(true)
     var showPlayerList by mutableStateOf(false)
 
     var backgroundImagePath by mutableStateOf(appKoin.get<Settings>().backgroundImagePath ?: "")

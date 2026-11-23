@@ -15,15 +15,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.sp
 import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.game.hud.SurvivalWaveHud
@@ -56,12 +55,13 @@ internal fun AeroSurvivalHud(wave: SurvivalWaveHud?, editing: Boolean) {
 internal fun AeroSurvivalSpawns(markers: List<SurvivalScreenMarker>, details: SurvivalWaveHud?, textScale: Float) {
     if (markers.isEmpty()) return
     val color = MaterialTheme.colorScheme.error
-    val density = LocalDensity.current
     val scale = textScale.takeIf { it.isFinite() && it > 0f } ?: 1f
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val viewportWidth = maxWidth
         val viewportHeight = maxHeight
-        val cardWidth = minOf(220.dp * scale, viewportWidth)
+        val cardWidth = minOf(220.dp, viewportWidth)
+        val cardScale = if (cardWidth > 0.dp) scale.coerceAtMost(viewportWidth / cardWidth) else 1f
+        val scaledCardWidth = cardWidth * cardScale
         for ((fraction, status) in markers) {
             val x = viewportWidth * fraction.x
             val y = viewportHeight * fraction.y
@@ -77,22 +77,32 @@ internal fun AeroSurvivalSpawns(markers: List<SurvivalScreenMarker>, details: Su
                 if (pinpointed) drawCircle(color, radius = 2.5.dp.toPx())
             }
             if (details != null) {
-                val left = (x - cardWidth / 2).coerceIn(0.dp, viewportWidth - cardWidth)
-                val top = (y + 12.dp).coerceIn(0.dp, (viewportHeight - 110.dp * scale).coerceAtLeast(0.dp))
-                AeroPanel(Modifier.absoluteOffset(left, top).width(cardWidth), borderColor = color) {
+                val left = (x - scaledCardWidth / 2).coerceIn(0.dp, (viewportWidth - scaledCardWidth).coerceAtLeast(0.dp))
+                val top = (y + 12.dp).coerceIn(0.dp, (viewportHeight - 110.dp * cardScale).coerceAtLeast(0.dp))
+                AeroPanel(
+                    Modifier.absoluteOffset(left, top).width(cardWidth).graphicsLayer {
+                        transformOrigin = TransformOrigin(0f, 0f)
+                        scaleX = cardScale
+                        scaleY = cardScale
+                    },
+                    borderColor = color,
+                ) {
                     Column(Modifier.padding(horizontal = 10.dp, vertical = 5.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        CompositionLocalProvider(LocalDensity provides Density(density.density, density.fontScale * scale)) {
-                            Text(label, fontSize = 11.sp, color = color)
-                            SurvivalWaveDetails(details)
-                        }
+                        Text(label, fontSize = 11.sp, color = color)
+                        SurvivalWaveDetails(details)
                     }
                 }
             } else {
                 Text(
                     label,
                     Modifier.absoluteOffset((x - 50.dp).coerceIn(0.dp, (viewportWidth - 120.dp).coerceAtLeast(0.dp)),
-                        (y + 12.dp).coerceAtMost((viewportHeight - 20.dp).coerceAtLeast(0.dp))),
-                    fontSize = (11f * scale).sp,
+                        (y + 12.dp).coerceAtMost((viewportHeight - 20.dp * scale).coerceAtLeast(0.dp))
+                    ).graphicsLayer {
+                        transformOrigin = TransformOrigin(0f, 0f)
+                        scaleX = scale
+                        scaleY = scale
+                    },
+                    fontSize = 11.sp,
                     color = color,
                 )
             }
