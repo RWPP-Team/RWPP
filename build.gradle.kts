@@ -193,7 +193,7 @@ tasks.register<Zip>("bundleForCentral") {
 
 allprojects {
     group = "io.github.rwpp"
-    version = "0.1.0-test.4"
+    version = "0.1.0-test.5"
 
 //    subprojects {
 //        tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {

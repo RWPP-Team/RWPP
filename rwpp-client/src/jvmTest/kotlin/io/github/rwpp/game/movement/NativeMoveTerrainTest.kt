@@ -6,6 +6,7 @@ import com.corrodinggames.rts.game.RWGameEngine
 import com.corrodinggames.rts.game.Team
 import com.corrodinggames.rts.game.map.Map as NativeMap
 import com.corrodinggames.rts.game.map.MapLayer
+import com.corrodinggames.rts.game.map.MapTile
 import com.corrodinggames.rts.game.units.MovementType
 import com.corrodinggames.rts.game.units.OrderableUnit
 import com.corrodinggames.rts.game.units.UnitType
@@ -53,6 +54,41 @@ class NativeMoveTerrainTest {
         assertTrue(source.contentEquals(world.costs.terrainCost), "capture must not rebuild or write native terrain")
         world.costs.terrainCost[terrainIndex] = 0
         assertFalse(snapshot.isClear(MovePoint(150f, 130f), MovePoint(150f, 130f), 0f))
+    }
+
+    @Test
+    fun groundMovementSnapshotsFollowTheCorrespondingNativeTerrainCosts() = withWorld(40, 25) { world ->
+        val tiles = arrayOf(
+            null,
+            allocate(MapTile::class.java).apply { water = true },
+            allocate(MapTile::class.java).apply { cliff = true },
+            allocate(MapTile::class.java).apply { trees = true },
+            allocate(MapTile::class.java).apply { lava = true; cliff = true },
+            allocate(MapTile::class.java).apply { blockLevel = -1 },
+        )
+        world.map.uniqueTiles = tiles
+        val height = world.map.mapHeightInTiles
+        val positions = (1 until tiles.size).map { index -> MovePoint((index + 4) * 20f + 10f, 130f) }
+        world.map.groundLayer.tileIds = ShortArray(world.map.mapWidthInTiles * height).apply {
+            for (index in 1 until tiles.size) this[(index + 4) * height + 6] = index.toShort()
+        }
+        val rebuild = MapCosts::class.java.getDeclaredMethod("rebuildTerrainCost").apply { isAccessible = true }
+        val expected = listOf(
+            MovementType.LAND to listOf(false, false, false, false, false),
+            MovementType.HOVER to listOf(true, true, false, false, false),
+            MovementType.OVER_CLIFF to listOf(false, true, true, false, false),
+            MovementType.OVER_CLIFF_WATER to listOf(true, true, true, false, false),
+        )
+        val goal = MovePoint(300f, 200f)
+        for ((type, clear) in expected) {
+            world.mover.fixtureMovementType = type
+            rebuild.invoke(world.engine.pathEngine.getCosts(type))
+            val snapshot = assertNotNull(NativeMoveTerrain.capture(world.engine, world.mover, goal, listOf(goal)))
+            assertEquals(clear, positions.map { snapshot.isClear(it, it, 0f) }, type.name)
+        }
+        world.mover.fixtureMovementType = MovementType.AIR
+        assertNull(NativeMoveTerrain.capture(world.engine, world.mover, goal, listOf(goal)))
+        assertNull(NativeMoveTerrain.motion(world.mover))
     }
 
     @Test
@@ -129,6 +165,27 @@ class NativeMoveTerrainTest {
         unit.fixtureSliding = false
         unit.transportedBy = world.building(200f, 200f, world.viewer)
         assertNull(NativeMoveTerrain.motion(unit))
+    }
+
+    @Test
+    fun usesNativeHeadingAndVelocityOnlyForBodyIndependentSliding() = withWorld(40, 25) { world ->
+        val unit = world.mover
+        unit.fixtureMovementType = MovementType.OVER_CLIFF
+        unit.angle = 82f
+        unit.moveHeading = -30f
+        unit.speedX = 0.8f
+        unit.speedY = -0.2f
+        val bodySteered = assertNotNull(NativeMoveTerrain.motion(unit))
+        assertEquals(MovementType.OVER_CLIFF, bodySteered.movementType)
+        assertEquals(82f, bodySteered.headingDegrees)
+        assertNull(bodySteered.slidingVelocity)
+        unit.fixtureMovementType = MovementType.HOVER
+        unit.fixtureIgnoreBody = true
+        unit.fixtureSliding = true
+        val sliding = assertNotNull(NativeMoveTerrain.motion(unit))
+        assertEquals(MovementType.HOVER, sliding.movementType)
+        assertEquals(-30f, sliding.headingDegrees)
+        assertEquals(MovePoint(0.8f, -0.2f), sliding.slidingVelocity)
     }
 
     @Test
@@ -248,6 +305,10 @@ class NativeMoveTerrainTest {
         val recovered = assertNotNull(NativeMoveTerrain.nativeRoute(unit, goal, continuation))
         assertEquals((12..142).map { MovePoint(it * 20f + 10f, 90f) } + goal, recovered)
 
+        unit.fixtureMovementType = MovementType.OVER_CLIFF
+        assertNull(NativeMoveTerrain.nativeRoute(unit, goal, continuation),
+            "A changed movement type must not reuse a captured solver suffix")
+        unit.fixtureMovementType = MovementType.LAND
         unit.setPathNode(unit.rwppMovePathCount() - 1, 2500f, 90f)
         assertNull(NativeMoveTerrain.nativeRoute(unit, goal, continuation),
             "A changed live tail must not receive the captured solver suffix")
@@ -359,6 +420,7 @@ class NativeMoveTerrainTest {
         var fixtureYAxis = 1f
         var fixtureIgnoreBody = false
         var fixtureSliding = false
+        lateinit var fixtureMovementType: MovementType
 
         fun initialize(atX: Float, atY: Float, owner: Team, building: Boolean) {
             x = atX
@@ -371,6 +433,7 @@ class NativeMoveTerrainTest {
             fixtureFootprint = Rect(0, 0, 0, 0)
             fixturePublicVisibility = true
             fixtureYAxis = 1f
+            fixtureMovementType = MovementType.LAND
         }
 
         override fun isBuilding() = fixtureBuilding
@@ -378,7 +441,7 @@ class NativeMoveTerrainTest {
         override fun getMinimapOriginX() = fixtureOriginX
         override fun getMinimapOriginY() = fixtureOriginY
         override fun isVisibleToAllPlayers() = fixturePublicVisibility
-        override fun getMovementType() = MovementType.LAND
+        override fun getMovementType() = fixtureMovementType
         override fun isAirUnit() = false
         override fun canReceiveOrders() = true
         override fun getMoveYAxisScaling() = fixtureYAxis
@@ -481,23 +544,29 @@ class NativeMoveTerrainTest {
                 viewer.fogGrid = Array(width) { ByteArray(height) }
                 engine.map = map
                 engine.playerTeam = viewer
-                val costs = allocate(MapCosts::class.java)
-                field(MapCosts::class.java, "width").setInt(costs, width)
-                field(MapCosts::class.java, "height").setInt(costs, height)
-                field(MapCosts::class.java, "movementType").set(costs, MovementType.LAND)
-                costs.terrainCost = ByteArray(width * height)
-                costs.unitBlocked = ByteArray(width * height)
-                costs.unitInfluence = ByteArray(width * height)
-                costs.clearanceCost = ByteArray(width * height)
+                val movementTypes = listOf(MovementType.LAND, MovementType.HOVER,
+                    MovementType.OVER_CLIFF, MovementType.OVER_CLIFF_WATER)
+                val costsByMovement = movementTypes.associateWith { type ->
+                    allocate(MapCosts::class.java).also { costs ->
+                        field(MapCosts::class.java, "width").setInt(costs, width)
+                        field(MapCosts::class.java, "height").setInt(costs, height)
+                        field(MapCosts::class.java, "movementType").set(costs, type)
+                        costs.terrainCost = ByteArray(width * height)
+                        costs.unitBlocked = ByteArray(width * height)
+                        costs.unitInfluence = ByteArray(width * height)
+                        costs.clearanceCost = ByteArray(width * height)
+                    }
+                }
+                val landCosts = costsByMovement.getValue(MovementType.LAND)
                 engine.pathEngine = allocate(PathEngine::class.java).also {
                     field(PathEngine::class.java, "map").set(it, map)
                     field(PathEngine::class.java, "mapWidth").setShort(it, width.toShort())
                     field(PathEngine::class.java, "mapHeight").setShort(it, height.toShort())
-                    field(PathEngine::class.java, "costsArray").set(it, arrayOf(costs))
-                    field(MapCosts::class.java, "engine").set(costs, it)
-                    it.costsLand = costs
+                    field(PathEngine::class.java, "costsArray").set(it, costsByMovement.values.toTypedArray())
+                    for (costs in costsByMovement.values) field(MapCosts::class.java, "engine").set(costs, it)
+                    it.costsLand = landCosts
                 }
-                return block(World(engine, map, viewer, enemy, costs))
+                return block(World(engine, map, viewer, enemy, landCosts))
             } finally {
                 nativeUnits.clear()
                 previousUnits.forEach(nativeUnits::add)

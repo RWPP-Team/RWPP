@@ -5,6 +5,7 @@
  */
 package io.github.rwpp.game.movement
 
+import com.corrodinggames.rts.game.units.MovementType
 import com.corrodinggames.rts.game.units.OrderableUnit
 import com.corrodinggames.rts.game.units.Waypoint
 import com.corrodinggames.rts.game.units.WaypointType
@@ -25,6 +26,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.math.max
 
 internal fun sameMoveTarget(a: MovePoint?, b: MovePoint?): Boolean = a != null && b != null &&
@@ -177,7 +179,11 @@ internal object SingleUnitMoveController {
         }
         if (current.handled) return
         if (!order.supportsMoveAssist()) return
-        current.nativeContinuation = NativeMoveTerrain.pendingContinuation(engine, unit, MovePoint(order.targetX, order.targetY))
+        val goal = MovePoint(order.targetX, order.targetY)
+        if (order.type == WaypointType.move) {
+            if (MovePoint(unit.x, unit.y).distanceTo(goal) < MIN_ASSISTED_MOVE_DISTANCE) return
+        } else if (unit.movementType != MovementType.LAND || unit.isMoveSlidingMode) return
+        current.nativeContinuation = NativeMoveTerrain.pendingContinuation(engine, unit, goal)
     }
 
     fun update(target: Any) {
@@ -297,8 +303,19 @@ internal object SingleUnitMoveController {
         if (current.head !== head) beginSegment(current, head, now)
         if (current.handled || !settings.singleUnitMoveAssist) return
         if (!head.supportsMoveAssist()) { current.handled = true; return }
-        if (actual == null || actual.isEmpty()) { current.handled = true; debug("unsupported-native-queue", current); return }
         val requestedGoal = MovePoint(head.targetX, head.targetY)
+        if (head.type == WaypointType.move && motion.position.distanceTo(requestedGoal) < MIN_ASSISTED_MOVE_DISTANCE) {
+            cancelPlanning(current)
+            current.handled = true
+            debug("short-move", current)
+            return
+        }
+        if (head.type != WaypointType.move &&
+            (motion.movementType != MovementType.LAND || motion.slidingVelocity != null)) {
+            current.handled = true
+            return
+        }
+        if (actual == null || actual.isEmpty()) { current.handled = true; debug("unsupported-native-queue", current); return }
         val buildApproach = if (head.type != WaypointType.move) {
             val range = head.constructionRange(unit) ?: run { current.handled = true; return }
             MoveBuildApproach(requestedGoal, range)
@@ -348,9 +365,10 @@ internal object SingleUnitMoveController {
         val input = result.input
         val route = result.route
         if (input.generation != current.generation || !NativeMoveQueue.sameQueue(unit, input.orders) ||
+            !motion.sameDrive(input.motion) ||
             now - input.createdAt > PLANNING_MAX_AGE_MILLIS ||
             motion.position.distanceTo(input.motion.position) > max(24f, motion.maxSpeed * 12f) ||
-            abs(((motion.headingDegrees - input.motion.headingDegrees + 540f) % 360f + 360f) % 360f - 180f) > 60f) {
+            steeringChanged(motion, input.motion)) {
             cancelPlanning(current)
             debug("planning-state-refreshed", current)
             return
@@ -523,7 +541,8 @@ internal object SingleUnitMoveController {
         val elapsed = (now - current.lastSampleAt).coerceAtLeast(0)
         val moved = current.lastPosition.distanceTo(motion.position)
         current.distance += moved
-        if (abs(motion.speedFraction * motion.maxSpeed) < 0.03f) current.stoppedMillis += elapsed
+        val speed = motion.slidingVelocity?.let { hypot(it.x, it.y) } ?: abs(motion.speedFraction * motion.maxSpeed)
+        if (speed < 0.03f) current.stoppedMillis += elapsed
         if (motion.speedFraction < 0f) current.reverseDistance += moved
         current.lastPosition = motion.position
         current.lastSampleAt = now
@@ -532,6 +551,15 @@ internal object SingleUnitMoveController {
         logger().info("Move assist sample: mode=queued token={} unit={} elapsedMs={} position={} heading={} throttle={} queueSize={} target={} cursor={}",
             current.token, current.unit.id, now - current.startedAt, motion.position, motion.headingDegrees,
             motion.speedFraction, current.unit.waypointCount, current.unit.currentWaypoint?.let { MovePoint(it.targetX, it.targetY) }, current.batch?.cursor)
+    }
+
+    private fun steeringChanged(current: MoveMotion, original: MoveMotion): Boolean {
+        val velocity = current.slidingVelocity
+        if (velocity != null) {
+            val originalVelocity = original.slidingVelocity ?: return true
+            return velocity.distanceTo(originalVelocity) > current.maxSpeed * 0.6f
+        }
+        return abs(((current.headingDegrees - original.headingDegrees + 540f) % 360f + 360f) % 360f - 180f) > 60f
     }
 
     private fun debug(reason: String, current: Watch, event: String = "control") {

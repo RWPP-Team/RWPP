@@ -6,15 +6,19 @@ import com.corrodinggames.rts.game.Player
 import com.corrodinggames.rts.game.map.Map as NativeMap
 import com.corrodinggames.rts.game.map.MapLayer
 import com.corrodinggames.rts.game.map.MapTile
+import com.corrodinggames.rts.game.units.MovementType
 import com.corrodinggames.rts.game.units.OrderableUnit
 import com.corrodinggames.rts.game.units.UnitType
 import com.corrodinggames.rts.game.units.Waypoint
 import com.corrodinggames.rts.game.units.buildings.turrets.Turret
 import com.corrodinggames.rts.game.units.land.Builder
+import com.corrodinggames.rts.game.units.land.HoverTank
+import com.corrodinggames.rts.game.units.search.UnitGeoIndex
 import com.corrodinggames.rts.gameFramework.GameEngine
 import com.corrodinggames.rts.gameFramework.ReplayEngine
 import com.corrodinggames.rts.gameFramework.network.NetworkEngine
 import com.corrodinggames.rts.gameFramework.path.PathEngine
+import com.corrodinggames.rts.gameFramework.render.BitmapOrTexture
 import sun.misc.Unsafe
 import java.lang.reflect.Field
 import kotlin.math.abs
@@ -50,6 +54,79 @@ class QueuedMoveRoutePlannerTest {
             assertTrue(prediction.completed, prediction.toString())
             assertTrue(abs(prediction.time - frames) <= 4f,
                 "Native full-update=$frames frames, queued prediction=$prediction targets=$targets")
+        }
+    }
+
+    @Test
+    fun completeQueuedMotionAgreesWithTheUnmodifiedNativeHoverTank() = withNativeEngine { engine ->
+        engine.unitGeoIndex = UnitGeoIndex().apply { initializeGridForMap(engine.map) }
+        val bodyImage = field(HoverTank::class.java, "bodyImage")
+        val previousImage = bodyImage.get(null)
+        // The constructor uses only the image dimensions. The test runs native movement off screen.
+        bodyImage.set(null, BitmapOrTexture().apply { width = 16; height = 16 })
+        try {
+            val start = MovePoint(210f, 210f)
+            val targets = listOf(MovePoint(350f, 210f), MovePoint(350f, 350f), MovePoint(490f, 350f))
+            for (initialVelocity in listOf(MovePoint(0f, 0f), MovePoint(0f, -0.75f))) {
+                val unit = HoverTank(true).apply {
+                    x = start.x
+                    y = start.y
+                    angle = -90f
+                    moveHeading = 0f
+                    speedX = initialVelocity.x
+                    speedY = initialVelocity.y
+                    buildProgress = 1f
+                    field(javaClass, "needsInitialFogUpdate").setBoolean(this, false)
+                }
+                val motion = assertNotNull(NativeMoveTerrain.motion(unit))
+                assertEquals(MovementType.HOVER, motion.movementType)
+                assertEquals(initialVelocity, motion.slidingVelocity)
+                assertEquals(0f, motion.headingDegrees, "Use native movement heading, independent of body angle")
+                val prediction = MoveRoutePlanner.estimateQueued(clearGrid(), motion, targets)
+                assertTrue(prediction.completed, prediction.toString())
+                targets.forEach { unit.queueMoveWaypoint(it.x, it.y) }
+                var frames = 0
+                var beforeUpdate = start
+                while (unit.waypointCount > 0 && frames < 6000) {
+                    engine.simulationTick = frames
+                    engine.gameTimeMillis = frames * 1000 / 60
+                    beforeUpdate = MovePoint(unit.x, unit.y)
+                    unit.update(1f)
+                    engine.pathEngine.update(1f)
+                    frames++
+                }
+                assertEquals(0, unit.waypointCount)
+                assertTrue(abs(prediction.time - frames) <= 4f,
+                    "Velocity=$initialVelocity native full-update=$frames frames, queued prediction=$prediction")
+                assertTrue(beforeUpdate.distanceTo(assertNotNull(prediction.handoffPosition)) <= 2f,
+                    "Native=$beforeUpdate queued prediction=$prediction")
+                // A stationary order still lets the native hover drive coast on its stored velocity.
+                unit.moveThrottle = 0f
+                unit.speedX = 0.75f
+                unit.speedY = 0f
+                val beforeBrake = unit.x
+                unit.update(1f)
+                assertTrue(unit.x > beforeBrake && unit.speedX in 0.01f..<0.75f)
+                repeat(16) { unit.update(1f) }
+                assertEquals(0f, unit.speedX)
+                assertEquals(0f, unit.speedY)
+            }
+        } finally {
+            bodyImage.set(null, previousImage)
+        }
+    }
+
+    @Test
+    fun shortGroundAndHoverMovesSkipPlanningEvenWithANativeDetour() {
+        val ground = builderMotion()
+        val hover = ground.copy(movementType = MovementType.HOVER, slidingVelocity = MovePoint(0f, 0f))
+        val goal = MovePoint(ground.position.x + 39f, ground.position.y)
+        val native = listOf(MovePoint(210f, 120f), MovePoint(goal.x, 120f), goal)
+        for (motion in listOf(ground, hover)) {
+            val stages = mutableListOf<String>()
+            val plan = MoveRoutePlanner.planQueued(clearGrid(), motion, goal, native, 0f) { stages += it.stage }
+            assertNull(plan)
+            assertEquals(listOf("input", "result"), stages, "Skip the baseline and the search for a short MOVE")
         }
     }
 
@@ -159,15 +236,20 @@ class QueuedMoveRoutePlannerTest {
         val blocked = BooleanArray(30 * 30)
         for (x in 6..11) for (y in 8..15) blocked[x * 30 + y] = true
         val grid = MoveNavigationGrid(0f, 0f, 30, 30, 20f, 20f, blocked)
-        val motion = builderMotion().copy(position = MovePoint(160f, 450f), headingDegrees = -90f)
+        val ground = builderMotion().copy(position = MovePoint(160f, 450f), headingDegrees = -90f)
+        val mountain = ground.copy(movementType = MovementType.OVER_CLIFF)
+        val hover = ground.copy(movementType = MovementType.HOVER, maxSpeed = 1f, maxTurnSpeed = 180f,
+            acceleration = 0.04f, deceleration = 0.09f, radius = 7f, slidingVelocity = MovePoint(0f, -0.5f))
         val goal = MovePoint(160f, 80f)
         val baseline = listOf(MovePoint(360f, 450f), MovePoint(360f, 80f), goal)
-        val plan = assertNotNull(MoveRoutePlanner.planQueued(grid, motion, goal, baseline, 1f, 4))
-        assertTrue(plan.targets.size in 2..4)
-        assertEquals(goal, plan.targets.last())
-        assertTrue(plan.plannedEstimatedTime < plan.nativeEstimatedTime)
-        assertTrue(MoveRoutePlanner.estimateQueued(grid, motion, plan.targets, 1f, baseline, plan.terrainClearance).completed)
-        assertNull(MoveRoutePlanner.planQueued(grid, motion, goal, baseline, 1f, 1))
+        for (motion in listOf(ground, mountain, hover)) {
+            val plan = assertNotNull(MoveRoutePlanner.planQueued(grid, motion, goal, baseline, 1f, 4), "${motion.movementType}")
+            assertTrue(plan.targets.size in 2..4)
+            assertEquals(goal, plan.targets.last())
+            assertTrue(plan.plannedEstimatedTime < plan.nativeEstimatedTime)
+            assertTrue(MoveRoutePlanner.estimateQueued(grid, motion, plan.targets, 1f, baseline, plan.terrainClearance).completed)
+            assertNull(MoveRoutePlanner.planQueued(grid, motion, goal, baseline, 1f, 1))
+        }
     }
 
     @Test
