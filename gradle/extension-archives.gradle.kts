@@ -213,12 +213,15 @@ dependencies.add(d8.name, catalog.findLibrary("r8").get())
 val androidSdkJar = provider {
     val local =
         Properties().apply { rootProject.file("local.properties").takeIf { it.isFile }?.inputStream()?.use(::load) }
-    val sdk = providers.gradleProperty("androidSdkDir").orNull ?: System.getenv("ANDROID_SDK_ROOT")
-    ?: System.getenv("ANDROID_HOME") ?: local.getProperty("sdk.dir") ?: error("Set androidSdkDir or sdk.dir")
+    val sdk = local.getProperty("sdk.dir") ?: providers.gradleProperty("androidSdkDir").orNull
+    ?: System.getenv("ANDROID_SDK_ROOT") ?: System.getenv("ANDROID_HOME") ?: error("Set androidSdkDir or sdk.dir")
     val level = (project.findProperty("androidCompileSdk") as String?)
         ?: extensions.getByType<VersionCatalogsExtension>().named("libs").findVersion("android-compileSdk")
             .get().requiredVersion
-    file(sdk).resolve("platforms/android-$level/android.jar").also { check(it.isFile) { "Missing Android SDK: $it" } }
+    val platforms = file(sdk).resolve("platforms")
+    listOf("android-$level.0", "android-$level").map { platforms.resolve("$it/android.jar") }
+        .firstOrNull { it.isFile }
+        ?: error("Missing Android SDK platform android-$level in $platforms")
 }
 val dexDirectory = layout.buildDirectory.dir("dex/extension")
 val androidDex = tasks.register<JavaExec>("rwppAndroidExtensionDex") {

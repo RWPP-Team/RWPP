@@ -71,7 +71,9 @@ class ProductGamePolicies(
         // is shared with the native HUD, so the policy must not touch received commands.
         GlobalEventChannel.filter(CommandPathsReadyEvent::class).subscribeAlways(owner) { event ->
             val command = event.command
-            if (!settings.enhancedReinforceTroops || command.actionId.id == "-1") return@subscribeAlways
+            if ((!settings.enhancedReinforceTroops && !settings.factoryProductionPaymentOptimization) ||
+                command.actionId.id == "-1"
+            ) return@subscribeAlways
             val units = commandUnits.get(command) as? FastArrayList ?: return@subscribeAlways
             if (units.size < 2) return@subscribeAlways
             // Factories with deferred orders are already loaded even when their native queue is

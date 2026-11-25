@@ -27,7 +27,11 @@ import io.github.rwpp.api.logging.logger
 import io.github.rwpp.logic.GameVisualSettings
 import io.github.rwpp.mixin.building.NativeBuildingPlanningCommandAccess
 
-/** Local intent only. Each accepted order is sent through the ordinary native command controller. */
+/**
+ * Local production intent that is released into the ordinary native command controller one order
+ * at a time. Factory production optimization keeps later orders here instead of changing credits
+ * or queue progress locally, so networked games only ever receive real native orders.
+ */
 internal object OverflowProductionQueue {
     private const val LIMIT = 256
 
@@ -51,12 +55,15 @@ internal object OverflowProductionQueue {
         synchronized(engine.gameUpdateLock) { update(engine) }
     }
 
-    private val enabled get() = GameVisualSettings.get()?.overflowProductionQueue == true
+    private val overflowEnabled get() = GameVisualSettings.get()?.overflowProductionQueue == true
+    private val factoryQueueEnabled get() = GameVisualSettings.get()?.factoryProductionPaymentOptimization == true
+    private val enabled get() = overflowEnabled || factoryQueueEnabled
 
     fun supports(action: SpecialAction, units: List<GameUnit>): Boolean =
         enabled && isProductionAction(action) && owners(action, units).any { owner ->
             val owned = resolveQueueAction(owner, action.storedActionId) ?: return@any false
-            admission(owner, owned) == Admission.Resources
+            val resourceShortage = admission(owner, owned) == Admission.Resources
+            resourceShortage || factoryQueueEnabled && hasNativeQueue(owner)
         }
 
     fun pendingCount(action: SpecialAction, units: List<GameUnit>): Int {
@@ -85,39 +92,95 @@ internal object OverflowProductionQueue {
     fun pendingCountForFactory(unit: GameUnit): Int =
         if (!enabled || unit !is OrderableUnit) 0 else pending[unit]?.size ?: 0
 
+    private fun hasNativeQueue(owner: OrderableUnit): Boolean = runCatching {
+        val factory = owner as? FactoryInterface ?: return false
+        factory.currentQueuedItem != null || (factory.queuedItems?.size ?: 0) > 0
+    }.getOrDefault(false)
+
+    /** How many slots of one click stay local. Only the released slot uses the native protocol. */
+    internal fun localDeferredCount(
+        batch: Int,
+        state: Admission,
+        hasNativeQueue: Boolean,
+        factoryQueueEnabled: Boolean,
+    ): Int = when {
+        !factoryQueueEnabled -> if (state == Admission.Resources) batch else 0
+        hasNativeQueue || state == Admission.Resources -> batch
+        state == Admission.Ready -> (batch - 1).coerceAtLeast(0)
+        else -> 0
+    }
+
     fun enqueue(engine: GameEngine, action: SpecialAction, units: List<OrderableUnit>): Boolean {
         if (!enabled || !isProductionAction(action) || !syncSession(engine)) return false
         val candidates = owners(action, units).filter { canControl(engine, it) }.mapNotNull { owner ->
             val owned = resolveQueueAction(owner, action.storedActionId) ?: return@mapNotNull null
             owner to admission(owner, owned)
         }
-        val ready = candidates.any { it.second == Admission.Ready }
-        val waiting = candidates.filter { it.second == Admission.Resources }.map { it.first }
-        if (waiting.isEmpty() || action.isUnitSpecificAction && ready) return false
         val ui = engine.interfaceEngine
         val batch = hudQueueBatch(action.canQueueMultiple(), ui.isShiftKeyDown(engine), ui.isCtrlKeyDown(engine))
-        var full = false
-        repeat(batch) {
-            val recipients = if (action.isUnitSpecificAction) {
-                listOf(waiting.minWith(compareBy({
-                    (pending[it]?.size ?: 0) + (it as FactoryInterface).getTotalQueuedCount(true)
-                }, { it.id })))
-            } else waiting
-            for (owner in recipients) {
-                val queue = pending.getOrPut(owner) { ArrayDeque() }
-                val id = action.storedActionId
-                // A non-repeatable action can occupy at most one future slot on this unit.
-                if (!action.canQueueMultiple() && id in queue) continue
-                if (queue.size == LIMIT) full = true else queue.addLast(id)
-            }
+        val factoryMode = factoryQueueEnabled
+
+        // Factory optimization holds every slot behind a current build item locally. When the
+        // factory is idle, only one slot from the click is released to the native protocol; the
+        // rest wait here and are submitted after that item finishes.
+        val holds = LinkedHashMap<OrderableUnit, Int>()
+        val nativeReady = ArrayList<OrderableUnit>()
+        for ((owner, state) in candidates) {
+            val busy = factoryMode && hasNativeQueue(owner)
+            val deferred = localDeferredCount(batch, state, busy, factoryMode)
+            if (deferred > 0) holds[owner] = deferred
+            if (factoryMode && state == Admission.Ready && !busy) nativeReady += owner
         }
+        val overflowReady = !factoryMode && candidates.any { it.second == Admission.Ready }
+        val overflowWaiting = !factoryMode && holds.isNotEmpty()
+        if (!factoryMode && (holds.isEmpty() || action.isUnitSpecificAction && overflowReady)) return false
+        if (factoryMode && holds.isEmpty() && nativeReady.isEmpty()) return false
+
+        val chosen = if (action.isUnitSpecificAction) {
+            (holds.keys + nativeReady).minWithOrNull(compareBy({ load(it) }, { it.id }))
+        } else null
+        val recipients = when {
+            action.isUnitSpecificAction -> listOfNotNull(chosen?.takeIf { it in holds })
+            else -> holds.keys.toList()
+        }
+        val released = when {
+            action.isUnitSpecificAction -> listOfNotNull(chosen?.takeIf { it in nativeReady })
+            else -> nativeReady
+        }
+        var full = false
+        var added = false
+        for (owner in recipients) {
+            val queue = pending.getOrPut(owner) { ArrayDeque() }
+            val id = action.storedActionId
+            repeat(holds.getValue(owner)) {
+                // A non-repeatable action can occupy at most one future slot on this unit.
+                if (!action.canQueueMultiple() && id in queue) return@repeat
+                if (queue.size == LIMIT) {
+                    full = true
+                } else {
+                    queue.addLast(id)
+                    added = true
+                }
+            }
+            if (queue.isEmpty()) pending.remove(owner)
+        }
+        if (!added && released.isEmpty() && !overflowReady) return false
+
         if (!updating && pending.isNotEmpty()) {
             updating = true
             GameMainDispatcher.addUpdateTask(updateTask)
         }
         if (full) ui.showImportantScreenMessage(readI18n("rwpp.production.pendingFull"))
         ui.activeSpecialAction = null
-        if (ready) {
+
+        if (factoryMode) {
+            if (released.isNotEmpty()) {
+                val command = ui.playerCommandQueued
+                released.forEach(command::addUnit)
+                command.setActionId(action.actionId)
+                ui.queueExtraActionOrder(action, null, null, command)
+            }
+        } else if (overflowReady && overflowWaiting) {
             // A mixed group click issues the affordable portion now. Deferred owners must
             // appear only in their waiting queues, even if their funds change before execution.
             val affordable = candidates.filter { it.second == Admission.Ready }.map { it.first }
@@ -129,6 +192,11 @@ internal object OverflowProductionQueue {
             }
         }
         return true
+    }
+
+    private fun load(owner: OrderableUnit): Int {
+        val nativeQueued = (owner as? FactoryInterface)?.getTotalQueuedCount(true) ?: 0
+        return (pending[owner]?.size ?: 0) + nativeQueued
     }
 
     fun cancelLast(engine: GameEngine, action: SpecialAction, units: List<OrderableUnit>): Boolean {
@@ -176,6 +244,9 @@ internal object OverflowProductionQueue {
                     requests.removeFirst()
                     continue
                 }
+                // Only one native order per factory at a time. The rest stay in this local
+                // queue until the current native item finishes.
+                if (factoryQueueEnabled && hasNativeQueue(owner)) break
                 val state = admission(owner, action, useLagHiding = false)
                 if (state == Admission.Resources || state == Admission.Waiting) break
                 if (state == Admission.Ready && dispatch(engine, owner, id, action)) {

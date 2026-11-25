@@ -126,6 +126,8 @@ data class Settings(
     var showWelcomeMessage: Boolean? = null,
     var roomPresets: List<RoomPreset> = emptyList(),
     var enhancedReinforceTroops: Boolean = false,
+    /** Keep factory orders in a local queue and submit them to the native game one at a time. */
+    @Volatile var factoryProductionPaymentOptimization: Boolean = false,
     var backgroundImagePath: String? = null,
     var selectedTheme: String? = null,
     /** Opacity of HUD panels and their controls; 0.7 matches the designed panel alpha. */

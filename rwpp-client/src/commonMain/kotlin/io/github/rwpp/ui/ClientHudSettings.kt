@@ -42,6 +42,11 @@ internal fun ClientHudSettings(settings: Settings) {
                 onCheckedChange = { settings.enhancedReinforceTroops = it }
             )
             AeroSettingToggle(
+                label = readI18n("rwpp.settings.factoryProductionPaymentOptimization"),
+                defaultValue = settings.factoryProductionPaymentOptimization,
+                onCheckedChange = { settings.factoryProductionPaymentOptimization = it }
+            )
+            AeroSettingToggle(
                 label = readI18n("rwpp.settings.showUnitTargetLine"),
                 defaultValue = settings.showUnitTargetLine,
                 onCheckedChange = { settings.showUnitTargetLine = it }

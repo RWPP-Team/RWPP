@@ -34,10 +34,10 @@ val bundleResources = tasks.register<JavaExec>("bundleAndroidExtensionResources"
             rootProject.file("local.properties").takeIf { it.isFile }?.inputStream()?.use(::load)
         }
         val sdk = file(
-            providers.gradleProperty("androidSdkDir").orNull
+            local.getProperty("sdk.dir")
+                ?: providers.gradleProperty("androidSdkDir").orNull
                 ?: System.getenv("ANDROID_SDK_ROOT")
                 ?: System.getenv("ANDROID_HOME")
-                ?: local.getProperty("sdk.dir")
                 ?: error("Set androidSdkDir, sdk.dir, ANDROID_SDK_ROOT or ANDROID_HOME")
         )
         val android =
