@@ -2,9 +2,12 @@ package io.github.rwpp.game.hud
 
 import io.github.rwpp.game.hud.OverflowProductionQueue.Admission
 import io.github.rwpp.game.hud.OverflowProductionQueue.AdmissionInput
+import io.github.rwpp.game.hud.OverflowProductionQueue.canEnqueue
 import io.github.rwpp.game.hud.OverflowProductionQueue.classify
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class OverflowProductionQueueTest {
     private fun input(
@@ -42,5 +45,15 @@ class OverflowProductionQueueTest {
         assertEquals(Admission.Waiting, classify(input(affordable = true, transport = true)))
         assertEquals(Admission.Blocked, classify(input(unlocked = false, onlyResource = true)))
         assertEquals(Admission.Blocked, classify(input()))
+    }
+
+    @Test
+    fun enhancedProductionKeepsAffordableAndTemporarilyHeldOrdersLocal() {
+        assertTrue(canEnqueue(Admission.Ready, enhancedProduction = true, hasNativeQueue = false))
+        assertTrue(canEnqueue(Admission.Waiting, enhancedProduction = true, hasNativeQueue = true))
+        assertFalse(canEnqueue(Admission.Waiting, enhancedProduction = true, hasNativeQueue = false))
+        assertFalse(canEnqueue(Admission.Blocked, enhancedProduction = true, hasNativeQueue = true))
+        assertFalse(canEnqueue(Admission.Ready, enhancedProduction = false, hasNativeQueue = true))
+        assertTrue(canEnqueue(Admission.Resources, enhancedProduction = false, hasNativeQueue = false))
     }
 }

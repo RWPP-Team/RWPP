@@ -125,7 +125,7 @@ data class Settings(
     var matchHistoryRetentionDays: Int = 30,
     var showWelcomeMessage: Boolean? = null,
     var roomPresets: List<RoomPreset> = emptyList(),
-    var enhancedReinforceTroops: Boolean = false,
+    @Volatile var enhancedReinforceTroops: Boolean = false,
     var backgroundImagePath: String? = null,
     var selectedTheme: String? = null,
     /** Opacity of HUD panels and their controls; 0.7 matches the designed panel alpha. */

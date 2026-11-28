@@ -51,13 +51,17 @@ internal object OverflowProductionQueue {
         synchronized(engine.gameUpdateLock) { update(engine) }
     }
 
-    private val enabled get() = GameVisualSettings.get()?.overflowProductionQueue == true
+    private val enhanced get() = GameVisualSettings.get()?.enhancedReinforceTroops == true
+    private val enabled get() = enhanced || GameVisualSettings.get()?.overflowProductionQueue == true
 
-    fun supports(action: SpecialAction, units: List<GameUnit>): Boolean =
-        enabled && isProductionAction(action) && owners(action, units).any { owner ->
+    fun supports(action: SpecialAction, units: List<GameUnit>): Boolean {
+        if (!enabled || !isProductionAction(action)) return false
+        val enhancedProduction = enhanced
+        return owners(action, units).any { owner ->
             val owned = resolveQueueAction(owner, action.storedActionId) ?: return@any false
-            admission(owner, owned) == Admission.Resources
+            canEnqueue(admission(owner, owned), enhancedProduction, enhancedProduction && hasNativeQueue(owner))
         }
+    }
 
     fun pendingCount(action: SpecialAction, units: List<GameUnit>): Int {
         if (!enabled || pending.isEmpty() || !isProductionAction(action)) return 0
@@ -85,14 +89,30 @@ internal object OverflowProductionQueue {
     fun pendingCountForFactory(unit: GameUnit): Int =
         if (!enabled || unit !is OrderableUnit) 0 else pending[unit]?.size ?: 0
 
+    private fun hasNativeQueue(owner: OrderableUnit): Boolean {
+        val factory = owner as FactoryInterface
+        return factory.currentQueuedItem != null || (factory.queuedItems?.size ?: 0) > 0
+    }
+
+    internal fun canEnqueue(state: Admission, enhancedProduction: Boolean, hasNativeQueue: Boolean): Boolean =
+        when (state) {
+            Admission.Resources -> true
+            Admission.Ready -> enhancedProduction
+            Admission.Waiting -> enhancedProduction && hasNativeQueue
+            Admission.Blocked -> false
+        }
+
     fun enqueue(engine: GameEngine, action: SpecialAction, units: List<OrderableUnit>): Boolean {
         if (!enabled || !isProductionAction(action) || !syncSession(engine)) return false
+        val enhancedProduction = enhanced
         val candidates = owners(action, units).filter { canControl(engine, it) }.mapNotNull { owner ->
             val owned = resolveQueueAction(owner, action.storedActionId) ?: return@mapNotNull null
             owner to admission(owner, owned)
         }
-        val ready = candidates.any { it.second == Admission.Ready }
-        val waiting = candidates.filter { it.second == Admission.Resources }.map { it.first }
+        val ready = !enhancedProduction && candidates.any { it.second == Admission.Ready }
+        val waiting = candidates.filter { (owner, state) ->
+            canEnqueue(state, enhancedProduction, enhancedProduction && hasNativeQueue(owner))
+        }.map { it.first }
         if (waiting.isEmpty() || action.isUnitSpecificAction && ready) return false
         val ui = engine.interfaceEngine
         val batch = hudQueueBatch(action.canQueueMultiple(), ui.isShiftKeyDown(engine), ui.isCtrlKeyDown(engine))
@@ -163,6 +183,7 @@ internal object OverflowProductionQueue {
         }
         if (now < nextUpdateAt) return
         nextUpdateAt = now + 100_000_000L
+        val enhancedProduction = enhanced
         val factories = pending.entries.iterator()
         for ((owner, requests) in factories) {
             if (!canControl(engine, owner)) {
@@ -176,6 +197,9 @@ internal object OverflowProductionQueue {
                     requests.removeFirst()
                     continue
                 }
+                // The existing in-flight check covers orders that have not reached the native
+                // queue yet. Once accepted, wait for the current build to leave that queue.
+                if (enhancedProduction && hasNativeQueue(owner)) break
                 val state = admission(owner, action, useLagHiding = false)
                 if (state == Admission.Resources || state == Admission.Waiting) break
                 if (state == Admission.Ready && dispatch(engine, owner, id, action)) {

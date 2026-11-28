@@ -39,6 +39,7 @@ internal fun ClientHudSettings(settings: Settings) {
             AeroSettingToggle(
                 label = readI18n("rwpp.settings.enhancedReinforceTroops"),
                 defaultValue = settings.enhancedReinforceTroops,
+                subLabel = readI18n("rwpp.settings.enhancedReinforceTroops.hint"),
                 onCheckedChange = { settings.enhancedReinforceTroops = it }
             )
             AeroSettingToggle(
