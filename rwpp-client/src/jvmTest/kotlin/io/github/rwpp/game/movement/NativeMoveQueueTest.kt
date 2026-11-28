@@ -4,10 +4,12 @@ import com.corrodinggames.rts.game.Player
 import com.corrodinggames.rts.game.RWGameEngine
 import com.corrodinggames.rts.game.Team
 import com.corrodinggames.rts.game.units.OrderableUnit
+import com.corrodinggames.rts.game.units.Unit as NativeUnit
 import com.corrodinggames.rts.game.units.UnitType
 import com.corrodinggames.rts.game.units.UnitTypeInterface
 import com.corrodinggames.rts.game.units.Waypoint
 import com.corrodinggames.rts.game.units.WaypointType
+import com.corrodinggames.rts.game.units.buildings.turrets.Turret
 import com.corrodinggames.rts.game.units.land.Tank
 import com.corrodinggames.rts.gameFramework.CommandController
 import com.corrodinggames.rts.gameFramework.CommandControllerCommand
@@ -89,6 +91,39 @@ class NativeMoveQueueTest {
         assertEquals(UnitType.turret, roundTrip(commands[1]).waypoint.unitType)
         assertEquals(2, roundTrip(commands[1]).waypoint.buildTechLevel)
         assertTrue(NativeMoveQueue.sameQueue(unit, expected))
+    }
+
+    @Test
+    fun shoreApproachRetainsTheNativeRepairOfAnUnfinishedBuilding() = nativeFixture { engine, ui, unit ->
+        val site = Turret(true).apply {
+            id = 91L; x = 200f; y = 220f; team = unit.team; buildProgress = 0.4f
+        }
+        val input = ui.getPlayerCommand().apply { setRepairWaypoint(site) }
+        assertEquals(WaypointType.repair, input.waypoint.type)
+        assertSame(site, input.waypoint.targetUnit)
+        assertTrue(isSupportedMoveInput(input), "A native click on an unfinished turret should enable approach planning")
+
+        unit.allocateWaypoint().copyFrom(input.waypoint)
+        unit.queueMoveWaypoint(300f, 320f)
+        val expected = assertNotNull(NativeMoveQueue.snapshot(unit))
+        val moves = listOf(MovePoint(152f, 140f), MovePoint(155f, 220f))
+        val commands = assertNotNull(submit(engine, unit, expected, moves, retainHead = true))
+        assertEquals(listOf(WaypointType.move, WaypointType.move, WaypointType.repair, WaypointType.move),
+            commands.map { it.waypoint.type })
+        assertSame(site, commands[2].waypoint.targetUnit)
+        assertContentEquals(waypointBytes(input.waypoint), waypointBytes(roundTrip(commands[2]).waypoint))
+        assertTrue(NativeMoveQueue.sameQueue(unit, expected))
+
+        val ally = Player(1, false).apply { allyTeam = unit.team.allyTeam }
+        site.team = ally
+        assertTrue(isSupportedMoveInput(input))
+        ally.allyTeam++
+        assertFalse(isSupportedMoveInput(input))
+        site.team = unit.team
+
+        site.buildProgress = 1f
+        assertFalse(isSupportedMoveInput(input), "Repairing a finished turret stays native")
+        assertNull(submit(engine, unit, expected, moves, retainHead = true))
     }
 
     @Test
@@ -200,6 +235,7 @@ class NativeMoveQueueTest {
 
     private class QueueTank : Tank(true) {
         override fun getBuildRange(type: UnitTypeInterface): Float = 80f
+        override fun canRepairUnit(unit: NativeUnit): Boolean = unit.isBuilding
         override fun getUnitTypeInterface(): UnitTypeInterface = UnitType.tank
     }
 

@@ -11,6 +11,7 @@ import com.corrodinggames.rts.game.units.OrderableUnit
 import com.corrodinggames.rts.game.units.WaypointType
 import com.corrodinggames.rts.game.units.af as NativePathNode
 import com.corrodinggames.rts.game.units.Unit as NativeUnit
+import com.corrodinggames.rts.game.units.land.Hovercraft
 import com.corrodinggames.rts.gameFramework.GameEngine
 import com.corrodinggames.rts.gameFramework.path.Path
 import com.corrodinggames.rts.gameFramework.path.PathSolverNode
@@ -26,6 +27,7 @@ internal data class NativeMoveContinuation(
     val goal: MovePoint,
     val appliedPrefix: List<MovePoint>,
     val tail: List<MovePoint>,
+    val movementType: MovementType,
 )
 
 /** Read-only snapshots: native cost rebuilding and unit motion remain entirely native. */
@@ -40,9 +42,10 @@ internal object NativeMoveTerrain {
             if (GameEngine.getInstance() !== engine || !engine.gameLoopActive) return@synchronized null
             val map = engine.map ?: return@synchronized null
             val viewer = engine.playerTeam ?: return@synchronized null
+            val movementType = unit.movementType
             if (!map.mapLoaded || !goal.finite || nativeRoute.isEmpty() || nativeRoute.size > MAX_BASELINE_NODES ||
                 nativeRoute.any { !it.finite } || !unit.x.isFinite() || !unit.y.isFinite() ||
-                unit.movementType != MovementType.LAND || !unit.radius.isFinite() || unit.radius <= 0f
+                !supportsGroundTerrain(movementType) || !unit.radius.isFinite() || unit.radius <= 0f
             ) return@synchronized null
             if (map.fogOfWarEnabled && viewer.fogGrid == null) return@synchronized null
             val tileWidth = map.tileWidth
@@ -58,7 +61,7 @@ internal object NativeMoveTerrain {
             if (!onMap(start) || !onMap(goal) || nativeRoute.any { !onMap(it) }) return@synchronized null
 
             // getCosts is a lookup. Do not call refreshMapCosts/isLineClear: those rebuild native grids.
-            val costs = engine.pathEngine?.getCosts(MovementType.LAND) ?: return@synchronized null
+            val costs = engine.pathEngine?.getCosts(movementType) ?: return@synchronized null
             val terrain = costs.terrainCost ?: return@synchronized null
             if (costs.width != mapWidth || costs.height != mapHeight ||
                 mapWidth.toLong() * mapHeight > terrain.size.toLong()
@@ -124,16 +127,20 @@ internal object NativeMoveTerrain {
         }
     }.getOrNull()
 
-    /** Only normal body-steered land motion is modelled in the first implementation. */
     fun motion(unit: OrderableUnit): MoveMotion? = runCatching {
+        val movementType = unit.movementType
         if (unit.dead || unit.removed || unit.isBuilding || unit.isAirUnit ||
             unit.transportedBy != null || unit.attachedToUnit != null || !unit.canReceiveOrders() ||
-            unit.movementType != MovementType.LAND || unit.isMoveSlidingMode || unit.isMoveIgnoringBody ||
+            !supportsGroundTerrain(movementType) ||
+            // The landing craft changes its speed and turn rate between land and water.
+            unit is Hovercraft ||
             unit.moveYAxisScaling != 1f || unit.moveYAxisScaleReciprocal != 1f || unit.directMoveSpeed != 0f
         ) return@runCatching null
+        val sliding = unit.isMoveSlidingMode
+        if (sliding != unit.isMoveIgnoringBody) return@runCatching null
         MoveMotion(
             position = MovePoint(unit.x, unit.y),
-            headingDegrees = unit.angle,
+            headingDegrees = if (sliding) unit.moveHeading else unit.angle,
             speedFraction = unit.moveThrottle,
             currentTurnRate = unit.currentTurnRate,
             maxSpeed = unit.moveSpeed,
@@ -145,6 +152,8 @@ internal object NativeMoveTerrain {
             reverseSpeedFraction = unit.reverseSpeedPercentage,
             radius = unit.radius,
             formationLeader = unit.inFormation && unit.formationSlotCount <= 1,
+            movementType = movementType,
+            slidingVelocity = if (sliding) MovePoint(unit.speedX, unit.speedY) else null,
         ).takeIf { it.valid }
     }.getOrNull()
 
@@ -180,18 +189,22 @@ internal object NativeMoveTerrain {
             if (index < LIVE_PATH_CAPACITY) prefix.add(point)
             else tail.add(if (index == nodes.size - 1 && exactEnd) goal else point)
         }
-        NativeMoveContinuation(goal, prefix, tail)
+        NativeMoveContinuation(goal, prefix, tail, unit.movementType)
     }.getOrNull()
 
     /** Returns an ordinary path to this exact MOVE destination, using the verified solver tail when available. */
-    fun nativeRoute(unit: OrderableUnit, goal: MovePoint, continuation: NativeMoveContinuation? = null): List<MovePoint>? = runCatching {
+    fun nativeRoute(
+        unit: OrderableUnit, goal: MovePoint, continuation: NativeMoveContinuation? = null,
+        allowBuildFallback: Boolean = false,
+    ): List<MovePoint>? = runCatching {
         val access = routeAccess(unit, goal) ?: return@runCatching null
         if (access.rwppMovePendingPath() != null) return@runCatching null
         val count = access.rwppMovePathCount()
         val nodes = access.rwppMovePathNodes() ?: return@runCatching null
         if (count !in 1..LIVE_PATH_CAPACITY || count > nodes.size) return@runCatching null
         val truncated = access.rwppMovePathTruncated()
-        val join = continuation?.takeIf { truncated && it.goal == goal } ?: if (truncated) return@runCatching null else null
+        val join = continuation?.takeIf { truncated && it.goal == goal && it.movementType == unit.movementType }
+            ?: if (truncated) return@runCatching null else null
         val prefixOffset = (join?.appliedPrefix?.size ?: count) - count
         if (prefixOffset < 0) return@runCatching null
         val result = ArrayList<MovePoint>(count + 1)
@@ -212,7 +225,7 @@ internal object NativeMoveTerrain {
             // The BUILD must resume inside its native range even when MOVE finishes about 7px early.
             // Keep the native reachable approach; never append the blocked building centre as a MOVE.
             val end = result.indexOfFirst { it.distanceTo(goal) <= (range - 10f).coerceAtLeast(1f) }
-            return@runCatching if (end >= 0) result.take(end + 1) else null
+            return@runCatching if (end >= 0) result.take(end + 1) else result.takeIf { allowBuildFallback }
         }
         // A nearest-reachable fallback is not evidence of a path to the requested goal.
         if (!sameTarget(last.x, last.y, goal)) return@runCatching null
@@ -220,23 +233,46 @@ internal object NativeMoveTerrain {
         result
     }.getOrNull()
 
+    /** A bounded snapshot beside a resolved native approach. Never reveal hidden building costs. */
+    fun planShoreBuild(
+        engine: GameEngine, unit: OrderableUnit, motion: MoveMotion, bank: MovePoint, build: MoveBuildApproach,
+    ): List<MovePoint>? {
+        if (unit.movementType != MovementType.LAND || motion.movementType != MovementType.LAND ||
+            motion.slidingVelocity != null
+        ) return null
+        val map = engine.map ?: return null
+        val span = max(map.tileWidth, map.tileHeight)
+        if (span <= 0 || bank.distanceTo(build.center) !in build.range..build.range + span ||
+            motion.position.distanceTo(bank) > 8f * span) return null
+        val terrain = engine.pathEngine?.getCosts(MovementType.LAND)?.terrainCost ?: return null
+        val grid = capture(engine, unit, build.center, listOf(bank)) ?: return null
+        return MoveShoreBuild.plan(grid, motion, bank, build) { point ->
+            val x = floor(point.x / map.tileWidth).toInt()
+            val y = floor(point.y / map.tileHeight).toInt()
+            x in 0 until map.mapWidthInTiles && y in 0 until map.mapHeightInTiles &&
+                terrain[x * map.mapHeightInTiles + y].toInt() == -1
+        }
+    }
+
     private fun routeAccess(unit: OrderableUnit, goal: MovePoint): NativeMovePathAccess? {
         if (!goal.finite || unit.flowFieldFollower != null || unit.waypointCount < 1) return null
         val waypoint = unit.currentWaypoint ?: return null
-        if (waypoint.type !in listOf(WaypointType.move, WaypointType.build) || waypoint.targetUnit != null ||
+        if (!waypoint.supportsMoveAssist() ||
             !sameTarget(waypoint.targetX, waypoint.targetY, goal)) return null
         val access = unit as? NativeMovePathAccess ?: return null
         return access.takeIf { sameTarget(it.rwppMovePathGoalX(), it.rwppMovePathGoalY(), goal) }
     }
 
-    private fun approachBuildRange(unit: OrderableUnit): Float? {
-        val order = unit.currentWaypoint?.takeIf { it.type == WaypointType.build } ?: return null
-        val type = order.unitType ?: return null
-        return unit.getBuildRange(type).takeIf { it.isFinite() && it > 10f }
-    }
+    private fun approachBuildRange(unit: OrderableUnit): Float? =
+        unit.currentWaypoint?.constructionRange(unit)?.takeIf { it.isFinite() && it > 10f }
 
     private fun sameTarget(x: Float, y: Float, goal: MovePoint): Boolean =
         x.isFinite() && y.isFinite() && abs(x - goal.x) <= TARGET_EPSILON && abs(y - goal.y) <= TARGET_EPSILON
+
+    private fun supportsGroundTerrain(type: MovementType?): Boolean = when (type) {
+        MovementType.LAND, MovementType.HOVER, MovementType.OVER_CLIFF, MovementType.OVER_CLIFF_WATER -> true
+        else -> false
+    }
 
     private const val TARGET_EPSILON = 0.01f
     private const val LIVE_PATH_CAPACITY = 120

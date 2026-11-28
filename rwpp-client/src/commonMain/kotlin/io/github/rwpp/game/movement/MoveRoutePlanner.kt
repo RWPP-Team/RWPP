@@ -22,6 +22,7 @@ internal object MoveRoutePlanner {
     private const val MAX_NATIVE_RECHECKS = 4
     private const val MAX_ALTERNATE_LEGS = 12
     private const val NEAR_TIE_STEPS = 30f
+    private const val SLIDING_RATE_FACTOR = 1.41f
 
     private data class Candidate(val targets: List<MovePoint>, val clearance: Float, val estimate: Estimate)
 
@@ -46,7 +47,7 @@ internal object MoveRoutePlanner {
         if (!motion.valid || !goal.finite || !commandDelay.isFinite() || commandDelay !in 0f..120f ||
             maxTargets !in 2..MAX_ASSISTED_MOVE_TARGETS || nativeRoute.isEmpty() || nativeRoute.size > 512 ||
             nativeRoute.any { !it.finite } || nativeRoute.last().distanceTo(goal) > 2f ||
-            motion.position.distanceTo(goal) < 40f) {
+            motion.position.distanceTo(goal) < MIN_ASSISTED_MOVE_DISTANCE) {
             report("result", "invalid-input")
             return null
         }
@@ -135,10 +136,17 @@ internal object MoveRoutePlanner {
     ): Estimate = simulateQueued(grid, motion, targets, commandDelay, nativePrefix, terrainClearance, firstIssueWait,
         false, buildApproach)
 
+    /** Predict the position at which the original BUILD takes over after the final MOVE. */
+    internal fun estimateShoreBuildHandoff(
+        grid: MoveNavigationGrid, motion: MoveMotion, targets: List<MovePoint>, clearance: Float,
+    ): MovePoint? = simulateQueued(grid, motion, targets, 0f, emptyList(), clearance, 0, false,
+        stepLimit = 600).handoffPosition
+
     private fun simulateQueued(
         grid: MoveNavigationGrid, motion: MoveMotion, targets: List<MovePoint>, delay: Float,
         nativePrefix: List<MovePoint>, clearance: Float, firstIssueWait: Int, nativeBaseline: Boolean,
         buildApproach: MoveBuildApproach? = null,
+        stepLimit: Int = MAX_SIMULATION_TIME,
     ): Estimate {
         if (!motion.valid || targets.isEmpty() || targets.any { !it.finite } || !delay.isFinite() ||
             delay !in 0f..120f || !clearance.isFinite() || clearance < 0f || firstIssueWait !in 0..120 ||
@@ -157,7 +165,7 @@ internal object MoveRoutePlanner {
         var distance = 0f
         var stopped = 0f
         var reverse = 0f
-        for (time in 0 until MAX_SIMULATION_TIME) {
+        for (time in 0 until stepLimit) {
             val active = nativeBaseline || time >= activateAt
             val before = v.position
             val nativeNodes = nativeBaseline || !active
@@ -180,8 +188,13 @@ internal object MoveRoutePlanner {
                 }
             } else if (before.distanceTo(targets[targetIndex]) < MOVE_COMPLETION_RADIUS) {
                 if (targetIndex == targets.lastIndex) {
+                    if (v.velocity != null && !v.canStopOnTerrain(grid, clearance)) {
+                        return Estimate(false, time.toFloat(), distance, stopped, reverse, targets.size,
+                            "unsafe-terminal-slide", targetIndex)
+                    }
                     // The retained BUILD runs on the frame after the last MOVE is popped, never at an earlier corner.
-                    return Estimate(true, time + if (buildApproach == null) 0f else 1f, distance, stopped, reverse, targets.size)
+                    return Estimate(true, time + if (buildApproach == null) 0f else 1f, distance, stopped, reverse,
+                        targets.size, handoffPosition = before)
                 }
                 targetIndex++
                 nodes = null
@@ -211,7 +224,7 @@ internal object MoveRoutePlanner {
             }
             val moved = before.distanceTo(v.position)
             distance += moved
-            if (abs(v.speed) < 0.03f) stopped++
+            if (v.stopped) stopped++
             if (v.speed < 0f) reverse += moved
         }
         return Estimate(false, MAX_SIMULATION_TIME.toFloat(), distance, stopped, reverse, targets.size, "timeout", targetIndex)
@@ -236,7 +249,7 @@ internal object MoveRoutePlanner {
         )))
         if (!motion.valid || !goal.finite || !commandDelay.isFinite() || commandDelay !in 0f..120f ||
             nativeRoute.isEmpty() || nativeRoute.size > 512 || nativeRoute.any { !it.finite } ||
-            nativeRoute.last().distanceTo(goal) > 2f || motion.position.distanceTo(goal) < 40f) {
+            nativeRoute.last().distanceTo(goal) > 2f || motion.position.distanceTo(goal) < MIN_ASSISTED_MOVE_DISTANCE) {
             report("result", "invalid-input")
             return null
         }
@@ -410,6 +423,7 @@ internal object MoveRoutePlanner {
         val targetIndex: Int? = null,
         val collisionFrom: MovePoint? = null,
         val collisionTo: MovePoint? = null,
+        val handoffPosition: MovePoint? = null,
     )
 
     /** A one-step calibration seam for comparison with the actual game controller. */
@@ -417,7 +431,7 @@ internal object MoveRoutePlanner {
         val vehicle = Vehicle(motion)
         vehicle.step(target, terminal)
         return motion.copy(position = vehicle.position, headingDegrees = vehicle.heading,
-            speedFraction = vehicle.speed, currentTurnRate = vehicle.turnRate)
+            speedFraction = vehicle.speed, currentTurnRate = vehicle.turnRate, slidingVelocity = vehicle.velocity)
     }
 
     /** Uses the same selection policy as the runtime; queued MOVE stops are never smoothed away. */
@@ -528,7 +542,7 @@ internal object MoveRoutePlanner {
                 failureReason = "collision", targetIndex = cursor, collisionFrom = before, collisionTo = v.position)
             val moved = before.distanceTo(v.position)
             distance += moved
-            if (abs(v.speed) < 0.03f) stopped++
+            if (v.stopped) stopped++
             if (v.speed < 0f) reverse += moved
         }
         return Estimate(false, MAX_SIMULATION_TIME.toFloat(), distance, stopped, reverse, commands,
@@ -550,9 +564,14 @@ internal object MoveRoutePlanner {
         return index
     }
 
-    private fun turnTime(vehicle: Vehicle, target: MovePoint): Float =
-        abs(angleDifference(vehicle.heading, angle(vehicle.position, target))) / vehicle.body.maxTurnSpeed +
+    private fun turnTime(vehicle: Vehicle, target: MovePoint): Float {
+        val direction = angle(vehicle.position, target)
+        vehicle.velocity?.let {
+            return it.distanceTo(velocityAt(direction, vehicle.body.maxSpeed)) / (vehicle.body.acceleration * SLIDING_RATE_FACTOR)
+        }
+        return abs(angleDifference(vehicle.heading, direction)) / vehicle.body.maxTurnSpeed +
             if (vehicle.body.turnAcceleration > 0f) vehicle.body.maxTurnSpeed / vehicle.body.turnAcceleration else 0f
+    }
 
     private fun canTurnTowards(
         grid: MoveNavigationGrid, vehicle: Vehicle, target: MovePoint, previousTarget: MovePoint?,
@@ -614,7 +633,11 @@ internal object MoveRoutePlanner {
                 }
                 if (length <= 0f) continue
                 val direction = angle(nodes[current], nodes[next])
-                val turnCost = abs(angleDifference(incoming, direction)) / motion.maxTurnSpeed
+                val turnCost = motion.slidingVelocity?.let {
+                    val enteringVelocity = if (entry.state == 0) it else velocityAt(incoming, motion.maxSpeed)
+                    enteringVelocity.distanceTo(velocityAt(direction, motion.maxSpeed)) /
+                        (motion.acceleration * SLIDING_RATE_FACTOR)
+                } ?: (abs(angleDifference(incoming, direction)) / motion.maxTurnSpeed)
                 val cost = entry.cost + length / motion.maxSpeed + turnWeight * turnCost
                 val state = current * count + next
                 if (cost >= costs[state]) continue
@@ -664,23 +687,47 @@ internal object MoveRoutePlanner {
         }
     }
 
-    /** Restricted, calibrated approximation of the native non-strafing movement controller. */
+    /** Native-style movement for body steering and independent-heading sliding. */
     private class Vehicle(val body: MoveMotion) {
         var position = body.position
         var heading = body.headingDegrees
         var speed = body.speedFraction
         var turnRate = body.currentTurnRate
+        var velocity = body.slidingVelocity
+            private set
+        val stopped: Boolean get() = velocity?.let { hypot(it.x, it.y) < 0.03f } ?: (abs(speed) < 0.03f)
 
-        fun copy(): Vehicle = Vehicle(body.copy(position = position, headingDegrees = heading, speedFraction = speed, currentTurnRate = turnRate))
+        fun copy(): Vehicle = Vehicle(body.copy(position = position, headingDegrees = heading, speedFraction = speed,
+            currentTurnRate = turnRate, slidingVelocity = velocity))
 
         fun brake() {
+            velocity?.let {
+                slide(it, 0f)
+                return
+            }
             speed = approach(speed, 0f, if (speed < 0f) body.acceleration else body.deceleration)
             move()
         }
 
+        fun canStopOnTerrain(grid: MoveNavigationGrid, clearance: Float): Boolean {
+            val coast = copy()
+            repeat(128) {
+                val remaining = coast.velocity ?: return true
+                if (remaining.x == 0f && remaining.y == 0f) return grid.isClear(position, coast.position, clearance)
+                coast.brake()
+            }
+            return false
+        }
+
         fun step(target: MovePoint, terminal: Boolean, remainingNodes: Int = if (terminal) 1 else 2) {
             val distance = position.distanceTo(target)
-            var error = angleDifference(heading, angle(position, target))
+            val direction = angle(position, target)
+            velocity?.let {
+                heading = direction
+                slide(it, approachThrottle(distance, terminal))
+                return
+            }
+            var error = angleDifference(heading, direction)
             val reverseAllowed = body.reverseSpeedFraction > 0.95f || (body.formationLeader && remainingNodes > 0 && when {
                 body.reverseSpeedFraction.toDouble() > 0.87 -> remainingNodes <= 9 && distance < 500f
                 body.reverseSpeedFraction.toDouble() > 0.7 -> remainingNodes <= 4 && distance < 200f
@@ -688,7 +735,7 @@ internal object MoveRoutePlanner {
                 else -> false
             })
             val reversing = reverseAllowed && abs(error) > 100f
-            if (reversing) error = angleDifference(heading, angle(position, target) + 180f)
+            if (reversing) error = angleDifference(heading, direction + 180f)
             if (abs(error) > 0.01f) {
                 var rotation: Float
                 if (body.turnAcceleration <= 0f) {
@@ -706,7 +753,15 @@ internal object MoveRoutePlanner {
             if (body.maxSpeed > 5f && abs(speed) < 0.01f) gate = 1f
             if (body.maxTurnSpeed.toDouble() < 1.1) gate *= 0.7f
             if (speed > 0.4f && distance > 130f) gate = 180f
-            var desired = if (abs(error) <= gate && distance >= if (terminal) 4f else 0f) 1f else 0f
+            var desired = if (abs(error) <= gate) approachThrottle(distance, terminal) else 0f
+            if (reversing) desired = -desired * body.reverseSpeedFraction
+            speed = approach(speed, desired, if (speed < desired) body.acceleration else body.deceleration)
+            move()
+        }
+
+        private fun approachThrottle(distance: Float, terminal: Boolean): Float {
+            if (distance < if (terminal) 4f else 3f) return 0f
+            var desired = 1f
             if (terminal && desired != 0f) {
                 if (distance < 18f && body.deceleration < 0.13f && body.maxSpeed > 1f) desired *= 0.5f
                 if (distance < 13f && body.deceleration < 0.15f && body.maxSpeed > 0.9f) desired *= 0.5f
@@ -715,10 +770,22 @@ internal object MoveRoutePlanner {
                     if (distance < 9f) desired = min(desired, 0.25f)
                 }
             }
-            if (distance < 3f) desired = 0f
-            if (reversing) desired = -desired * body.reverseSpeedFraction
-            speed = approach(speed, desired, if (speed < desired) body.acceleration else body.deceleration)
-            move()
+            return desired
+        }
+
+        private fun slide(previous: MovePoint, throttle: Float) {
+            speed = throttle
+            val target = velocityAt(heading, body.maxSpeed * throttle)
+            val rate = (if (throttle == 0f) body.deceleration else body.acceleration) * SLIDING_RATE_FACTOR
+            val error = previous.distanceTo(target)
+            val next = if (error < rate) target else {
+                val drag = if (error > body.maxSpeed) 0.95f else 1f
+                val damped = MovePoint(previous.x * drag, previous.y * drag)
+                val delta = velocityAt(angle(damped, target), rate)
+                MovePoint(damped.x + delta.x, damped.y + delta.y)
+            }
+            velocity = next
+            position = MovePoint(position.x + next.x, position.y + next.y)
         }
 
         private fun move() {
@@ -731,6 +798,10 @@ internal object MoveRoutePlanner {
         if (value < target) min(value + delta, target) else max(value - delta, target)
 
     private fun angle(from: MovePoint, to: MovePoint): Float = atan2(to.y - from.y, to.x - from.x) * (180f / PI.toFloat())
+    private fun velocityAt(direction: Float, magnitude: Float): MovePoint {
+        val radians = direction * (PI.toFloat() / 180f)
+        return MovePoint(cos(radians) * magnitude, sin(radians) * magnitude)
+    }
     private fun directPathNodeCount(distance: Float): Int = max(1, (distance / 20f).toInt())
     private fun normalize(angle: Float): Float = ((angle + 180f) % 360f + 360f) % 360f - 180f
     private fun angleDifference(from: Float, to: Float): Float = normalize(to - from)

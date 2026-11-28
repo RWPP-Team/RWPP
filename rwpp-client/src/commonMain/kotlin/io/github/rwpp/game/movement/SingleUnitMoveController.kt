@@ -5,6 +5,7 @@
  */
 package io.github.rwpp.game.movement
 
+import com.corrodinggames.rts.game.units.MovementType
 import com.corrodinggames.rts.game.units.OrderableUnit
 import com.corrodinggames.rts.game.units.Waypoint
 import com.corrodinggames.rts.game.units.WaypointType
@@ -25,18 +26,22 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.math.max
 
 internal fun sameMoveTarget(a: MovePoint?, b: MovePoint?): Boolean = a != null && b != null &&
     abs(a.x - b.x) <= 0.25f && abs(a.y - b.y) <= 0.25f
 
 internal fun isSupportedMoveInput(command: CommandControllerCommand): Boolean =
-    command.waypoint?.type in listOf(WaypointType.move, WaypointType.build) && !command.isReplayCommand &&
+    command.waypoint?.let {
+        if (it.type == WaypointType.repair) it.friendlyConstructionTarget(command.team) != null else it.supportsMoveAssist()
+    } == true && !command.isReplayCommand &&
         !command.finishNonBuildWaypoints && !command.removeFromQueue && !command.clearWaypointsFirst &&
         !command.hasSystemAction && command.attackMode == null && command.targetUnit == null &&
         (command.actionId == null || command.actionId == ActionId.EMPTY)
 
 internal fun sameQueuedOrder(a: Waypoint, b: Waypoint): Boolean = a.matches(b) && a.type == b.type &&
+    a.targetUnit === b.targetUnit &&
     sameMoveTarget(MovePoint(a.targetX, a.targetY), MovePoint(b.targetX, b.targetY)) &&
     a.automatic == b.automatic && a.addedByAction == b.addedByAction &&
     a.maxWaypointDuration == b.maxWaypointDuration && a.repairReclaimRangePadding == b.repairReclaimRangePadding
@@ -71,6 +76,7 @@ internal object SingleUnitMoveController {
         val team = engine.playerTeam
         var head: Waypoint? = null
         var handled = false
+        var shoreBuildChecked = false
         var goal: MovePoint? = null
         var startedAt = engine.gameTimeMillis
         var planningStartedAt: Int? = null
@@ -172,8 +178,12 @@ internal object SingleUnitMoveController {
             beginSegment(current, order, engine.gameTimeMillis)
         }
         if (current.handled) return
-        if (order.type !in listOf(WaypointType.move, WaypointType.build)) return
-        current.nativeContinuation = NativeMoveTerrain.pendingContinuation(engine, unit, MovePoint(order.targetX, order.targetY))
+        if (!order.supportsMoveAssist()) return
+        val goal = MovePoint(order.targetX, order.targetY)
+        if (order.type == WaypointType.move) {
+            if (MovePoint(unit.x, unit.y).distanceTo(goal) < MIN_ASSISTED_MOVE_DISTANCE) return
+        } else if (unit.movementType != MovementType.LAND || unit.isMoveSlidingMode) return
+        current.nativeContinuation = NativeMoveTerrain.pendingContinuation(engine, unit, goal)
     }
 
     fun update(target: Any) {
@@ -292,38 +302,55 @@ internal object SingleUnitMoveController {
         if (head == null) { stop(current, "arrived", false); return }
         if (current.head !== head) beginSegment(current, head, now)
         if (current.handled || !settings.singleUnitMoveAssist) return
-        if (head.type !in listOf(WaypointType.move, WaypointType.build)) { current.handled = true; return }
+        if (!head.supportsMoveAssist()) { current.handled = true; return }
+        val requestedGoal = MovePoint(head.targetX, head.targetY)
+        if (head.type == WaypointType.move && motion.position.distanceTo(requestedGoal) < MIN_ASSISTED_MOVE_DISTANCE) {
+            cancelPlanning(current)
+            current.handled = true
+            debug("short-move", current)
+            return
+        }
+        if (head.type != WaypointType.move &&
+            (motion.movementType != MovementType.LAND || motion.slidingVelocity != null)) {
+            current.handled = true
+            return
+        }
         if (actual == null || actual.isEmpty()) { current.handled = true; debug("unsupported-native-queue", current); return }
-        if (head.type == WaypointType.build && insideBuildRange(unit, head, motion.position)) {
+        val buildApproach = if (head.type != WaypointType.move) {
+            val range = head.constructionRange(unit) ?: run { current.handled = true; return }
+            MoveBuildApproach(requestedGoal, range)
+        } else null
+        if (buildApproach != null && motion.position.distanceTo(requestedGoal) <= buildApproach.range) {
             current.handled = true
             debug("native-building-in-range", current)
             return
         }
         if (current.lastEvaluation != Int.MIN_VALUE && now - current.lastEvaluation < EVALUATION_INTERVAL_MILLIS) return
         current.lastEvaluation = now
-        val requestedGoal = MovePoint(head.targetX, head.targetY)
         if (current.planningStartedAt == null) {
             val nativeRoute = NativeMoveTerrain.nativeRoute(unit, requestedGoal, current.nativeContinuation)
             if (nativeRoute == null) {
+                if (buildApproach != null && tryShoreBuild(current, motion, buildApproach, actual)) return
                 if (now - current.startedAt > NATIVE_PATH_WAIT_MILLIS) {
                     current.handled = true
                     debug("no-complete-native-path", current)
                 }
                 return
             }
+            // Continuation uses the same shoreline fallback while ordinary repair movement remains native.
+            if (head.type == WaypointType.repair) { current.handled = true; return }
             val goal = nativeRoute.last()
             val grid = NativeMoveTerrain.capture(engine, unit, goal, nativeRoute) ?: run {
                 current.handled = true; debug("terrain-unavailable", current); return
             }
-            val retainHead = head.type == WaypointType.build
+            val retainHead = buildApproach != null
             val available = NativeMoveQueue.CAPACITY - actual.size + if (retainHead) 0 else 1
             if (available < 2) { current.handled = true; debug("native-queue-capacity", current); return }
             current.snapshot = actual
             current.planningStartedAt = now
             current.goal = goal
             startPlanning(current, PlanningInput(current.generation, now, grid, motion, goal,
-                nativeRoute, commandDelay(engine), actual, retainHead,
-                if (retainHead) MoveBuildApproach(requestedGoal, unit.getBuildRange(head.unitType)) else null),
+                nativeRoute, commandDelay(engine), actual, retainHead, buildApproach),
                 available.coerceAtMost(MAX_ASSISTED_MOVE_TARGETS))
             return
         }
@@ -338,9 +365,10 @@ internal object SingleUnitMoveController {
         val input = result.input
         val route = result.route
         if (input.generation != current.generation || !NativeMoveQueue.sameQueue(unit, input.orders) ||
+            !motion.sameDrive(input.motion) ||
             now - input.createdAt > PLANNING_MAX_AGE_MILLIS ||
             motion.position.distanceTo(input.motion.position) > max(24f, motion.maxSpeed * 12f) ||
-            abs(((motion.headingDegrees - input.motion.headingDegrees + 540f) % 360f + 360f) % 360f - 180f) > 60f) {
+            steeringChanged(motion, input.motion)) {
             cancelPlanning(current)
             debug("planning-state-refreshed", current)
             return
@@ -353,7 +381,7 @@ internal object SingleUnitMoveController {
             !route.terrainClearance.isFinite() || route.terrainClearance < 0f) {
             debug("invalid-candidate", current); return
         }
-        if (input.retainHead && insideBuildRange(unit, head, motion.position)) {
+        if (buildApproach != null && motion.position.distanceTo(requestedGoal) <= buildApproach.range) {
             debug("native-building-in-range", current); return
         }
         val fresh = NativeMoveTerrain.capture(engine, unit, input.goal, input.nativeRoute) ?: return
@@ -364,20 +392,41 @@ internal object SingleUnitMoveController {
             }
             from = target
         }
-        // No per-waypoint commands or acknowledgements after this one transaction.
-        issuingAutomatic = true
-        val commands = try { NativeMoveQueue.submit(engine, unit, input.orders, route.targets, input.retainHead) }
-            finally { issuingAutomatic = false }
-        if (commands == null) { debug("batch-not-submitted", current); return }
         current.route = route
+        if (!submitBatch(current, input.orders, route.targets, input.retainHead)) current.route = null
+    }
+
+    private fun tryShoreBuild(current: Watch, motion: MoveMotion, build: MoveBuildApproach, orders: List<Waypoint>): Boolean {
+        if (current.shoreBuildChecked || !build.range.isFinite() || build.range <= 10f ||
+            orders.size > NativeMoveQueue.CAPACITY - 2) return false
+        val bank = NativeMoveTerrain.nativeRoute(current.unit, build.center, current.nativeContinuation,
+            allowBuildFallback = true)?.lastOrNull() ?: return false
+        current.shoreBuildChecked = true
+        val targets = NativeMoveTerrain.planShoreBuild(current.engine, current.unit, motion, bank, build) ?: return false
+        // The original BUILD or REPAIR validates range and resumes native pathfinding on handoff.
+        current.handled = true
+        return submitBatch(current, orders, targets, retainHead = true).also { submitted ->
+            if (submitted) debug("shore-build-queued", current)
+        }
+    }
+
+    private fun submitBatch(current: Watch, orders: List<Waypoint>, targets: List<MovePoint>, retainHead: Boolean): Boolean {
+        val engine = current.engine
+        val unit = current.unit
+        // No per-waypoint commands after this one transaction.
+        issuingAutomatic = true
+        val commands = try { NativeMoveQueue.submit(engine, unit, orders, targets, retainHead) }
+            finally { issuingAutomatic = false }
+        if (commands == null) { debug("batch-not-submitted", current); return false }
         current.submitted = commands
         val barrier = inputBarriers.getOrPut(unit, ::MoveInputBarrier)
         current.submittedReceipts = commands.map(barrier::register)
-        val orders = commands.map { Waypoint().apply { copyFrom(it.waypoint) } }
-        current.batch = MoveQueueProgress(orders, route.targets.size + if (input.retainHead) 1 else 0)
+        val submittedOrders = commands.map { Waypoint().apply { copyFrom(it.waypoint) } }
+        current.batch = MoveQueueProgress(submittedOrders, targets.size + if (retainHead) 1 else 0)
         current.batchApplied = false
-        current.batchSentAt = now
+        current.batchSentAt = engine.gameTimeMillis
         debug("queue-submitted", current)
+        return true
     }
 
     private fun beginSegment(current: Watch, head: Waypoint, now: Int) {
@@ -385,6 +434,7 @@ internal object SingleUnitMoveController {
         current.nativeContinuation = null
         current.head = head
         current.handled = false
+        current.shoreBuildChecked = false
         current.goal = MovePoint(head.targetX, head.targetY)
         current.startedAt = now
         current.route = null
@@ -450,13 +500,6 @@ internal object SingleUnitMoveController {
         debug(reason, current, "order-end")
     }
 
-    private fun insideBuildRange(unit: OrderableUnit, order: Waypoint, position: MovePoint): Boolean {
-        if (order.type != WaypointType.build) return false
-        val type = order.unitType ?: return true
-        val range = unit.getBuildRange(type)
-        return range.isFinite() && position.distanceTo(MovePoint(order.targetX, order.targetY)) <= range
-    }
-
     private fun changesMovement(command: CommandControllerCommand): Boolean = command.waypoint != null ||
         command.clearWaypointsFirst || command.finishNonBuildWaypoints || command.removeFromQueue
 
@@ -498,7 +541,8 @@ internal object SingleUnitMoveController {
         val elapsed = (now - current.lastSampleAt).coerceAtLeast(0)
         val moved = current.lastPosition.distanceTo(motion.position)
         current.distance += moved
-        if (abs(motion.speedFraction * motion.maxSpeed) < 0.03f) current.stoppedMillis += elapsed
+        val speed = motion.slidingVelocity?.let { hypot(it.x, it.y) } ?: abs(motion.speedFraction * motion.maxSpeed)
+        if (speed < 0.03f) current.stoppedMillis += elapsed
         if (motion.speedFraction < 0f) current.reverseDistance += moved
         current.lastPosition = motion.position
         current.lastSampleAt = now
@@ -507,6 +551,15 @@ internal object SingleUnitMoveController {
         logger().info("Move assist sample: mode=queued token={} unit={} elapsedMs={} position={} heading={} throttle={} queueSize={} target={} cursor={}",
             current.token, current.unit.id, now - current.startedAt, motion.position, motion.headingDegrees,
             motion.speedFraction, current.unit.waypointCount, current.unit.currentWaypoint?.let { MovePoint(it.targetX, it.targetY) }, current.batch?.cursor)
+    }
+
+    private fun steeringChanged(current: MoveMotion, original: MoveMotion): Boolean {
+        val velocity = current.slidingVelocity
+        if (velocity != null) {
+            val originalVelocity = original.slidingVelocity ?: return true
+            return velocity.distanceTo(originalVelocity) > current.maxSpeed * 0.6f
+        }
+        return abs(((current.headingDegrees - original.headingDegrees + 540f) % 360f + 360f) % 360f - 180f) > 60f
     }
 
     private fun debug(reason: String, current: Watch, event: String = "control") {
