@@ -10,7 +10,6 @@ package io.github.rwpp.game.hud
 import com.corrodinggames.rts.game.units.OrderableUnit
 import com.corrodinggames.rts.game.units.actions.SpecialAction
 import com.corrodinggames.rts.gameFramework.GameEngine
-import com.corrodinggames.rts.gameFramework.gui.InterfaceEngine
 import io.github.rwpp.game.nativeaccess.NativeBattleAccess
 import io.github.rwpp.game.nativeaccess.NativeCommandsAccess
 import com.corrodinggames.rts.game.units.Unit as GameUnit
@@ -89,16 +88,17 @@ internal object NativeHudActions {
     private val previousTech = ArrayList<Int>()
     private val actionScratch = ArrayList<SpecialAction>()
     private var previousPrimary: GameUnit? = null
+    private var sampledUnits: List<GameUnit>? = null
     private var guardOffered = false
     private var published: List<SpecialAction> = emptyList()
     private var nextRefresh = 0L
-    private var lastUiStamp: Int? = null
-    private val uiStampField by lazy {
-        runCatching { InterfaceEngine::class.java.getDeclaredField("uiDirtyCounter").apply { isAccessible = true } }.getOrNull()
-    }
-
     fun selection(primary: GameUnit, units: List<GameUnit>): List<SpecialAction> {
         val ui = GameEngine.getInstance().interfaceEngine
+        val now = System.nanoTime()
+        if (sampledUnits === units && previousPrimary === primary && now < nextRefresh) {
+            (ui as NativeCommandsAccess).rwppGuardOffered(guardOffered)
+            return published
+        }
         val battle = ui.battleInterface
         selectedScratch.clear()
         for (unit in units) if (unit is OrderableUnit) selectedScratch.add(unit)
@@ -108,13 +108,6 @@ internal object NativeHudActions {
                     previousSelection[it] !== unit || previousTypes[it] !== unit.unitTypeInterface ||
                         previousTech[it] != unit.techLevel
                 }
-        val now = System.nanoTime()
-        val stamp = uiStampField?.getInt(null)
-        if (!selectionChanged && stamp == lastUiStamp && now < nextRefresh) {
-            (ui as NativeCommandsAccess).rwppGuardOffered(guardOffered)
-            return published
-        }
-
         actionScratch.clear()
         // Copy/filter the native reusable result before the next native action-bar call.
         val native = battle.getSpecialActionsForSelection(primary, selectedScratch)
@@ -143,8 +136,8 @@ internal object NativeHudActions {
             }
         }
         // Native action-bar rendering resets this latch, so keep synchronizing it each update.
-        lastUiStamp = stamp
-        nextRefresh = if (native.size > 24) now + 100_000_000L else now
+        sampledUnits = units
+        nextRefresh = now + if (units.size >= 80 || native.size > 24) 83_333_333L else 33_333_333L
         (ui as NativeCommandsAccess).rwppGuardOffered(guardOffered)
         return published
     }

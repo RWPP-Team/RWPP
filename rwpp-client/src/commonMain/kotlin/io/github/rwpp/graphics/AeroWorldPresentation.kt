@@ -62,6 +62,7 @@ internal class AeroWorldPresentation {
     @Volatile
     private var samples: Samples? = null
     val frame = mutableStateOf<WorldVisuals?>(null)
+    val selectionOverlay = mutableStateOf<AeroSelectionOverlayFrame?>(null)
 
     private data class CapturedUnitVisual(val sampled: SelectedVisual, val presented: SelectedVisual)
     private data class CapturedRangeState(val x: Float, val y: Float, val visible: Boolean)
@@ -87,9 +88,7 @@ internal class AeroWorldPresentation {
         visuals: WorldVisuals, units: List<Pair<GameUnit, SelectedVisual>>,
         ranges: List<Pair<GameUnit, AeroRangeCircle>>
     ) {
-        if (visuals.selected.isEmpty() && visuals.orders.isEmpty() && visuals.ranges.isEmpty() &&
-            visuals.damageNumbers.isEmpty() && visuals.production.isEmpty()
-        ) {
+        if (!visuals.hasDrawableEffects) {
             clear()
         } else publishSamples(visuals, units.toList(), ranges)
     }
@@ -100,9 +99,7 @@ internal class AeroWorldPresentation {
         units: List<Pair<GameUnit, SelectedVisual>>,
         ranges: List<Pair<GameUnit, AeroRangeCircle>>
     ) {
-        if (visuals.selected.isEmpty() && visuals.orders.isEmpty() && visuals.ranges.isEmpty() &&
-            visuals.damageNumbers.isEmpty() && visuals.production.isEmpty()
-        ) {
+        if (!visuals.hasDrawableEffects) {
             clear()
         } else publishSamples(visuals, units, ranges)
     }
@@ -123,7 +120,9 @@ internal class AeroWorldPresentation {
     }
 
     fun clear() {
+        if (samples == null && frame.value == null && selectionOverlay.value == null) return
         samples = null; frame.value = null
+        selectionOverlay.value = null
         // clear() can be called by Compose disposal while capture() runs on the native draw
         // thread. Let that single writer reset its own scratch state on its next capture.
         resetCapturedCache = true
@@ -149,7 +148,7 @@ internal class AeroWorldPresentation {
         selectedScratch.clear()
         var changed = false
         for ((unit, visual) in source) {
-            if (unit.team == null || unit.dead || unit.transportedBy != null || !nativeUnitVisible(
+            if (unit.dead || unit.transportedBy != null || !nativeUnitVisibleInFrame(
                     world,
                     unit
                 )
@@ -188,7 +187,7 @@ internal class AeroWorldPresentation {
             var unchanged = true
             for ((unit, _) in source) {
                 val visible =
-                    unit.team != null && !unit.dead && unit.transportedBy == null && nativeUnitVisible(world, unit)
+                    !unit.dead && unit.transportedBy == null && nativeUnitVisibleInFrame(world, unit)
                 val previous = rangeStates[unit]
                 if (previous == null || previous.visible != visible ||
                     visible && (previous.x != unit.x || previous.y != unit.y)
@@ -204,7 +203,7 @@ internal class AeroWorldPresentation {
         rangeStates.clear()
         for ((unit, circle) in source) {
             val visible =
-                unit.team != null && !unit.dead && unit.transportedBy == null && nativeUnitVisible(world, unit)
+                !unit.dead && unit.transportedBy == null && nativeUnitVisibleInFrame(world, unit)
             rangeStates[unit] = CapturedRangeState(unit.x, unit.y, visible)
             if (visible) builder.add(circle.copy(center = Offset(unit.x, unit.y)))
         }
@@ -230,13 +229,31 @@ internal class AeroWorldPresentation {
                 return@synchronized
             }
             if (source == null) return@synchronized
+            val camera = Offset(engine.cameraRenderX, engine.cameraRenderY)
+            val width = engine.screenWidth.coerceAtLeast(1f)
+            val height = engine.screenHeight.coerceAtLeast(1f)
+            val zoom = engine.zoomScale
+            val groups = source.frame.unitGroups
+            val bounds = source.frame.bulkSelectionBounds
+            val previous = selectionOverlay.value
+            if (groups.isEmpty() && bounds == null) {
+                if (previous != null) selectionOverlay.value = null
+            } else if (previous == null || previous.groups !== groups || previous.camera != camera ||
+                previous.width != width || previous.height != height || previous.zoom != zoom ||
+                previous.gameAreaWidth != engine.gameAreaWidth || previous.selectionBounds != bounds
+            ) {
+                selectionOverlay.value = AeroSelectionOverlayFrame(
+                    groups, camera, zoom, width, height, engine.gameAreaWidth, bounds,
+                )
+            }
             val selected = captureUnits(source.units, world)
             val ranges = captureRanges(source.ranges, world)
             frame.value = source.frame.copy(
                 selected = selected, ranges = ranges,
-                camera = Offset(engine.cameraRenderX, engine.cameraRenderY), zoom = engine.zoomScale,
-                width = engine.screenWidth.coerceAtLeast(1f), height = engine.screenHeight.coerceAtLeast(1f),
-                phase = (System.nanoTime() % 2_000_000_000L) / 2_000_000_000f
+                camera = camera, zoom = zoom, width = width, height = height,
+                phase = if (source.frame.orders.isNotEmpty() || ranges.isNotEmpty()) {
+                    (System.nanoTime() % 2_000_000_000L) / 2_000_000_000f
+                } else 0f
             )
             requestWorldPresentationFrame()
         }

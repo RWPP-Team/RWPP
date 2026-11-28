@@ -438,7 +438,31 @@ private class CommandButtonFrameBuilder {
     private var hotkeyActions: List<SpecialAction>? = null
     private var hotkeySelection: List<com.corrodinggames.rts.game.units.Unit>? = null
     private var nextHotkeyRefresh = 0L
+    private var nextVisualRefresh = 0L
+    private var visibleActions: Set<String>? = null
+    private var queuePanelIdentity: String? = null
     private var hotkeys: List<CommandHotkey> = emptyList()
+
+    fun pollHotkeys(engine: GameEngine, selection: List<com.corrodinggames.rts.game.units.Unit>,
+                    actions: List<SpecialAction>, now: Long) {
+        if (hotkeyActions !== actions || hotkeySelection !== selection || now >= nextHotkeyRefresh) {
+            hotkeys = commandHotkeys(engine, actions)
+            hotkeyActions = actions
+            hotkeySelection = selection
+            nextHotkeyRefresh = now + 100_000_000L
+        }
+        activateCommandHotkeys(hotkeys, actions, selection)
+    }
+
+    fun visualsDue(now: Long, selectionSize: Int, changed: Boolean, visibleIds: Set<String>, queueIdentity: String?): Boolean {
+        if (!changed && now < nextVisualRefresh && visibleActions == visibleIds && queuePanelIdentity == queueIdentity) {
+            return false
+        }
+        nextVisualRefresh = now + if (selectionSize >= 80) 83_333_333L else 33_333_333L
+        visibleActions = visibleIds
+        queuePanelIdentity = queueIdentity
+        return true
+    }
 
     fun build(
         engine: GameEngine,
@@ -453,16 +477,7 @@ private class CommandButtonFrameBuilder {
         while (callbacks.size > actions.size) callbacks.removeAt(callbacks.lastIndex)
         buttonScratch.clear()
         val nowNanos = System.nanoTime()
-        if (hotkeyActions !== actions || hotkeySelection !== selection || nowNanos >= nextHotkeyRefresh) {
-            hotkeys = commandHotkeys(engine, actions)
-            hotkeyActions = actions
-            hotkeySelection = selection
-            nextHotkeyRefresh = if (actions.size > 24) nowNanos + 100_000_000L else nowNanos
-        }
-        activateCommandHotkeys(hotkeys, actions, selection)
-        val showEconomy = runCatching {
-            io.github.rwpp.appKoin.get<io.github.rwpp.config.Settings>().showFactoryEconomy
-        }.getOrDefault(true)
+        val showEconomy = io.github.rwpp.logic.GameVisualSettings.get()?.showFactoryEconomy ?: true
         economy.beginFrame(if (showEconomy) primary else null, nowNanos)
         val primaryType = primary?.unitTypeInterface
         val productionId = productionSelection.identity
@@ -1313,11 +1328,6 @@ internal fun CommandSurface(
     }
 }
 
-private fun sameUnitReferences(
-    first: List<com.corrodinggames.rts.game.units.Unit>,
-    second: List<com.corrodinggames.rts.game.units.Unit>,
-): Boolean = first.size == second.size && first.indices.all { first[it] === second[it] }
-
 @Composable
 internal fun GameScreen.AeroCommandConsole() {
     val model = remember { mutableStateOf(CommandFrame(title = readI18n("rwpp.hud.standby"))) }
@@ -1350,17 +1360,21 @@ internal fun GameScreen.AeroCommandConsole() {
             imageTarget[0] = primary
         }
         val visibleIds = visibility.ids
-        displayedImages.keys.retainAll(visibleIds)
-        val selectionChanged = !sameUnitReferences(frameSelection[0], selection)
-        if (selectionChanged) frameSelection[0] = ArrayList(selection)
-        val commandSelection = frameSelection[0]
-        val nextCommands = if (selection.any { it is com.corrodinggames.rts.game.units.EditorUnit } &&
-            !sandboxNativeEditorActionsAllowed(engine)
+        val selectionChanged = frameSelection[0] !== selection
+        if (selectionChanged) frameSelection[0] = selection
+        val nextCommands = if (!sandboxNativeEditorActionsAllowed(engine) &&
+            selection.any { it is com.corrodinggames.rts.game.units.EditorUnit }
         ) emptyList() else primary?.let { NativeHudActions.selection(it, selection) } ?: emptyList()
         val actionsChanged =
             commands.size != nextCommands.size || commands.indices.any { commands[it] !== nextCommands[it] }
         if (actionsChanged) commands = nextCommands
         val commandActions = if (actionsChanged) nextCommands else commands
+        val now = System.nanoTime()
+        buttonFrameBuilder.pollHotkeys(engine, selection, commandActions, now)
+        if (!buttonFrameBuilder.visualsDue(now, selection.size, selectionChanged || actionsChanged,
+                visibleIds, productionSelection.identity)
+        ) return@OnGameUpdate
+        displayedImages.keys.retainAll(visibleIds)
 
         // Sandbox unit editing is its own HUD component; the console only draws command buttons.
         val primaryType = primary?.unitTypeInterface
@@ -1383,7 +1397,7 @@ internal fun GameScreen.AeroCommandConsole() {
             }
         }
         val nextButtons = buttonFrameBuilder.build(
-            engine, primary, commandSelection, commandActions, touch, productionSelection,
+            engine, primary, selection, commandActions, touch, productionSelection,
             visibleIds, displayedImages,
         )
         val health = primary?.let { unitHealthRatio(it.hp, it.maxHp) } ?: 0f

@@ -49,11 +49,11 @@ class OverflowProductionQueueTest {
 
     @Test
     fun enhancedProductionKeepsAffordableAndTemporarilyHeldOrdersLocal() {
-        assertTrue(canEnqueue(Admission.Ready, enhancedProduction = true, hasNativeQueue = false))
-        assertTrue(canEnqueue(Admission.Waiting, enhancedProduction = true, hasNativeQueue = true))
-        assertFalse(canEnqueue(Admission.Waiting, enhancedProduction = true, hasNativeQueue = false))
-        assertFalse(canEnqueue(Admission.Blocked, enhancedProduction = true, hasNativeQueue = true))
-        assertFalse(canEnqueue(Admission.Ready, enhancedProduction = false, hasNativeQueue = true))
-        assertTrue(canEnqueue(Admission.Resources, enhancedProduction = false, hasNativeQueue = false))
+        assertTrue(canEnqueue(Admission.Ready, enhancedProduction = true))
+        assertTrue(canEnqueue(Admission.Waiting, enhancedProduction = true))
+        assertFalse(canEnqueue(Admission.Blocked, enhancedProduction = true))
+        assertFalse(canEnqueue(Admission.Ready, enhancedProduction = false))
+        assertFalse(canEnqueue(Admission.Waiting, enhancedProduction = false))
+        assertTrue(canEnqueue(Admission.Resources, enhancedProduction = false))
     }
 }

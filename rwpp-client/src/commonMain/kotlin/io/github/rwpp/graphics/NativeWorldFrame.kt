@@ -34,17 +34,24 @@ internal fun nativeUnitVisible(
 ): Boolean {
     val engine = world.engine
     return GameEngine.getInstance() === engine && synchronized(engine.gameUpdateLock) {
-        val map = world.map
-        if (aeroPresentationTeam(engine) !== world.viewer || engine.map !== map || !engine.gameLoopActive || !map.mapLoaded || unit.team == null || unit.removed ||
-            !unit.x.isFinite() || !unit.y.isFinite()
-        ) return@synchronized false
-        val fog = viewer.fogGrid
-        if ((unit.team !== viewer || unit.attachedToUnit != null) && map.fogOfWarEnabled && fog != null) {
-            map.pixelToTileCoords(unit.x, unit.y)
-            val x = map.fogRevealTileX
-            val y = map.fogRevealTileY
-            if (map.isTileInBounds(x, y) && fog.getOrNull(x)?.getOrNull(y) == null) return@synchronized false
-        }
-        unit.isVisibleToTeam(viewer)
+        aeroPresentationTeam(engine) === world.viewer && engine.map === world.map &&
+                engine.gameLoopActive && world.map.mapLoaded && nativeUnitVisibleInFrame(world, unit, viewer)
     }
+}
+
+/** Caller already holds the update lock and has validated this frame. */
+internal fun nativeUnitVisibleInFrame(
+    world: NativeWorldFrame, unit: com.corrodinggames.rts.game.units.Unit,
+    viewer: Team = world.viewer
+): Boolean {
+    if (unit.team == null || unit.removed || !unit.x.isFinite() || !unit.y.isFinite()) return false
+    val map = world.map
+    val fog = viewer.fogGrid
+    if ((unit.team !== viewer || unit.attachedToUnit != null) && map.fogOfWarEnabled && fog != null) {
+        map.pixelToTileCoords(unit.x, unit.y)
+        val x = map.fogRevealTileX
+        val y = map.fogRevealTileY
+        if (map.isTileInBounds(x, y) && fog.getOrNull(x)?.getOrNull(y) == null) return false
+    }
+    return unit.isVisibleToTeam(viewer)
 }

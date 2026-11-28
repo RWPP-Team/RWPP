@@ -4,7 +4,9 @@
 package io.github.rwpp.ui
 
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.asComposeCanvas
+import androidx.compose.ui.graphics.toArgb
 import io.github.rwpp.config.Settings
 import io.github.rwpp.game.hud.hideFullHealthBarDuringMultiSelection
 import io.github.rwpp.game.hud.hudActionAvailable
@@ -131,6 +133,30 @@ class AeroEffectsTest : DesktopComposeGraphicsTest() {
                 it.encodeToData()!!
                     .use { data -> Files.write(Path.of("build/ui-regression/aero-world-effects.png"), data.bytes) }
             }
+            state.value = WorldVisuals(
+                width = 640f, height = 360f,
+                unitGroups = listOf(
+                    AeroUnitGroupVisual(1, Rect(70f, 70f, 150f, 130f), 4),
+                    AeroUnitGroupVisual(1, Rect(120f, 70f, 144f, 110f), 1)
+                )
+            )
+            val groups = render()
+            assertTrue(groups[66 * 640 + 110] ushr 24 > 0, "A group number is drawn above its frame")
+            assertTrue(groups[72 * 640 + 70] ushr 24 > 0, "The group frame draws even without other effects")
+            assertEquals(0, groups[109 * 640 + 120], "A nearby smaller frame is skipped to keep its number legible")
+            state.value = state.value.copy(unitGroups = listOf(
+                AeroUnitGroupVisual(1, Rect(70f, 70f, 150f, 130f), 4),
+                AeroUnitGroupVisual(2, Rect(70f, 70f, 150f, 130f), 4),
+            ))
+            val mixedGroups = render()
+            assertTrue(mixedGroups.any { it == aeroUnitGroupColors[0].toArgb() })
+            assertTrue(mixedGroups.any { it == aeroUnitGroupColors[1].toArgb() })
+            state.value = WorldVisuals(
+                width = 640f, height = 360f, bulkSelectionBounds = Rect(60f, 80f, 320f, 240f),
+            )
+            val bulk = render()
+            assertTrue(bulk[80 * 640 + 180] ushr 24 > 0, "Bulk selection draws a continuous Aero outline")
+            assertEquals(0, bulk[140 * 640 + 180], "Bulk selection does not hide the units under the outline")
         } finally {
             scene.close(); recomposer.close(); surface.close()
         }

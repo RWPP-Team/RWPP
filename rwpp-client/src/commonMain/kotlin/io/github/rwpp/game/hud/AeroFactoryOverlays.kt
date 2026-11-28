@@ -62,7 +62,7 @@ internal class AeroProductionSampler {
     fun sample(unit: GameUnit, now: Long, gamePaused: Boolean = false): AeroProductionVisual? {
         val factory = unit as? FactoryInterface ?: return null
         val pending = OverflowProductionQueue.pendingCountForFactory(unit)
-        val item = factory.currentQueuedItem ?: factory.queuedItems.firstOrNull() as? BuildQueueItem
+        val item = factory.queuedItems.firstOrNull() as? BuildQueueItem
         if (item == null) {
             if (pending == 0) return null
             return AeroProductionVisual(
@@ -70,7 +70,9 @@ internal class AeroProductionSampler {
                 Color(unit.team.color), pendingProduction = pending,
             )
         }
-        val progress = (NativeFactoryOverlays.queue(unit)?.buildProgress ?: item.progress).coerceIn(0f, 1f)
+        val progress = (if (factory.currentQueuedItem === item) {
+            NativeFactoryOverlays.queue(unit)?.buildProgress ?: item.progress
+        } else item.progress).coerceIn(0f, 1f)
         live += unit
         var state = states[unit]
         if (state == null || state.item !== item || state.teamColor != unit.team.color || now < state.changedAt) {

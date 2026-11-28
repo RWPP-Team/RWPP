@@ -18,6 +18,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.PointMode
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -71,9 +73,31 @@ private data class MinimapFrame(
 
 private data class MinimapCamera(val x: Float, val y: Float, val width: Float, val height: Float)
 
+private data class MinimapDotStyle(val color: Int, val radiusDp: Float, val selected: Boolean)
+
+private class MinimapDotBatches {
+    private var dots: List<MinimapDot> = emptyList()
+    private var projection: MinimapProjection? = null
+    private val batches = LinkedHashMap<MinimapDotStyle, ArrayList<Offset>>()
+
+    fun resolve(next: List<MinimapDot>, nextProjection: MinimapProjection): Map<MinimapDotStyle, List<Offset>> {
+        if (nextProjection != projection || dots != next) {
+            batches.clear()
+            for (dot in next) {
+                val style = MinimapDotStyle(dot.color, dot.radiusDp, dot.selected)
+                batches.getOrPut(style, ::ArrayList).add(nextProjection.worldToMap(dot.x, dot.y))
+            }
+            projection = nextProjection
+        }
+        dots = next
+        return batches
+    }
+}
+
 @Composable
 internal fun GameScreen.AeroMinimap() {
     val sampler = remember { NativeMinimapSampler() }
+    val dotBatches = remember { MinimapDotBatches() }
     val settings = koinInject<Settings>()
     var frame by remember { mutableStateOf<MinimapFrame?>(null) }
     val schedule = remember { MinimapRefreshSchedule() }
@@ -116,10 +140,9 @@ internal fun GameScreen.AeroMinimap() {
     }
     val accent = MaterialTheme.colorScheme.primary
     AeroPanel(Modifier.fillMaxSize()) {
-        val snapshot = frame
         Canvas(
             Modifier.fillMaxSize().padding(5.dp).background(Color.Black)
-                .pointerInput(snapshot?.worldWidth, snapshot?.worldHeight, isEditMode) {
+                .pointerInput(isEditMode) {
                     if (!isEditMode) {
                         val touchSlop = viewConfiguration.touchSlop
                         awaitPointerEventScope {
@@ -144,7 +167,7 @@ internal fun GameScreen.AeroMinimap() {
                                         if (start != null) {
                                             if ((change.position - start).getDistance() > touchSlop) dragged = true
                                             if (!secondary && dragged) {
-                                                snapshot?.let {
+                                                frame?.let {
                                                     cameraTarget = MinimapProjection(
                                                         it.worldWidth, it.worldHeight,
                                                         size.width.toFloat(), size.height.toFloat()
@@ -156,7 +179,7 @@ internal fun GameScreen.AeroMinimap() {
                                     }
 
                                     PointerEventType.Release -> {
-                                        val world = snapshot?.let {
+                                        val world = frame?.let {
                                             MinimapProjection(
                                                 it.worldWidth, it.worldHeight,
                                                 size.width.toFloat(), size.height.toFloat()
@@ -188,6 +211,7 @@ internal fun GameScreen.AeroMinimap() {
                         }
                     }
                 }) {
+            val snapshot = frame
             if (snapshot != null) {
                 val projection = MinimapProjection(snapshot.worldWidth, snapshot.worldHeight, size.width, size.height)
                 val extent = Size(snapshot.worldWidth * projection.scale, snapshot.worldHeight * projection.scale)
@@ -200,7 +224,17 @@ internal fun GameScreen.AeroMinimap() {
                     )
                 )
                 clipRect(origin.x, origin.y, origin.x + extent.width, origin.y + extent.height) {
-                    snapshot.dots.forEach { dot ->
+                    if (snapshot.dots.size >= 64) {
+                        val batches = dotBatches.resolve(snapshot.dots, projection)
+                        for ((style, positions) in batches) if (style.selected) {
+                            drawPoints(positions, PointMode.Points, Color.White,
+                                (style.radiusDp * 2 + 1.95f).dp.toPx(), StrokeCap.Round)
+                        }
+                        for ((style, positions) in batches) {
+                            drawPoints(positions, PointMode.Points, Color(style.color),
+                                (style.radiusDp * 2).dp.toPx(), StrokeCap.Round)
+                        }
+                    } else snapshot.dots.forEach { dot ->
                         val position = projection.worldToMap(dot.x, dot.y)
                         val radius = dot.radiusDp.dp.toPx()
                         drawCircle(Color(dot.color), radius, position)

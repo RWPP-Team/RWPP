@@ -230,6 +230,8 @@ internal object BuildingPlanningController {
 
     private var mode = BuildingPlanningMode.OFF
     private var builderIds: List<Long> = emptyList()
+    private var builderSelectionRevision: Int? = null
+    private var nextBuilderSelectionSample = 0L
     private var capturedBlueprint: List<CapturedBuilding> = emptyList()
     private var gesture: ActivePlanningGesture? = null
     private var blocked = false
@@ -413,13 +415,19 @@ internal object BuildingPlanningController {
         // clear it, otherwise an interrupted box keeps the planner out of the input path.
         if (awaitPointerRelease && !isSelectionPointerDown(engine)) awaitPointerRelease = false
 
-        val currentSelection = selectedBuildCapableUnits(engine)
         if (mode == BuildingPlanningMode.OFF || mode == BuildingPlanningMode.READY) {
-            builderIds = currentSelection.map { it.id }.distinct().toList()
+            val revision = engine.interfaceEngine.selectionChangeCounter
+            val now = System.nanoTime()
+            if (builderSelectionRevision != revision || now >= nextBuilderSelectionSample) {
+                builderIds = selectedBuildCapableUnits(engine).map { it.id }
+                builderSelectionRevision = revision
+                nextBuilderSelectionSample = now + 83_333_333L
+            }
         } else {
+            builderSelectionRevision = null
             builderIds = resolveBuilders(engine, builderIds).map { it.id }
             if (builderIds.isEmpty() && mode != BuildingPlanningMode.RECLAIM_AREA) {
-                builderIds = currentSelection.map { it.id }
+                builderIds = selectedBuildCapableUnits(engine).map { it.id }
             }
             if (builderIds.isEmpty() && mode == BuildingPlanningMode.RECLAIM_AREA) {
                 gesture = null
@@ -1412,6 +1420,7 @@ internal object BuildingPlanningController {
     private fun selectedBuildCapableUnits(engine: GameEngine): List<OrderableUnit> {
         // The battle panel caches its action selection until its next render; use live UI selection.
         val selected = engine.interfaceEngine.selectedUnits
+        if (selected.isEmpty()) return emptyList()
         val viewport = planningViewport(engine)
         return selected.filterIsInstance<OrderableUnit>()
             .filter { isOwnPlanningUnit(engine, it) && planningRectContains(viewport, it) && hasNativeBuildCapability(it) }
@@ -1601,6 +1610,7 @@ internal object BuildingPlanningController {
         desktopDown = false
         desktopPoint = null
         panPointer = null
+        builderSelectionRevision = null
         builderIds = emptyList()
         capturedBlueprint = emptyList()
         gesture = null

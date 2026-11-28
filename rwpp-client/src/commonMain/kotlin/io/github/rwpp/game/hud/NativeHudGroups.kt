@@ -11,9 +11,12 @@ import com.corrodinggames.rts.game.units.MovementType
 import com.corrodinggames.rts.game.units.Unit
 import com.corrodinggames.rts.gameFramework.GameEngine
 import com.corrodinggames.rts.gameFramework.GameObject
+import com.corrodinggames.rts.gameFramework.gui.BattleInterface
 import com.corrodinggames.rts.gameFramework.gui.UnitHotSelectionGroup
 import io.github.rwpp.api.coroutines.GameScope
+import io.github.rwpp.config.Settings
 import io.github.rwpp.game.nativeaccess.NativeBattleAccess
+import io.github.rwpp.logic.GameVisualSettings
 import kotlinx.coroutines.launch
 
 internal data class NativeHudGroup(val index: Int, val count: Int)
@@ -32,9 +35,53 @@ internal object NativeHudGroups {
         }
     }
 
+    private fun groups(engine: GameEngine = GameEngine.getInstance()): List<UnitHotSelectionGroup> =
+        groups(engine.interfaceEngine.battleInterface)
+
     @Suppress("UNCHECKED_CAST")
-    private fun groups(): List<UnitHotSelectionGroup> =
-        (GameEngine.getInstance().interfaceEngine.battleInterface as NativeBattleAccess).rwppGroups() as List<UnitHotSelectionGroup>
+    private fun groups(battle: BattleInterface): List<UnitHotSelectionGroup> =
+        (battle as NativeBattleAccess).rwppGroups() as List<UnitHotSelectionGroup>
+
+    fun setExclusiveMembership(settings: Settings, enabled: Boolean) {
+        settings.exclusiveUnitGroups = enabled
+        if (!enabled) return
+        GameScope.launch {
+            val engine = GameEngine.getInstance() ?: return@launch
+            synchronized(engine.gameUpdateLock) {
+                if (settings.exclusiveUnitGroups) normalizeMembership(groups(engine))
+            }
+        }
+    }
+
+    /** Native keyboard, touch and Aero controls all add their selection through this call. */
+    fun afterAssignment(target: UnitHotSelectionGroup) {
+        if (GameVisualSettings.get()?.exclusiveUnitGroups != true) return
+        val engine = GameEngine.getInstance() ?: return
+        synchronized(engine.gameUpdateLock) {
+            val nativeGroups = groups(engine)
+            val targetIndex = nativeGroups.indexOfFirst { it === target }
+            if (targetIndex >= 0) normalizeMembership(nativeGroups, targetIndex)
+        }
+    }
+
+    fun afterGroupsRestored(battle: BattleInterface) {
+        if (GameVisualSettings.get()?.exclusiveUnitGroups == true) normalizeMembership(groups(battle))
+    }
+
+    private fun normalizeMembership(groups: List<UnitHotSelectionGroup>, preferredIndex: Int? = null) {
+        retainExclusiveGroupMembers(groups.map { it.units }, preferredIndex) { (it as? Unit)?.id }
+    }
+
+    /** Walk only grouped units, independently of how many slots the command console displays. */
+    fun forEachMember(engine: GameEngine, visit: (Int, Unit) -> kotlin.Unit) {
+        val nativeGroups = groups(engine)
+        for (index in 0 until minOf(10, nativeGroups.size)) {
+            for (entry in nativeGroups[index].units) {
+                val unit = entry as? Unit ?: continue
+                visit(index + 1, unit)
+            }
+        }
+    }
 
     fun snapshot(limit: Int): List<NativeHudGroup> {
         val visibleCount = limit.coerceIn(0, 10)
@@ -115,5 +162,21 @@ internal object NativeHudGroups {
                 }
             }
         }
+    }
+}
+
+/** The destination wins for a new assignment. Legacy duplicates keep their earliest slot. */
+internal fun <T> retainExclusiveGroupMembers(
+    groups: List<MutableList<T>>,
+    preferredIndex: Int? = null,
+    unitId: (T) -> Long?,
+) {
+    val assigned = HashSet<Long>()
+    fun claim(index: Int) {
+        groups[index].removeAll { unit -> unitId(unit)?.let { !assigned.add(it) } == true }
+    }
+    preferredIndex?.let(::claim)
+    for (index in groups.indices) {
+        if (index != preferredIndex) claim(index)
     }
 }

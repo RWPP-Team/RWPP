@@ -104,7 +104,9 @@ class GameScreen : Screen {
                 dataListInstance.hudComponentDataList = it
             }
     }
-    var selectedUnits by mutableStateOf<List<GameUnit>>(emptyList())
+    var selectedUnits by mutableStateOf<List<GameUnit>>(emptyList(), referentialEqualityPolicy())
+    private var selectionEngine: com.corrodinggames.rts.gameFramework.gui.InterfaceEngine? = null
+    private var selectionRevision = 0
     var isEditMode by mutableStateOf(false)
     var showPauseMenu by mutableStateOf(false)
     internal var sandboxEditorDialogOpen by mutableStateOf(false)
@@ -293,10 +295,17 @@ class GameScreen : Screen {
                 }
             } else emptyList()
             @Suppress("UNCHECKED_CAST")
-            val engineUnits = engine.interfaceEngine.selectedUnits as List<GameUnit>
-            if (!isSelectionUnchanged(selectedUnits, engineUnits)) {
-                selectedUnits = engineUnits.toList()
-                CommandHover.clear()
+            val selectionUi = engine.interfaceEngine
+            val engineUnits = selectionUi.selectedUnits as List<GameUnit>
+            if (selectionEngine !== selectionUi || selectionRevision != selectionUi.selectionChangeCounter ||
+                selectedUnits.size != engineUnits.size
+            ) {
+                selectionEngine = selectionUi
+                selectionRevision = selectionUi.selectionChangeCounter
+                if (!isSelectionUnchanged(selectedUnits, engineUnits)) {
+                    selectedUnits = engineUnits.toList()
+                    CommandHover.clear()
+                }
             }
             if (android) {
                 val ui = engine.interfaceEngine
@@ -705,11 +714,6 @@ class GameScreen : Screen {
                             onResume()
                             UI.showPlayerList = true
                         }, clickSound = Sounds.openPopup)
-                        if (options.chat || GameEngine.getInstance().networkEngine.sandboxMode ||
-                            GameEngine.getInstance().debugEditorMode
-                        ) AeroButton(readI18n("rwpp.mapExport.action"), onClick = {
-                            exportMapVisible = true
-                        }, clickSound = Sounds.openPopup)
                         if (options.returnRoom) AeroButton(
                             readI18n("menus.ingame.multiplayerClose.returnToBattleroom"),
                             onClick = { confirmation = "room" }, clickSound = Sounds.openPopup
@@ -731,12 +735,19 @@ class GameScreen : Screen {
                             GameEngine.getInstance().cameraScrollActive = true; onResume()
                         })
 
-                        if (options.saveLoad) {
+                        if (options.save) {
                             AeroButton(
                                 text = readI18n("rwpp.ingame.saveGame"),
                                 subText = readI18n("rwpp.common.save").uppercase(),
                                 onClick = onSave
                             )
+                        }
+                        if (options.chat || GameEngine.getInstance().networkEngine.sandboxMode ||
+                            GameEngine.getInstance().debugEditorMode
+                        ) AeroButton(readI18n("rwpp.mapExport.action"), onClick = {
+                            exportMapVisible = true
+                        }, clickSound = Sounds.openPopup)
+                        if (options.load) {
                             AeroButton(
                                 text = readI18n("rwpp.ingame.loadGame"),
                                 subText = readI18n("rwpp.common.load").uppercase(),

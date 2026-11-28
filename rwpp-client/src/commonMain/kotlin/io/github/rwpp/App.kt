@@ -40,6 +40,7 @@ import coil3.request.crossfade
 import coil3.size.Precision
 import io.github.rwpp.api.State
 import io.github.rwpp.api.event.GlobalEventChannel
+import io.github.rwpp.api.event.events.ModReloadFailedEvent
 import io.github.rwpp.api.event.events.ReloadModEvent
 import io.github.rwpp.api.event.events.ReloadModFinishedEvent
 import io.github.rwpp.api.event.events.RoomReturnedEvent
@@ -418,7 +419,7 @@ fun App() {
 
                         GlobalEventChannel.filter(ReloadModEvent::class).OnDispose {
                             subscribeAlways {
-                                reloadingModViewVisible = true
+                                reloadingModViewVisible = !loadingOverlayKeepsContent
                             }
                         }
 
@@ -428,7 +429,16 @@ fun App() {
                             }
                         }
 
-                        AeroLoadingView(reloadingModViewVisible, onLoaded = {}) { null }
+                        GlobalEventChannel.filter(ModReloadFailedEvent::class).OnDispose {
+                            subscribeAlways {
+                                reloadingModViewVisible = false
+                            }
+                        }
+
+                        // A reload started in ModsScreen already owns a progress overlay.
+                        if (!loadingOverlayKeepsContent) {
+                            AeroLoadingView(reloadingModViewVisible, onLoaded = {}) { null }
+                        }
 
                         var currentDialog by remember {
                             mutableStateOf<(@Composable (dismiss: () -> Unit) -> Unit)?>(null)

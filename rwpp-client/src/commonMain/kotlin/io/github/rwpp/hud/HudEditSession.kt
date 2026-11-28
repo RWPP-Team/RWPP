@@ -36,6 +36,7 @@ internal class HudEditSession(components: List<HudComponentState>, settings: Set
         saved(settings::aeroAlliedProductionLabels),
         saved(settings::aeroBuildEffects),
         saved(settings::aeroGroupOrders),
+        saved(settings::aeroWorldUnitGroups),
         saved(settings::commandTooltipScale),
         saved(settings::minimapUsePlayerColors),
         saved(settings::maxDisplayUnitGroupCount),

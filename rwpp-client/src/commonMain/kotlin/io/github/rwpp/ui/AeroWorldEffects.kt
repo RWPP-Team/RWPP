@@ -69,13 +69,17 @@ internal fun GameScreen.AeroWorldEffects() {
         )
     }
     val empty = remember { WorldVisuals() }
-    AeroWorldEffectSurface(if (nativeWorldCanvas) empty else snapshot, presentation = presentation.frame)
+    AeroWorldEffectSurface(
+        if (nativeWorldCanvas) empty else snapshot,
+        presentation = presentation.frame, selectionOverlay = presentation.selectionOverlay,
+    )
 }
 
 @Composable
 internal fun AeroWorldEffectSurface(
     snapshot: WorldVisuals, modifier: Modifier = Modifier,
-    presentation: State<WorldVisuals?>? = null
+    presentation: State<WorldVisuals?>? = null,
+    selectionOverlay: State<AeroSelectionOverlayFrame?>? = null,
 ) {
     val text = rememberTextMeasurer(cacheSize = 256)
     val accent = MaterialTheme.colorScheme.primary
@@ -90,10 +94,7 @@ internal fun AeroWorldEffectSurface(
         )
     }
     WorldCanvas(modifier.fillMaxSize(), isActive = {
-        val frame = presentation?.value ?: snapshot
-        frame.selected.isNotEmpty() || frame.ranges.isNotEmpty() || frame.orders.isNotEmpty() ||
-                frame.production.isNotEmpty() || frame.damageNumbers.isNotEmpty() ||
-                frame.collisionBounds.isNotEmpty() || frame.targetLines.isNotEmpty()
+        (presentation?.value ?: snapshot).hasWorldCanvasEffects
     }) {
         // Observe the native render-phase snapshot in draw, so HUD re-layout/recomposition
         // cannot pin world-space effects to an old update-phase camera while panning.
@@ -347,10 +348,7 @@ internal fun AeroWorldEffectSurface(
                     bounds.bottom + 20f * max(1f, frame.zoom) * sy < 0
             if (selectionOutside && barOutside) return@forEach
             val arm = (r * 0.36f).coerceIn(4.dp.toPx(), 12.dp.toPx())
-            if (unit.selected || unit.hovered || unit.glowHighlight) for (x in listOf(-1f, 1f)) for (y in listOf(
-                -1f,
-                1f
-            )) {
+            if (unit.selected || unit.hovered || unit.glowHighlight) for (x in -1..1 step 2) for (y in -1..1 step 2) {
                 val corner = p + Offset(x * r, y * r)
                 val width = if (unit.glowHighlight) 2.dp.toPx() else 1.5.dp.toPx()
                 // Native paints a selected unit of another team with the ally colour.
@@ -402,11 +400,11 @@ internal fun AeroWorldEffectSurface(
                 drawRect(Color(0xff64ccff), Offset(origin.x, barY), Size(w * unit.shield, 2f * rowScale))
                 barY += 4f * rowScale
             }
-            for ((amount, color) in listOf(
-                unit.construction to Color(0xff72d8f5),
-                unit.secondary to if (unit.secondaryRecharging) Color(0xff8b929b) else Color(0xffffcb74)
-            )) {
+            for (index in 0..1) {
+                val amount = if (index == 0) unit.construction else unit.secondary
                 if (amount >= 0f) {
+                    val color = if (index == 0) Color(0xff72d8f5)
+                        else if (unit.secondaryRecharging) Color(0xff8b929b) else Color(0xffffcb74)
                     drawRect(Color.Black.copy(alpha = 0.6f), Offset(origin.x, barY), Size(w, 3f * rowScale))
                     drawRect(color, Offset(origin.x, barY), Size(w * amount.coerceIn(0f, 1f), 2f * rowScale))
                     barY += 4f * rowScale
@@ -420,6 +418,7 @@ internal fun AeroWorldEffectSurface(
             )
         }
     }
+    AeroSelectionOverlayCanvas(modifier, snapshot, selectionOverlay, accent)
 }
 
 /** Request presentation of the latest native frame on the platform HUD surface. */

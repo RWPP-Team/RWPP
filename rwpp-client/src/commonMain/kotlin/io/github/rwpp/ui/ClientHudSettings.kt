@@ -19,8 +19,10 @@ import io.github.rwpp.api.i18n.readI18n
 import io.github.rwpp.appKoin
 import io.github.rwpp.config.Settings
 import io.github.rwpp.config.UnitMapColorMode
+import io.github.rwpp.game.hud.NativeHudGroups
 import io.github.rwpp.widget.v2.AeroSettingDropDown
 import io.github.rwpp.widget.v2.AeroSettingGroup
+import io.github.rwpp.widget.v2.AeroSettingRow
 import io.github.rwpp.widget.v2.AeroSettingSlider
 import io.github.rwpp.widget.v2.AeroSettingToggle
 import org.koin.compose.koinInject
@@ -209,6 +211,16 @@ internal fun ClientHudSettings(settings: Settings) {
                 readI18n("rwpp.hud.editor.settings.groupOrders"),
                 settings.aeroGroupOrders
             ) { settings.aeroGroupOrders = it }
+            var exclusiveUnitGroups by remember(settings) { mutableStateOf(settings.exclusiveUnitGroups) }
+            AeroSettingToggle(
+                label = readI18n("rwpp.settings.exclusiveUnitGroups"),
+                defaultValue = exclusiveUnitGroups,
+                subLabel = readI18n("rwpp.settings.exclusiveUnitGroups.hint"),
+            ) {
+                NativeHudGroups.setExclusiveMembership(settings, it)
+                exclusiveUnitGroups = it
+            }
+            WorldUnitGroupsSetting(settings, exclusiveUnitGroups)
 
         }
         AeroSettingGroup("UNIT OVERLAYS") {
@@ -276,6 +288,16 @@ internal fun ClientHudSettings(settings: Settings) {
             ) { settings.hudChatShowTimestamp = it }
         }
 
+    }
+}
+
+@Composable
+internal fun WorldUnitGroupsSetting(settings: Settings, exclusiveUnitGroups: Boolean = settings.exclusiveUnitGroups) {
+    val label = readI18n("rwpp.hud.editor.settings.worldUnitGroups")
+    if (exclusiveUnitGroups) {
+        AeroSettingToggle(label, settings.aeroWorldUnitGroups) { settings.aeroWorldUnitGroups = it }
+    } else {
+        AeroSettingRow(label = label, subLabel = readI18n("rwpp.hud.editor.settings.worldUnitGroups.requiresExclusive")) {}
     }
 }
 

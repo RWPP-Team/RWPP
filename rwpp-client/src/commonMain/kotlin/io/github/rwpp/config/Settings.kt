@@ -83,6 +83,8 @@ data class Settings(
     var aeroOrderEffects: Boolean = false,
     var aeroOrderClickEffects: Boolean = false,
     var aeroGroupOrders: Boolean = true,
+    @Volatile var exclusiveUnitGroups: Boolean = false,
+    @Volatile var aeroWorldUnitGroups: Boolean = false,
     /** Mod-defined resources render inside the status readout; this hides the rows. */
     var hudCustomResources: Boolean = true,
     var hudCreditsScale: Float = 1f,

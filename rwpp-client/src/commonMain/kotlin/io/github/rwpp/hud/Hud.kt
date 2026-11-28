@@ -11,6 +11,7 @@ package io.github.rwpp.hud
 import io.github.rwpp.ui.PortableConfigActions
 import io.github.rwpp.ui.UnsavedChangesDialog
 import io.github.rwpp.ui.UI
+import io.github.rwpp.ui.WorldUnitGroupsSetting
 import kotlinx.serialization.builtins.ListSerializer
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -370,6 +371,7 @@ private fun HudEditorSettingsDialog(
                                 HudSettingToggle("rwpp.hud.editor.settings.groupOrders", settings.aeroGroupOrders) {
                                     settings.aeroGroupOrders = it
                                 }
+                                WorldUnitGroupsSetting(settings)
                             }
                         }
 

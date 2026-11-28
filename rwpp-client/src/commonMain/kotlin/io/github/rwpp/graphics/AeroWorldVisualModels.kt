@@ -216,7 +216,15 @@ internal data class WorldVisuals(
     val waitingLabel: String = "",
     val collisionBounds: List<AeroCollisionVisual> = emptyList(),
     val targetLines: List<Pair<Offset, Offset>> = emptyList(),
-)
+    val unitGroups: List<AeroUnitGroupVisual> = emptyList(),
+    val bulkSelectionBounds: Rect? = null,
+) {
+    val hasWorldCanvasEffects: Boolean get() =
+        selected.isNotEmpty() || orders.isNotEmpty() || ranges.isNotEmpty() || damageNumbers.isNotEmpty() ||
+            production.isNotEmpty() || collisionBounds.isNotEmpty() || targetLines.isNotEmpty()
+    val hasDrawableEffects: Boolean get() =
+        hasWorldCanvasEffects || unitGroups.isNotEmpty() || bulkSelectionBounds != null
+}
 
 internal data class AeroDamageNumber(
     val unitId: Int, val center: Offset, val amount: Float,

@@ -28,11 +28,18 @@ class PauseMenuOptionsTest {
     }
 
     @Test
-    fun saveAndLoadAreOfferedOnlyForSinglePlayerWithSaves() {
-        assertTrue(pauseMenuOptions(false, true, false, false, false, false).saveLoad)
-        assertTrue(pauseMenuOptions(false, false, false, false, false, false).saveLoad)
-        assertFalse(pauseMenuOptions(false, false, false, false, true, false).saveLoad, "Replays cannot write saves")
-        assertFalse(pauseMenuOptions(true, true, false, false, false, false).saveLoad, "Networked games own no saves")
+    fun liveMultiplayerCanSaveLocallyAndSinglePlayerCanAlsoLoad() {
+        val singlePlayer = pauseMenuOptions(false, false, false, false, false, false)
+        assertTrue(singlePlayer.save)
+        assertTrue(singlePlayer.load)
+        for (host in listOf(false, true)) {
+            val multiplayer = pauseMenuOptions(true, host, false, false, false, false)
+            assertTrue(multiplayer.save)
+            assertFalse(multiplayer.load)
+        }
+        val replay = pauseMenuOptions(false, false, false, false, true, false)
+        assertFalse(replay.save)
+        assertFalse(replay.load)
     }
 
     @Test

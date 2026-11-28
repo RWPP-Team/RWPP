@@ -11,8 +11,7 @@ import com.corrodinggames.rts.gameFramework.GameEngine
 internal data class PauseMenuOptions(
     val chat: Boolean = false, val players: Boolean = false, val returnRoom: Boolean = false,
     val surrender: Boolean = false, val briefing: Boolean = false, val hideInterface: Boolean = false,
-    /** Single player owns the save files; networked games and replays do not. */
-    val saveLoad: Boolean = false,
+    val save: Boolean = false, val load: Boolean = false,
 )
 
 /** Mirrors GameActivity.onPrepareOptionsMenu and its host-only return-to-room confirmation. */
@@ -23,7 +22,7 @@ internal fun pauseMenuOptions(
     PauseMenuOptions(
         multiplayer, multiplayer, multiplayer && host,
         multiplayer && !defeated && !victoryShown, !multiplayer && hasBriefing, replay,
-        !multiplayer && !replay,
+        save = !replay, load = !multiplayer && !replay,
     )
 
 internal fun nativePauseMenuOptions(engine: GameEngine): PauseMenuOptions = pauseMenuOptions(

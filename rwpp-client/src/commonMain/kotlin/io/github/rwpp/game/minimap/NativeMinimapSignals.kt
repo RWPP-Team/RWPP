@@ -101,12 +101,17 @@ internal object AeroMinimapSignals {
 
         val animation = minimap as NativeMinimapAnimationAccess
         val notifications = minimap.damageNotifications
-        val notificationTypes = ArrayList<MinimapHandlerNotificationType>(notifications.size)
-        val alerts = ArrayList<MinimapNativeAlert>(notifications.size)
-        val iterator = notifications.iterator()
         // render(F) is cancelled at HEAD, so its two render-only angles advance here exactly once.
         val nextPulseAngle = advanceNativeMinimapAngle(animation.rwppNotificationPulseAngle(), delta, 6f)
         animation.rwppNotificationPulseAngle(nextPulseAngle)
+        val projectiles = Projectile.allProjectiles
+        if (notifications.isEmpty() && projectiles.isEmpty()) {
+            latest = emptySnapshot
+            return
+        }
+        val notificationTypes = ArrayList<MinimapHandlerNotificationType>(notifications.size)
+        val alerts = ArrayList<MinimapNativeAlert>(notifications.size)
+        val iterator = notifications.iterator()
 
         while (iterator.hasNext()) {
             val access = iterator.next() as? NativeMinimapNotificationAccess ?: continue
@@ -129,7 +134,6 @@ internal object AeroMinimapSignals {
 
         val projectileMarkers = ArrayList<MinimapProjectileMarker>()
         var nukeActive = false
-        val projectiles = Projectile.allProjectiles
         val projectileItems = projectiles.items()
         val nativeMinimapSize = minOf(minimap.width, minimap.height).takeIf { it > 0f } ?: 120f
         for (index in projectiles.indices) {
@@ -152,7 +156,9 @@ internal object AeroMinimapSignals {
             animation.rwppBorderFlashAngle(nextBorderAngle)
             minimapBorderFlashColor(notificationTypes, nukeActive, nextBorderAngle)
         } else null
-        latest = MinimapNativeSnapshot(alerts, projectileMarkers, nextPulseAngle, currentBorderColor)
+        latest = if (alerts.isEmpty() && projectileMarkers.isEmpty() && currentBorderColor == null) {
+            emptySnapshot
+        } else MinimapNativeSnapshot(alerts, projectileMarkers, nextPulseAngle, currentBorderColor)
     }
 
     @Synchronized
